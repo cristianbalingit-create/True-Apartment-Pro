@@ -1,0 +1,6 @@
+{
+  "name": "ApartmentPro",
+  "description": "A complete rental property management web application featuring a public-facing room browsing landing page and a robust private property manager dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

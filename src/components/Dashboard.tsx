@@ -22,9 +22,9 @@ export default function Dashboard({ db, onRefresh }: DashboardProps) {
   const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
   
   // Monthly Revenue: Sum of rent amount for all currently occupied rooms
-  const monthlyRevenue = db.rooms
+  const monthlyRevenue = (db.rooms || [])
     .filter((r) => r.status === "occupied")
-    .reduce((sum, r) => sum + r.rent_amount, 0);
+    .reduce((sum, r) => sum + (Number(r.rent_amount) || 0), 0);
 
   // Pending Bills
   const pendingBills = db.billingRecords.filter(

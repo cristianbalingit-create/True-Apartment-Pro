@@ -124,29 +124,54 @@ class DatabaseService {
 
     if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
       try {
-        const rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
+        let rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
+        if ((rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"))) {
+          rawKey = rawKey.slice(1, -1).trim();
+        }
         let jsonString = rawKey;
         if (!rawKey.startsWith("{")) {
-          jsonString = Buffer.from(rawKey, "base64").toString("utf-8");
+          try {
+            jsonString = Buffer.from(rawKey, "base64").toString("utf-8");
+          } catch {
+            jsonString = rawKey;
+          }
+        }
+        if (jsonString.includes('\\"')) {
+          try {
+            JSON.parse(jsonString);
+          } catch {
+            jsonString = jsonString.replace(/\\"/g, '"');
+          }
         }
         const sa = JSON.parse(jsonString);
+        if (sa.private_key) {
+          sa.private_key = sa.private_key.replace(/\\n/g, "\n");
+        }
         credentialInstance = cert(sa);
         if (sa.project_id) this.config.projectId = sa.project_id;
         hasAdminCredential = true;
       } catch (saErr: any) {
-        console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:", saErr.message);
+        console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:", saErr?.message || saErr);
       }
     } else if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
       try {
-        const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n");
+        let privateKey = process.env.FIREBASE_PRIVATE_KEY.trim();
+        if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+          privateKey = privateKey.slice(1, -1).trim();
+        }
+        privateKey = privateKey.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+        if (!privateKey.includes("-----BEGIN PRIVATE KEY-----") && !privateKey.includes("-----BEGIN RSA PRIVATE KEY-----")) {
+          privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----\n`;
+        }
+
         credentialInstance = cert({
           projectId: this.config.projectId,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL.trim(),
           privateKey,
         });
         hasAdminCredential = true;
       } catch (certErr: any) {
-        console.warn("Failed to initialize cert with FIREBASE_PRIVATE_KEY:", certErr.message);
+        console.warn("Failed to initialize cert with FIREBASE_PRIVATE_KEY:", certErr?.message || certErr);
       }
     }
 
@@ -158,10 +183,11 @@ class DatabaseService {
         if (existingApps.length > 0) {
           adminApp = existingApps[0]!;
         } else {
+          const cleanBucket = this.config.storageBucket?.replace(/^gs:\/\//, "");
           adminApp = initAdminApp({
             credential: credentialInstance,
             projectId: this.config.projectId,
-            storageBucket: this.config.storageBucket,
+            storageBucket: cleanBucket,
           }, appName);
         }
 
@@ -169,23 +195,29 @@ class DatabaseService {
           ? getAdminFirestore(adminApp, this.config.databaseId)
           : getAdminFirestore(adminApp);
 
-        // Test admin connection
-        await this.adminFirestore.collection("apartments").limit(1).get();
+        // Test admin connection with a 3.5s timeout so it never hangs Vercel serverless functions
+        const testConn = this.adminFirestore.collection("apartments").limit(1).get();
+        const timeoutConn = new Promise((_, reject) => setTimeout(() => reject(new Error("Admin Firestore timeout (3.5s)")), 3500));
+        await Promise.race([testConn, timeoutConn]);
+
         this.isConnectedToFirestore = true;
         this.connectionMode = "admin_sdk";
         this.connectionError = null;
         console.log(`✅ Connected to Firebase Firestore via Admin SDK [Database: ${this.config.databaseId}]`);
 
-        // Initialize admin storage
+        // Initialize admin storage safely
         try {
-          const storage = getAdminStorage(adminApp);
-          this.storageBucket = storage.bucket(this.config.storageBucket);
-          this.isConnectedToStorage = true;
+          const cleanBucket = this.config.storageBucket?.replace(/^gs:\/\//, "");
+          if (cleanBucket) {
+            const storage = getAdminStorage(adminApp);
+            this.storageBucket = storage.bucket(cleanBucket);
+            this.isConnectedToStorage = true;
+          }
         } catch (stErr: any) {
-          console.warn("Admin Storage bucket initialization warning:", stErr.message);
+          console.warn("Admin Storage bucket initialization warning:", stErr?.message || stErr);
         }
       } catch (adminErr: any) {
-        console.warn("Admin SDK connection failed, will use Client SDK:", adminErr.message);
+        console.warn("Admin SDK connection failed, will use Client SDK:", adminErr?.message || adminErr);
         this.adminFirestore = null;
       }
     }
@@ -213,25 +245,32 @@ class DatabaseService {
           ? getClientFirestore(clientApp, this.config.databaseId)
           : getClientFirestore(clientApp);
 
-        // Test connection
+        // Test connection with a 3.5s timeout so it never hangs Vercel serverless functions
         const q = clientQuery(clientCollection(this.clientFirestore, "apartments"), clientLimit(1));
-        await getClientDocs(q);
+        const testClientConn = getClientDocs(q);
+        const timeoutClientConn = new Promise((_, reject) => setTimeout(() => reject(new Error("Client Firestore timeout (3.5s)")), 3500));
+        await Promise.race([testClientConn, timeoutClientConn]);
+
         this.isConnectedToFirestore = true;
         this.connectionMode = "client_sdk";
         this.connectionError = null;
         console.log(`✅ Connected to Firebase Firestore via Web Client SDK [Database: ${this.config.databaseId}]`);
       } catch (clientErr: any) {
-        this.connectionError = clientErr.message;
-        console.warn("Client Firestore connection notice:", clientErr.message);
+        this.connectionError = clientErr?.message || String(clientErr);
+        console.warn("Client Firestore connection notice:", clientErr?.message || clientErr);
         this.clientFirestore = null;
         this.isConnectedToFirestore = false;
         this.connectionMode = "local_cache";
       }
     }
 
-    // Sync state from Firestore
+    // Sync state from Firestore safely
     if (this.isConnectedToFirestore) {
-      await this.syncFromFirestore();
+      try {
+        await this.syncFromFirestore();
+      } catch (syncErr: any) {
+        console.warn("Initial syncFromFirestore notice:", syncErr?.message || syncErr);
+      }
     }
   }
 
@@ -315,24 +354,46 @@ class DatabaseService {
       let totalFetched = 0;
 
       if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
-        for (const colName of DB_COLLECTIONS) {
-          const snapshot = await this.adminFirestore.collection(colName).get();
-          const items: any[] = [];
-          snapshot.forEach(doc => {
-            items.push({ id: doc.id, ...doc.data() });
-          });
-          (newState as any)[colName] = items;
-          totalFetched += items.length;
+        const fetchPromises = DB_COLLECTIONS.map(async (colName) => {
+          try {
+            const snapshot = await this.adminFirestore!.collection(colName).get();
+            const items: any[] = [];
+            snapshot.forEach(doc => {
+              items.push({ id: doc.id, ...doc.data() });
+            });
+            return { colName, items };
+          } catch (err: any) {
+            console.warn(`Admin sync warning for ${colName}:`, err?.message || err);
+            return { colName, items: [] };
+          }
+        });
+        const results = await Promise.allSettled(fetchPromises);
+        for (const res of results) {
+          if (res.status === "fulfilled") {
+            (newState as any)[res.value.colName] = res.value.items;
+            totalFetched += res.value.items.length;
+          }
         }
       } else if (this.clientFirestore) {
-        for (const colName of DB_COLLECTIONS) {
-          const snapshot = await getClientDocs(clientCollection(this.clientFirestore, colName));
-          const items: any[] = [];
-          snapshot.forEach(doc => {
-            items.push({ id: doc.id, ...doc.data() });
-          });
-          (newState as any)[colName] = items;
-          totalFetched += items.length;
+        const fetchPromises = DB_COLLECTIONS.map(async (colName) => {
+          try {
+            const snapshot = await getClientDocs(clientCollection(this.clientFirestore!, colName));
+            const items: any[] = [];
+            snapshot.forEach(doc => {
+              items.push({ id: doc.id, ...doc.data() });
+            });
+            return { colName, items };
+          } catch (err: any) {
+            console.warn(`Client sync warning for ${colName}:`, err?.message || err);
+            return { colName, items: [] };
+          }
+        });
+        const results = await Promise.allSettled(fetchPromises);
+        for (const res of results) {
+          if (res.status === "fulfilled") {
+            (newState as any)[res.value.colName] = res.value.items;
+            totalFetched += res.value.items.length;
+          }
         }
       }
 

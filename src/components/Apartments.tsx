@@ -20,6 +20,12 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
   const [loading, setLoading] = useState(false);
   const [selectedAptId, setSelectedAptId] = useState<string>(db.apartments[0]?.id || "");
 
+  React.useEffect(() => {
+    if ((!selectedAptId || !db.apartments.some((a) => a.id === selectedAptId)) && db.apartments.length > 0) {
+      setSelectedAptId(db.apartments[0].id);
+    }
+  }, [db.apartments, selectedAptId]);
+
   // Dialog states
   const [showAptDialog, setShowAptDialog] = useState(false);
   const [editingApt, setEditingApt] = useState<Apartment | null>(null); // null = Add Mode
@@ -208,18 +214,19 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
     const apt = db.apartments.find((a) => a.id === room.apartment_id);
     const meta = {
       id: room.id,
-      roomNumber: room.room_number,
+      roomNumber: room.room_number || "N/A",
       building: apt?.name || "ApartmentPro Complex",
       address: apt?.address || "Manila",
-      rent: `₱${room.rent_amount.toLocaleString()}/mo`,
-      type: room.room_type.toUpperCase(),
-      amenities: room.amenities,
+      rent: `₱${(Number(room.rent_amount) || 0).toLocaleString()}/mo`,
+      type: (room.room_type || "studio").toUpperCase(),
+      amenities: room.amenities || "Aircon, Wifi",
     };
     return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(JSON.stringify(meta))}`;
   };
 
-  const currentApt = db.apartments.find((a) => a.id === selectedAptId);
-  const roomsInCurrentApt = db.rooms.filter((r) => r.apartment_id === selectedAptId);
+  const currentApt = db.apartments.find((a) => a.id === selectedAptId) || db.apartments[0];
+  const activeAptId = currentApt ? currentApt.id : "";
+  const roomsInCurrentApt = currentApt ? db.rooms.filter((r) => r.apartment_id === currentApt.id) : [];
   const stats = currentApt ? getBuildingStats(currentApt.id) : { total: 0, vacant: 0, occupied: 0, maintenance: 0 };
 
   return (
@@ -330,7 +337,10 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
             ) : (
               roomsInCurrentApt.map((room) => {
                 const roomImgs = room.image_url ? room.image_url.split(",").map(s => s.trim()).filter(Boolean) : [];
-                const roomImg = roomImgs[0] || ROOM_FALLBACK_IMAGES[room.room_type];
+                const roomType = (room.room_type || "studio") as keyof typeof ROOM_FALLBACK_IMAGES;
+                const roomImg = roomImgs[0] || ROOM_FALLBACK_IMAGES[roomType] || ROOM_FALLBACK_IMAGES.studio;
+                const roomAmenitiesList = (room.amenities || "Aircon, Wifi").split(",").map(s => s.trim()).filter(Boolean);
+                const roomStatus = (room.status || "vacant") as "vacant" | "occupied" | "maintenance";
                 
                 return (
                   <div key={room.id} className="border border-slate-100 hover:border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between shadow-sm hover:shadow-md transition-all group bg-slate-50/50">
@@ -339,16 +349,16 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                       <div className="relative aspect-[16/10] bg-slate-100 overflow-hidden">
                         <img
                           src={roomImg}
-                          alt={`Room ${room.room_number}`}
+                          alt={`Room ${room.room_number || "Unit"}`}
                           className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                         />
                         <div className="absolute top-2 left-2 flex gap-1">
                           <span className={`px-2 py-0.5 text-[10px] font-bold rounded shadow-sm ${
-                            room.status === "vacant" ? "bg-emerald-500 text-white" :
-                            room.status === "occupied" ? "bg-brand-orange text-white" :
+                            roomStatus === "vacant" ? "bg-emerald-500 text-white" :
+                            roomStatus === "occupied" ? "bg-brand-orange text-white" :
                             "bg-rose-500 text-white"
                           }`}>
-                            {room.status.toUpperCase()}
+                            {roomStatus.toUpperCase()}
                           </span>
                           {room.is_newly_available && (
                             <span className="px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded shadow-sm flex items-center gap-0.5">
@@ -357,28 +367,28 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                           )}
                         </div>
                         <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 backdrop-blur-md text-white text-[9px] font-mono rounded font-bold uppercase tracking-widest">
-                          {room.room_type}
+                          {roomType}
                         </span>
                       </div>
 
                       {/* Info body */}
                       <div className="p-5 text-sm space-y-3">
                         <div className="flex justify-between items-baseline">
-                          <h4 className="font-extrabold text-base text-slate-900">Room {room.room_number}</h4>
-                          <span className="font-black text-brand-orange text-lg">₱{Number(room.rent_amount).toLocaleString()}</span>
+                          <h4 className="font-extrabold text-base text-slate-900">Room {room.room_number || "Unit"}</h4>
+                          <span className="font-black text-brand-orange text-lg">₱{(Number(room.rent_amount) || 0).toLocaleString()}</span>
                         </div>
                         
                         <div className="flex items-center gap-4 text-xs font-semibold text-slate-500">
-                          <span className="bg-slate-100 px-2.5 py-1 rounded-md">Floor {room.floor}</span>
+                          <span className="bg-slate-100 px-2.5 py-1 rounded-md">Floor {room.floor ?? 1}</span>
                           <span>•</span>
-                          <span className="truncate">{room.amenities.split(",").slice(0, 3).join(", ")}</span>
+                          <span className="truncate">{roomAmenitiesList.slice(0, 3).join(", ") || "Standard Unit"}</span>
                         </div>
 
                         <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed font-light">
                           {room.description || "No description provided."}
                         </p>
 
-                        {room.status === "occupied" && (() => {
+                        {roomStatus === "occupied" && (() => {
                           const tenant = db.tenants.find((t) => t.room_id === room.id && t.status === "active") || 
                                          db.tenants.find((t) => t.id === room.tenant_id);
                           return tenant ? (

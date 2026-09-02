@@ -5,7 +5,7 @@ import os from "os";
 import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { dbService } from "./src/server/dbService";
+import { dbService } from "./src/server/dbService.ts";
 
 dotenv.config();
 
@@ -16,8 +16,45 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// =========================================================================
+// 1. FAST-PATH FACEBOOK WEBHOOK VERIFICATION (GET)
+// Must be registered before filesystem, Firebase or database operations
+// =========================================================================
+app.get(["/api/webhook/facebook", "/webhook/facebook"], (req, res) => {
+  const rawVerifyToken = process.env.FACEBOOK_VERIFY_TOKEN || "abc_apartment_verify_token";
+  const VERIFY_TOKEN = rawVerifyToken.trim();
+  const fallbackToken = "abc_apartment_verify_token";
+
+  // Support both flat query keys (hub.mode) and nested objects parsed by query parser (hub: { mode })
+  const mode = req.query["hub.mode"] || (req.query["hub"] as any)?.mode;
+  const token = req.query["hub.verify_token"] || (req.query["hub"] as any)?.verify_token;
+  const challenge = req.query["hub.challenge"] || (req.query["hub"] as any)?.challenge;
+
+  console.log("=== FACEBOOK WEBHOOK VERIFICATION REQUEST (EARLY ROUTE) ===");
+  console.log("Received Query Params:", req.query);
+  console.log("Parsed Verification fields:", { mode, token, challenge });
+  console.log("Configured Verify Token:", `"${VERIFY_TOKEN}"`);
+
+  if (mode && token) {
+    const receivedToken = String(token).trim();
+    const isMatch = (receivedToken === VERIFY_TOKEN) || (receivedToken === fallbackToken);
+
+    if (mode === "subscribe" && isMatch) {
+      console.log("✅ FACEBOOK_WEBHOOK_VERIFIED SUCCESSFULLY. Challenge returned:", challenge);
+      res.set("Content-Type", "text/plain");
+      return res.status(200).send(String(challenge));
+    } else {
+      console.warn("❌ FACEBOOK_WEBHOOK_VERIFICATION FAILED: Match mismatch!");
+      console.warn(`Expected: "${VERIFY_TOKEN}" or "${fallbackToken}", Received: "${receivedToken}", Mode: "${mode}"`);
+      return res.status(403).send("Verification token mismatch");
+    }
+  }
+  console.warn("❌ FACEBOOK_WEBHOOK_VERIFICATION FAILED: Missing mode or token query params.");
+  return res.status(400).send("Missing hub.mode or hub.verify_token query parameter");
+});
+
 // Ensure uploads folder does not attempt directory creation on read-only Vercel filesystem
-const isVercel = !!process.env.VERCEL;
+const isVercel = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
 const uploadsDir = isVercel
   ? path.join(os.tmpdir(), "uploads")
   : path.join(process.cwd(), "uploads");
@@ -37,7 +74,7 @@ if (fs.existsSync(uploadsDir)) {
   app.use("/uploads", express.static(uploadsDir));
 }
 
-// Initialize Database Service Layer (Firestore & Storage)
+// Initialize Database Service Layer asynchronously (non-blocking)
 dbService.initialize().catch((err: any) => {
   console.warn("DB Service initialization async notice:", err?.message || err);
 });
@@ -2396,12 +2433,11 @@ app.post(["/api/webhook/facebook", "/webhook/facebook"], async (req, res) => {
 
 
 
-// 11. Vite & static asset serving configuration
-import { createServer as createViteServer } from "vite";
-
+// 11. Vite & static asset serving configuration (only loaded for standalone dev/prod runtime)
 async function setupServer() {
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting server in DEVELOPMENT mode with Vite middleware...");
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -2422,7 +2458,9 @@ async function setupServer() {
 }
 
 // Only launch standalone listener in continuous runtime environments (e.g., local dev or Cloud Run container)
-if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+// Never launch in Vercel or serverless/lambda environment
+const isServerlessRuntime = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+if (!isServerlessRuntime) {
   setupServer();
 }
 

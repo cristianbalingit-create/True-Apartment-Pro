@@ -193,7 +193,7 @@ function RoomCard({ room, apt, onSelect }: RoomCardProps) {
         <div>
           {/* Amenities Pills */}
           <div className="flex flex-wrap gap-1 mb-5">
-            {room.amenities.split(",").map((amenity, idx) => (
+            {(room.amenities || "Aircon, Wifi").split(",").map((amenity, idx) => (
               <span
                 key={idx}
                 className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-semibold rounded-md border border-slate-200/50"
@@ -269,11 +269,14 @@ export default function LandingPage() {
     const apt = getApartmentForRoom(room.id);
     const aptName = apt?.name || "";
     const aptAddress = apt?.address || "";
+    const rNum = room.room_number || "";
+    const rDesc = room.description || "";
+    const rAmen = room.amenities || "";
     const matchesSearch =
-      room.room_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rNum.toLowerCase().includes(searchQuery.toLowerCase()) ||
       aptName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.amenities.toLowerCase().includes(searchQuery.toLowerCase());
+      rDesc.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rAmen.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesType = selectedType === "all" || room.room_type === selectedType;
     const matchesBuilding = selectedBuilding === "all" || room.apartment_id === selectedBuilding;
@@ -299,9 +302,9 @@ export default function LandingPage() {
 
       const matchesType = selectedType === "all" || room.room_type === selectedType;
       const matchesRoomSearch = searchQuery === "" ||
-        room.room_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        room.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        room.amenities.toLowerCase().includes(searchQuery.toLowerCase());
+        (room.room_number || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (room.description || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (room.amenities || "").toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchesType && matchesRoomSearch;
     });
@@ -958,7 +961,7 @@ export default function LandingPage() {
                   <div className="mb-8">
                     <h4 className="font-bold text-slate-800 mb-2.5 text-sm uppercase tracking-wide">Included Amenities</h4>
                     <div className="flex flex-wrap gap-1.5">
-                      {selectedRoom.amenities.split(",").map((amenity, idx) => (
+                      {(selectedRoom.amenities || "Aircon, Wifi").split(",").map((amenity, idx) => (
                         <span
                           key={idx}
                           className="flex items-center gap-1 px-3 py-1 bg-orange-50 text-brand-orange border border-orange-100 text-xs font-bold rounded-lg"

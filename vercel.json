@@ -2,6 +2,14 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/webhook/facebook",
+      "destination": "/api/webhook/facebook"
+    },
+    {
+      "source": "/webhook/facebook",
+      "destination": "/api/webhook/facebook"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api"
     },

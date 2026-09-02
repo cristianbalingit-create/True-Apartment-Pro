@@ -388,11 +388,11 @@ export default function Billing({ db, onRefresh }: BillingProps) {
 
   // Stats
   const paidBills = db.billingRecords.filter((b) => b.payment_status === "paid");
-  const unpaidBills = db.billingRecords.filter((b) => b.payment_status === "unpaid");
+  const unpaidBills = db.billingRecords.filter((b) => b.payment_status === "unpaid" || !b.payment_status);
   const overdueBills = db.billingRecords.filter((b) => b.payment_status === "overdue");
   const partialBills = db.billingRecords.filter((b) => b.payment_status === "partial");
 
-  const sumAmount = (list: BillingRecord[]) => list.reduce((sum, b) => sum + b.total_amount, 0);
+  const sumAmount = (list: BillingRecord[]) => list.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
   // Tenant selection handler: pre-fill standard rent from active contract
   const handleTenantSelect = (tenantId: string) => {
@@ -545,11 +545,14 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   // Filtering list
   const filteredBills = db.billingRecords.filter((b) => {
     const aptName = getApartmentName(b.apartment_id);
+    const tName = b.tenant_name || "";
+    const rNum = b.room_number || "";
+    const bMonth = b.billing_month || "";
     const matchesQuery =
-      b.tenant_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.room_number.includes(searchQuery) ||
+      tName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rNum.includes(searchQuery) ||
       aptName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.billing_month.toLowerCase().includes(searchQuery.toLowerCase());
+      bMonth.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesDate = !dueDateFilter || b.due_date === dueDateFilter;
 
@@ -773,25 +776,25 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                       </button>
                                     )}
                                     <div>
-                                      <div className="font-bold text-slate-900">{bill.tenant_name}</div>
-                                      <div className="text-[10px] font-bold text-slate-500 mt-0.5">Room {bill.room_number}</div>
+                                      <div className="font-bold text-slate-900">{bill.tenant_name || "Unassigned"}</div>
+                                      <div className="text-[10px] font-bold text-slate-500 mt-0.5">Room {bill.room_number || "N/A"}</div>
                                     </div>
                                   </div>
                                 </td>
-                                <td className="py-3.5 px-6 font-semibold text-slate-700">{bill.billing_month}</td>
-                                <td className="py-3.5 px-6 font-medium text-slate-600">₱{bill.rent_amount.toLocaleString()}</td>
+                                <td className="py-3.5 px-6 font-semibold text-slate-700">{bill.billing_month || "Current Cycle"}</td>
+                                <td className="py-3.5 px-6 font-medium text-slate-600">₱{(Number(bill.rent_amount) || 0).toLocaleString()}</td>
                                 <td className="py-3.5 px-6 text-slate-600">
-                                  <div className="font-medium">₱{bill.electricity_amount.toLocaleString()}</div>
-                                  <div className="text-[9px] text-slate-400 font-mono font-bold">{bill.electricity_usage} kWh consumed</div>
+                                  <div className="font-medium">₱{(Number(bill.electricity_amount) || 0).toLocaleString()}</div>
+                                  <div className="text-[9px] text-slate-400 font-mono font-bold">{bill.electricity_usage ?? 0} kWh consumed</div>
                                 </td>
                                 <td className="py-3.5 px-6 text-slate-600">
-                                  <div className="font-medium">₱{(bill.water_amount || 0).toLocaleString()}</div>
-                                  <div className="text-[9px] text-slate-400 font-mono font-bold">{(bill.water_usage || 0)} m³ consumed</div>
+                                  <div className="font-medium">₱{(Number(bill.water_amount) || 0).toLocaleString()}</div>
+                                  <div className="text-[9px] text-slate-400 font-mono font-bold">{(bill.water_usage ?? 0)} m³ consumed</div>
                                 </td>
                                 <td className="py-3.5 px-6 font-extrabold text-slate-900 text-sm">
-                                  ₱{bill.total_amount.toLocaleString()}
+                                  ₱{(Number(bill.total_amount) || 0).toLocaleString()}
                                 </td>
-                                <td className="py-3.5 px-6 font-mono text-slate-600 font-semibold">{bill.due_date}</td>
+                                <td className="py-3.5 px-6 font-mono text-slate-600 font-semibold">{bill.due_date || "N/A"}</td>
                                 <td className="py-3.5 px-6">
                                   {bill.payment_status === "paid" ? (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">

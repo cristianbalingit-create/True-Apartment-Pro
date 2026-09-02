@@ -35,6 +35,7 @@ export interface Tenant {
   deposit_balance?: number;
   advance_balance?: number;
   messenger_psid: string;
+  facebook_psid?: string;
   status: 'active' | 'inactive' | 'moved_out';
   move_in_date: string;
 }

@@ -3,14 +3,18 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "destination": "/api"
+    },
+    {
+      "source": "/webhook/(.*)",
+      "destination": "/api"
     },
     {
       "source": "/uploads/(.*)",
       "destination": "/uploads/$1"
     },
     {
-      "source": "/((?!api/|uploads/).*)",
+      "source": "/((?!api|webhook|uploads).*)",
       "destination": "/index.html"
     }
   ]

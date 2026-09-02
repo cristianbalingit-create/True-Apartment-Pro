@@ -1,8 +1,11 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
+import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { dbService } from "./src/server/dbService";
 
 dotenv.config();
 
@@ -13,17 +16,54 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Ensure uploads folder exists
-const uploadsDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Ensure uploads folder does not attempt directory creation on read-only Vercel filesystem
+const isVercel = !!process.env.VERCEL;
+const uploadsDir = isVercel
+  ? path.join(os.tmpdir(), "uploads")
+  : path.join(process.cwd(), "uploads");
+
+if (!isVercel) {
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn("Could not create local uploads folder:", err);
+  }
 }
 
-// Serve uploaded static files
-app.use("/uploads", express.static(uploadsDir));
+// Serve uploaded static files if directory exists
+if (fs.existsSync(uploadsDir)) {
+  app.use("/uploads", express.static(uploadsDir));
+}
 
-// File Database path
-const dbPath = path.join(process.cwd(), "data.json");
+// Initialize Database Service Layer (Firestore & Storage)
+dbService.initialize().catch((err: any) => {
+  console.warn("DB Service initialization async notice:", err?.message || err);
+});
+
+// File Database path resolution with Vercel serverless /tmp fallback
+const getDbPath = () => {
+  if (process.env.VERCEL) {
+    const tmpPath = path.join("/tmp", "data.json");
+    if (!fs.existsSync(tmpPath)) {
+      try {
+        const rootDbPath = path.join(process.cwd(), "data.json");
+        if (fs.existsSync(rootDbPath)) {
+          fs.copyFileSync(rootDbPath, tmpPath);
+        } else {
+          fs.writeFileSync(tmpPath, JSON.stringify(initialData, null, 2));
+        }
+      } catch (err) {
+        console.warn("Could not copy initial data to /tmp:", err);
+      }
+    }
+    return tmpPath;
+  }
+  return path.join(process.cwd(), "data.json");
+};
+
+let inMemoryDBCache: any = null;
 
 // Define default initial seed data
 const initialData = {
@@ -434,76 +474,16 @@ const logTransaction = (db: any, entry: {
   return newLog;
 };
 
-// Database helper functions
+// Database helper functions connected to Database Service Layer
 const readDB = () => {
-  try {
-    if (!fs.existsSync(dbPath)) {
-      fs.writeFileSync(dbPath, JSON.stringify(initialData, null, 2));
-      return initialData;
-    }
-    const raw = fs.readFileSync(dbPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    
-    // Self-heal DB: dynamically verify missing keys and backport them from initialData
-    let updated = false;
-    if (!parsed.maintenanceRequests) {
-      parsed.maintenanceRequests = initialData.maintenanceRequests;
-      updated = true;
-    }
-    if (!parsed.announcements) {
-      parsed.announcements = initialData.announcements;
-      updated = true;
-    }
-    if (!parsed.rules) {
-      parsed.rules = initialData.rules;
-      updated = true;
-    }
-    if (!parsed.depositLedger) {
-      parsed.depositLedger = [];
-      updated = true;
-    }
-    if (!parsed.transactionLogs) {
-      parsed.transactionLogs = initialData.transactionLogs;
-      updated = true;
-    }
-
-    if (parsed.tenants && Array.isArray(parsed.tenants)) {
-      parsed.tenants.forEach((t: any) => {
-        if (t.deposit_balance === undefined) {
-          t.deposit_balance = Number(t.deposit || 0);
-          updated = true;
-        }
-        if (t.advance_payment === undefined) {
-          t.advance_payment = Number(t.rent_amount || 0);
-          updated = true;
-        }
-        if (t.advance_balance === undefined) {
-          t.advance_balance = Number(t.advance_payment || t.rent_amount || 0);
-          updated = true;
-        }
-      });
-    }
-    
-    if (updated) {
-      fs.writeFileSync(dbPath, JSON.stringify(parsed, null, 2));
-    }
-    return parsed;
-  } catch (error) {
-    console.error("Error reading database file, returning default data:", error);
-    return initialData;
-  }
+  return dbService.getDB();
 };
 
-
-const writeDB = (data: typeof initialData) => {
-  try {
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error("Error writing to database file:", error);
-  }
+const writeDB = (data: any) => {
+  dbService.saveDB(data);
 };
 
-// Initialize DB file
+// Initialize DB state
 readDB();
 
 // ---------------- AUTH RATE LIMITING & SANITIZATION ----------------
@@ -551,6 +531,21 @@ const getClientKey = (req: express.Request): string => {
 };
 
 // ---------------- API ENDPOINTS ----------------
+
+// Health & Database Connection Check
+app.get(["/api/health", "/api/db/health"], async (req, res) => {
+  try {
+    const health = await dbService.getHealth();
+    res.json({
+      status: "ok",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      ...health
+    });
+  } catch (err: any) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
 // Auth Lockout Status Endpoint
 app.get("/api/auth/status", (req, res) => {
@@ -629,7 +624,9 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   // 3. Verify Admin Credentials
-  const isValid = username === "admin" && password === "admin123";
+  const expectedUser = process.env.ADMIN_USERNAME || "admin";
+  const expectedPass = process.env.ADMIN_PASSWORD || "admin123";
+  const isValid = username === expectedUser && password === expectedPass;
 
   if (isValid) {
     // Reset failed attempts and lockout levels on successful login
@@ -648,9 +645,13 @@ app.post("/api/auth/login", (req, res) => {
     });
     writeDB(db);
 
+    // Generate non-predictable, cryptographically secure session token
+    const randomHex = crypto.randomBytes(32).toString("hex");
+    const sessionToken = `apt_session_${randomHex}_${Date.now()}`;
+
     return res.json({
       success: true,
-      token: "admin-session-token-987654321",
+      token: sessionToken,
       user: { name: "Property Manager", role: "admin" }
     });
   }
@@ -1174,9 +1175,9 @@ app.post("/api/billing", (req, res) => {
       tenant_name: tenant.name,
       billing_id: billingId,
       message: `Your rent and utility billing for ${newBill.billing_month} has been generated. Total due: ₱${Number(newBill.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Due on ${newBill.due_date}.`,
-      type: "billing",
-      status: "sent",
-      channel: "in_app",
+      type: "billing" as const,
+      status: "sent" as const,
+      channel: "in_app" as const,
       created_at: new Date().toISOString()
     };
     db.notifications.push(newNotif);
@@ -1658,11 +1659,12 @@ app.post("/api/maintenance", (req, res) => {
 
   // Notify admin
   const urgencyStr = newMaint.priority === "High" ? "🔴 HIGH PRIORITY" : newMaint.priority === "Medium" ? "🟡 MEDIUM PRIORITY" : "🟢 LOW PRIORITY";
+  const descText = String(newMaint.issue_description || newMaint.description || "Maintenance request submitted");
   const newNotif = {
     id: `notif-${Date.now()}`,
     tenant_id: newMaint.tenant_id || "guest",
     tenant_name: newMaint.tenant_name || "Guest",
-    message: `🔧 Maintenance Request [${urgencyStr}]: Room ${newMaint.room_number || "Guest"} - ${newMaint.issue_description.substring(0, 80)}`,
+    message: `🔧 Maintenance Request [${urgencyStr}]: Room ${newMaint.room_number || "Guest"} - ${descText.substring(0, 80)}`,
     type: "general" as const,
     status: "sent" as const,
     channel: "in_app" as const,
@@ -1674,7 +1676,7 @@ app.post("/api/maintenance", (req, res) => {
     category: "maintenance",
     action: "create",
     title: `Maintenance Request [${newMaint.category || 'General'}]`,
-    details: `Ticket submitted for Room ${newMaint.room_number || 'N/A'}: "${newMaint.issue_description}" (${urgencyStr}).`,
+    details: `Ticket submitted for Room ${newMaint.room_number || 'N/A'}: "${descText}" (${urgencyStr}).`,
     tenant_id: newMaint.tenant_id,
     tenant_name: newMaint.tenant_name,
     room_number: newMaint.room_number
@@ -1809,26 +1811,16 @@ app.post("/api/logs/clear", (req, res) => {
 
 
 
-// 9. IMAGE UPLOAD ENDPOINT (Receives Base64, saves as file, returns URL)
-app.post("/api/upload", (req, res) => {
+// 9. IMAGE UPLOAD ENDPOINT (Receives Base64, uploads to Firebase Storage or persistent fallback, returns URL)
+app.post("/api/upload", async (req, res) => {
   const { name, base64 } = req.body;
   if (!base64 || !name) {
     return res.status(400).json({ error: "Missing base64 data or filename" });
   }
 
   try {
-    // Strip headers if any
-    const base64Data = base64.replace(/^data:image\/\w+;base64,/, "");
-    const buffer = Buffer.from(base64Data, "base64");
-    
-    const extension = path.extname(name) || ".png";
-    const baseName = path.basename(name, extension).replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    const fileName = `${baseName}_${Date.now()}${extension}`;
-    const filePath = path.join(uploadsDir, fileName);
-
-    fs.writeFileSync(filePath, buffer);
-    const fileUrl = `/uploads/${fileName}`;
-    res.json({ url: fileUrl });
+    const result = await dbService.uploadFile(name, base64);
+    res.json({ url: result.url, storage: result.storage });
   } catch (error: any) {
     console.error("Upload error:", error);
     res.status(500).json({ error: "Failed to save file: " + error.message });
@@ -2271,8 +2263,8 @@ Note: ticket_details is required only if create_ticket is true.`;
   }
 }
 
-// FB WEBHOOK VERIFICATION (GET)
-app.get("/api/webhook/facebook", (req, res) => {
+// FB WEBHOOK VERIFICATION (GET) - Supports both /api/webhook/facebook and /webhook/facebook
+app.get(["/api/webhook/facebook", "/webhook/facebook"], (req, res) => {
   const rawVerifyToken = process.env.FACEBOOK_VERIFY_TOKEN || "abc_apartment_verify_token";
   const VERIFY_TOKEN = rawVerifyToken.trim();
   const fallbackToken = "abc_apartment_verify_token";
@@ -2306,7 +2298,7 @@ app.get("/api/webhook/facebook", (req, res) => {
 });
 
 // FB MESSENGER EVENTS HANDLER (POST - Supports Messages, Quick Replies & Postbacks)
-app.post("/api/webhook/facebook", async (req, res) => {
+app.post(["/api/webhook/facebook", "/webhook/facebook"], async (req, res) => {
   const body = req.body;
 
   if (body.object === "page") {
@@ -2429,4 +2421,10 @@ async function setupServer() {
   });
 }
 
-setupServer();
+// Only launch standalone listener in continuous runtime environments (e.g., local dev or Cloud Run container)
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  setupServer();
+}
+
+export default app;
+export { app };

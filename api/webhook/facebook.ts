@@ -3,48 +3,73 @@ import type { IncomingMessage, ServerResponse } from "http";
 export default async function handler(req: any, res: any) {
   // 1. GET: Facebook Webhook Verification
   if (req.method === "GET") {
-    const rawVerifyToken = process.env.FACEBOOK_VERIFY_TOKEN || "abc_apartment_verify_token";
-    const VERIFY_TOKEN = rawVerifyToken.trim();
-    const fallbackToken = "abc_apartment_verify_token";
+    // Read query params from either req.query (Vercel) or URL search params (fallback)
+    const url = new URL(req.url || "", "http://localhost");
+    const mode = req.query?.["hub.mode"] || (req.query?.["hub"] as any)?.mode || url.searchParams.get("hub.mode");
+    const token = req.query?.["hub.verify_token"] || (req.query?.["hub"] as any)?.verify_token || url.searchParams.get("hub.verify_token");
+    const challenge = req.query?.["hub.challenge"] || (req.query?.["hub"] as any)?.challenge || url.searchParams.get("hub.challenge");
 
-    // Support flat query keys (hub.mode) and nested query keys (hub: { mode })
-    const query = req.query || {};
-    const mode = query["hub.mode"] || (query["hub"] as any)?.mode;
-    const token = query["hub.verify_token"] || (query["hub"] as any)?.verify_token;
-    const challenge = query["hub.challenge"] || (query["hub"] as any)?.challenge;
+    const configuredToken = process.env.FACEBOOK_VERIFY_TOKEN?.trim();
 
-    console.log("=== VERCEL DEDICATED FB WEBHOOK HANDLER (GET) ===");
-    console.log("Query Params:", query);
-    console.log("Parsed Verification fields:", { mode, token, challenge });
-    console.log("Configured Verify Token:", `"${VERIFY_TOKEN}"`);
+    console.log("=== FACEBOOK WEBHOOK VERIFICATION (STANDALONE VERCEL FUNCTION) ===");
+    console.log("Received mode:", mode);
+    console.log("Received token provided:", Boolean(token));
+    console.log("Is FACEBOOK_VERIFY_TOKEN configured in environment?", Boolean(configuredToken));
 
-    if (mode && token) {
-      const receivedToken = String(token).trim();
-      const isMatch = (receivedToken === VERIFY_TOKEN) || (receivedToken === fallbackToken);
-
-      if (mode === "subscribe" && isMatch) {
-        console.log("✅ FACEBOOK_WEBHOOK_VERIFIED SUCCESSFULLY. Challenge returned:", challenge);
-        res.setHeader("Content-Type", "text/plain");
-        return res.status(200).send(String(challenge));
-      } else {
-        console.warn("❌ FACEBOOK_WEBHOOK_VERIFICATION FAILED: Match mismatch!");
-        console.warn(`Expected: "${VERIFY_TOKEN}" or "${fallbackToken}", Received: "${receivedToken}", Mode: "${mode}"`);
-        return res.status(403).send("Verification token mismatch");
+    if (!configuredToken) {
+      console.warn("FACEBOOK_VERIFY_TOKEN environment variable is not configured in Vercel.");
+      if (res.setHeader) res.setHeader("Content-Type", "text/plain");
+      if (res.status) {
+        return res.status(500).send("FACEBOOK_VERIFY_TOKEN is not configured in Vercel environment variables");
       }
+      res.statusCode = 500;
+      return res.end("FACEBOOK_VERIFY_TOKEN is not configured in Vercel environment variables");
     }
 
-    console.warn("❌ FACEBOOK_WEBHOOK_VERIFICATION FAILED: Missing mode or token query params.");
-    return res.status(400).send("Missing hub.mode or hub.verify_token query parameter");
+    if (mode === "subscribe" && token && String(token).trim() === configuredToken) {
+      console.log("FACEBOOK_WEBHOOK_VERIFIED SUCCESSFULLY. Challenge:", challenge);
+      if (res.setHeader) res.setHeader("Content-Type", "text/plain");
+      if (res.status) {
+        return res.status(200).send(String(challenge));
+      }
+      res.statusCode = 200;
+      return res.end(String(challenge));
+    }
+
+    console.warn("FACEBOOK_WEBHOOK_VERIFICATION FAILED: Token mismatch or invalid mode.");
+    if (res.setHeader) res.setHeader("Content-Type", "text/plain");
+    if (res.status) {
+      return res.status(403).send("Verification token mismatch");
+    }
+    res.statusCode = 403;
+    return res.end("Verification token mismatch");
   }
 
-  // 2. POST: Delegate to main server for messaging event processing
-  try {
-    const serverModule = await import("../../server.ts");
-    const app = (serverModule as any).default?.default || (serverModule as any).default || (serverModule as any).app || serverModule;
-    return app(req, res);
-  } catch (err: any) {
-    console.error("Error delegating to server in webhook handler:", err);
-    // Respond 200 OK to Meta to prevent retry loops
-    return res.status(200).send("EVENT_RECEIVED");
+  // 2. POST: Delegate Messenger webhook events to backend
+  if (req.method === "POST") {
+    try {
+      let serverModule: any;
+      try {
+        serverModule = await import("../../dist/server.cjs");
+      } catch {
+        try {
+          serverModule = await import("../../server.js");
+        } catch {
+          serverModule = await import("../../server.ts");
+        }
+      }
+      const app = serverModule?.default?.default || serverModule?.default || serverModule?.app || serverModule;
+      return app(req, res);
+    } catch (err: any) {
+      console.error("Error handling POST webhook event:", err?.message || err);
+      if (res.status) return res.status(200).send("EVENT_RECEIVED");
+      res.statusCode = 200;
+      return res.end("EVENT_RECEIVED");
+    }
   }
+
+  if (res.status) return res.status(405).send("Method Not Allowed");
+  res.statusCode = 405;
+  return res.end("Method Not Allowed");
 }
+

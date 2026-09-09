@@ -1,6 +1,8 @@
 // Dedicated Standalone Vercel Serverless Function for Facebook Messenger Webhook
 // Route: /api/webhook/facebook
 
+import { handleMessengerWebhookEvent, runSafeTokenDiagnostic, OFFICIAL_PAGE_ID, OFFICIAL_PAGE_NAME } from "../../src/server/chatbotService.ts";
+
 async function parseBody(req: any): Promise<any> {
   if (req.body) {
     if (typeof req.body === "string") {
@@ -25,185 +27,6 @@ async function parseBody(req: any): Promise<any> {
       }
     });
   });
-}
-
-// Official Facebook Page for ApartmentPro
-const OFFICIAL_PAGE_ID = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "3246715018859879").trim();
-const OFFICIAL_PAGE_NAME = "ApartmentPro";
-const RETIRED_OLD_PAGE_ID = "1049465111594454";
-const RETIRED_OLD_PAGE_NAME = "FullReddit";
-
-async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
-  isPageToken: boolean;
-  tokenPageId: string | null;
-  tokenPageName: string | null;
-  expectedPageId: string;
-  expectedPageName: string;
-  isOfficialPage: boolean;
-  isOldRetiredPage: boolean;
-  webhookPageId?: string;
-  match?: boolean;
-}> {
-  const token = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
-  if (!token) {
-    console.error("===== FACEBOOK TOKEN IDENTITY =====");
-    console.error("Token configured: NO (Neither PAGE_ACCESS_TOKEN nor FACEBOOK_PAGE_ACCESS_TOKEN found)");
-    return {
-      isPageToken: false,
-      tokenPageId: null,
-      tokenPageName: null,
-      expectedPageId: OFFICIAL_PAGE_ID,
-      expectedPageName: OFFICIAL_PAGE_NAME,
-      isOfficialPage: false,
-      isOldRetiredPage: false
-    };
-  }
-
-  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
-  let tokenPageId: string | null = null;
-  let tokenPageName: string | null = null;
-  let isPageToken = false;
-
-  // 1. Check if token is a Page Access Token via /me?fields=id,name
-  try {
-    const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const meData = await meRes.json();
-    if (meRes.ok && meData.id) {
-      tokenPageId = String(meData.id);
-      tokenPageName = meData.name || null;
-      isPageToken = true;
-    }
-  } catch {}
-
-  // 2. If /me requires pages_read_engagement, extract identity from /me/conversations
-  if (!tokenPageId) {
-    try {
-      const convRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/conversations?fields=link,senders,participants&limit=1`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const convData = await convRes.json();
-      if (convRes.ok && convData.data && convData.data.length > 0) {
-        isPageToken = true;
-        const conv = convData.data[0];
-        const linkMatch = conv.link?.match(/^\/(\d+)\//);
-        if (linkMatch) {
-          tokenPageId = linkMatch[1];
-        }
-        const senders = conv.senders?.data || [];
-        const pageSender = senders.find((s: any) => s.id === tokenPageId || s.email?.startsWith(tokenPageId + "@"));
-        if (pageSender) {
-          tokenPageName = pageSender.name;
-        }
-      }
-    } catch {}
-  }
-
-  // 3. Fallback check on /me/messenger_profile to verify token validity on a Page
-  if (!isPageToken) {
-    try {
-      const profRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/messenger_profile?fields=get_started`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (profRes.ok) {
-        isPageToken = true;
-      }
-    } catch {}
-  }
-
-  const matches = Boolean(tokenPageId && webhookPageId && tokenPageId === webhookPageId);
-  const isOfficialPage = Boolean(tokenPageId && tokenPageId === OFFICIAL_PAGE_ID);
-  const isOldRetiredPage = Boolean(tokenPageId && tokenPageId === RETIRED_OLD_PAGE_ID);
-
-  console.log("===== FACEBOOK TOKEN IDENTITY =====");
-  console.log(`Target Official Page: ${OFFICIAL_PAGE_NAME} (ID: ${OFFICIAL_PAGE_ID})`);
-  console.log(`Token Type: ${isPageToken ? "Page Access Token" : "Unknown / User Access Token"}`);
-  console.log(`Configured Token Page ID: ${tokenPageId || "Could not resolve"}`);
-  console.log(`Configured Token Page Name: ${tokenPageName || "Could not resolve"}`);
-
-  if (isOldRetiredPage) {
-    console.warn(`🚨 CRITICAL CONFIGURATION MISMATCH: The current token belongs to the OLD RETIRED Facebook Page "${RETIRED_OLD_PAGE_NAME}" (ID: ${RETIRED_OLD_PAGE_ID}). You must generate a Page Access Token for NEW Page "${OFFICIAL_PAGE_NAME}" (ID: ${OFFICIAL_PAGE_ID}) and update FACEBOOK_PAGE_ACCESS_TOKEN in Vercel.`);
-  } else if (isOfficialPage) {
-    console.log(`✅ Token matches official Facebook Page "${OFFICIAL_PAGE_NAME}" (ID: ${OFFICIAL_PAGE_ID}).`);
-  }
-
-  if (webhookPageId) {
-    console.log(`Incoming Webhook Event Page ID: ${webhookPageId}`);
-    if (webhookPageId === RETIRED_OLD_PAGE_ID) {
-      console.warn(`⚠️ WEBHOOK FROM OLD PAGE: This event was sent from the retired page "${RETIRED_OLD_PAGE_NAME}" (${RETIRED_OLD_PAGE_ID}). Update Meta App Webhook subscription to send events from "${OFFICIAL_PAGE_NAME}" (${OFFICIAL_PAGE_ID}).`);
-    } else if (webhookPageId === OFFICIAL_PAGE_ID) {
-      console.log(`✅ Webhook event verified from official "${OFFICIAL_PAGE_NAME}" Page.`);
-    }
-
-    console.log(`Page IDs Match: ${matches ? "YES (IDs MATCH)" : "NO (MISMATCH DETECTED)"}`);
-    if (!matches && tokenPageId) {
-      console.warn(`⚠️ TOKEN PAGE MISMATCH: The configured token belongs to Page ID ${tokenPageId} ("${tokenPageName || "Unknown"}"), but this webhook was received by Facebook Page ID ${webhookPageId}. A Page Access Token cannot reply to users of a different Facebook Page.`);
-    }
-  }
-
-  return {
-    isPageToken,
-    tokenPageId,
-    tokenPageName,
-    expectedPageId: OFFICIAL_PAGE_ID,
-    expectedPageName: OFFICIAL_PAGE_NAME,
-    isOfficialPage,
-    isOldRetiredPage,
-    webhookPageId,
-    match: matches
-  };
-}
-
-async function sendMessengerTestReply(senderId: string, replyText: string) {
-  // Support both PAGE_ACCESS_TOKEN and FACEBOOK_PAGE_ACCESS_TOKEN environment variables
-  const pageAccessToken = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
-  if (!pageAccessToken) {
-    console.error("===== MESSENGER WEBHOOK ERROR =====");
-    console.error("Neither PAGE_ACCESS_TOKEN nor FACEBOOK_PAGE_ACCESS_TOKEN is configured in environment variables.");
-    return;
-  }
-
-  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
-  const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
-
-  const payload = {
-    recipient: { id: senderId },
-    message: { text: replyText }
-  };
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${pageAccessToken}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const responseText = await response.text();
-    let responseData: any;
-    try {
-      responseData = JSON.parse(responseText);
-    } catch {
-      responseData = responseText;
-    }
-
-    if (!response.ok) {
-      console.error("===== FACEBOOK SEND RESPONSE =====");
-      console.error(`HTTP Status: ${response.status} ${response.statusText}`);
-      console.error(typeof responseData === "object" ? JSON.stringify(responseData, null, 2) : responseData);
-      console.error("===== MESSENGER WEBHOOK ERROR =====");
-      console.error(responseData?.error?.message || "Failed to send message via Facebook Graph API");
-    } else {
-      console.log("===== FACEBOOK SEND RESPONSE =====");
-      console.log(typeof responseData === "object" ? JSON.stringify(responseData, null, 2) : responseData);
-    }
-  } catch (err: any) {
-    console.error("===== MESSENGER WEBHOOK ERROR =====");
-    console.error(err?.message || String(err));
-  }
 }
 
 export default async function handler(req: any, res: any) {
@@ -279,33 +102,11 @@ export default async function handler(req: any, res: any) {
 
       if (body && body.object === "page") {
         for (const entry of body.entry || []) {
+          const webhookPageId = entry.id;
           const messagingEvents = entry.messaging || [];
           for (const webhook_event of messagingEvents) {
-            const senderId = webhook_event.sender?.id;
-            if (!senderId) continue;
-
-            // Extract message text, quick reply, or postback
-            let messageText = "";
-            if (webhook_event.message?.text) {
-              messageText = webhook_event.message.text;
-            } else if (webhook_event.message?.quick_reply?.payload) {
-              messageText = webhook_event.message.quick_reply.payload;
-            } else if (webhook_event.postback?.payload) {
-              messageText = webhook_event.postback.payload;
-            } else if (webhook_event.message?.attachments) {
-              messageText = "[Attachment/Media]";
-            }
-
-            console.log("===== MESSENGER MESSAGE RECEIVED =====");
-            console.log(`Sender ID: ${senderId}`);
-            console.log(`Message: ${messageText}`);
-
-            // Safe Diagnostic: Verify Token Identity & Page Match
-            const webhookPageId = entry.id || webhook_event.recipient?.id;
-            await runSafeTokenDiagnostic(webhookPageId);
-
-            // Temporary Connectivity Test Reply: Send fixed message
-            await sendMessengerTestReply(senderId, "✅ Messenger webhook is working!");
+            // Process incoming message with real ApartmentPro AI Chatbot
+            await handleMessengerWebhookEvent(webhook_event, webhookPageId);
           }
         }
       }

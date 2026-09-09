@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { dbService } from "./src/server/dbService.ts";
+import { handleMessengerWebhookEvent } from "./src/server/chatbotService.ts";
 
 dotenv.config();
 
@@ -2532,99 +2533,10 @@ app.post(["/api/webhook/facebook", "/webhook/facebook"], async (req, res) => {
 
   if (body.object === "page") {
     for (const entry of body.entry || []) {
+      const webhookPageId = entry.id;
       for (const webhook_event of entry.messaging || []) {
-        const senderPsid = webhook_event.sender?.id;
-        if (!senderPsid) continue;
-
-        // Extract message text or button payload
-        let messageText = "";
-        if (webhook_event.message?.text) {
-          messageText = webhook_event.message.text;
-        } else if (webhook_event.message?.quick_reply?.payload) {
-          messageText = webhook_event.message.quick_reply.payload;
-        } else if (webhook_event.postback?.payload) {
-          messageText = webhook_event.postback.payload;
-        } else if (webhook_event.message?.attachments) {
-          messageText = "[Attachment/Media]";
-        }
-
-        console.log("===== MESSENGER MESSAGE RECEIVED =====");
-        console.log(`Sender ID: ${senderPsid}`);
-        console.log(`Message: ${messageText}`);
-
-        // Safe Diagnostic: Verify Token Identity & Page Match
-        const webhookPageId = entry.id || webhook_event.recipient?.id;
-        await runSafeTokenDiagnostic(webhookPageId);
-
-        // =========================================================================
-        // TEMPORARY WEBHOOK CONNECTIVITY TEST
-        // Sends fixed reply: "✅ Messenger webhook is working!"
-        // =========================================================================
-        await sendMessengerTestReply(senderPsid, "✅ Messenger webhook is working!");
-
-        /* =========================================================================
-         * [PRESERVED ORIGINAL CHATBOT / LINKAGE LOGIC - READY FOR RESTORATION]
-         * =========================================================================
-         *
-         * // Check DB for linkage
-         * const db = readDB();
-         * db.tenants = db.tenants || [];
-         * let linkedTenant = db.tenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
-         * const textLower = messageText.toLowerCase().trim();
-         *
-         * // 1. Account linking workflow: "link <query>"
-         * if (textLower.startsWith("link ") || textLower.startsWith("verify ")) {
-         *   const query = textLower.replace(/^(link|verify)\s+/, "").trim();
-         *   const matchedTenant = db.tenants.find((t: any) => 
-         *     (t.contact && t.contact.trim().replace(/\D/g, "") === query.replace(/\D/g, "")) ||
-         *     (t.id && t.id.toLowerCase() === query) ||
-         *     (t.name && t.name.toLowerCase().includes(query))
-         *   );
-         *   if (matchedTenant) {
-         *     matchedTenant.facebook_psid = senderPsid;
-         *     matchedTenant.messenger_psid = senderPsid;
-         *     writeDB(db);
-         *     const room = db.rooms.find((r: any) => r.id === matchedTenant.room_id);
-         *     const roomNum = room ? room.room_number : "Unknown";
-         *     await sendFacebookMessage(senderPsid, {
-         *       text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum}). Your Messenger is now connected to your tenant portal.\n\nYou can now use the 1-tap buttons below to check your live balance, view your deposit ledger, or report maintenance.`
-         *     });
-         *   } else {
-         *     await sendFacebookMessage(senderPsid, {
-         *       text: `❌ Sorry, we couldn't locate a tenant record matching "${query}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
-         *     });
-         *   }
-         *   continue;
-         * }
-         *
-         * // 2. Account unlinking workflow: "unlink"
-         * if (textLower === "unlink" || textLower === "disconnect") {
-         *   if (linkedTenant) {
-         *     const oldName = linkedTenant.name;
-         *     delete linkedTenant.facebook_psid;
-         *     writeDB(db);
-         *     await sendFacebookMessage(senderPsid, {
-         *       text: `🚪 You have successfully unlinked your Facebook profile from ${oldName}'s tenant record.`
-         *     });
-         *   } else {
-         *     await sendFacebookMessage(senderPsid, {
-         *       text: "No tenant account is currently linked to this Facebook Profile."
-         *     });
-         *   }
-         *   continue;
-         * }
-         *
-         * // 3. Process chatbot message through the integrated engine
-         * try {
-         *   const botReply = await processChatbotMessage(messageText, linkedTenant ? linkedTenant.id : null, senderPsid);
-         *   await sendFacebookMessage(senderPsid, { text: botReply });
-         * } catch (err) {
-         *   console.error("Failed to process chatbot reply:", err);
-         *   await sendFacebookMessage(senderPsid, {
-         *     text: "Sorry, I encountered an internal error processing your request. Please try again shortly."
-         *   });
-         * }
-         * ========================================================================= */
+        // Process incoming message with real ApartmentPro AI Chatbot
+        await handleMessengerWebhookEvent(webhook_event, webhookPageId);
       }
     }
 

@@ -4,11 +4,14 @@ async function getApp() {
   if (!cachedApp) {
     let serverMod: any;
     try {
+      // @ts-ignore
       serverMod = await import("../dist/server.cjs");
     } catch {
       try {
+        // @ts-ignore
         serverMod = await import("../server.js");
       } catch {
+        // @ts-ignore
         serverMod = await import("../server.ts");
       }
     }

@@ -1878,9 +1878,9 @@ const standardQuickReplies = [
 ];
 
 async function sendFacebookMessage(senderPsid: string, responsePayload: any) {
-  const PAGE_ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+  const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
   if (!PAGE_ACCESS_TOKEN) {
-    console.warn("FACEBOOK_PAGE_ACCESS_TOKEN is not configured. Cannot send reply to Messenger user.");
+    console.warn("FACEBOOK_PAGE_ACCESS_TOKEN or PAGE_ACCESS_TOKEN is not configured. Cannot send reply to Messenger user.");
     return;
   }
 
@@ -1914,6 +1914,56 @@ async function sendFacebookMessage(senderPsid: string, responsePayload: any) {
     }
   } catch (error) {
     console.error("Error calling Facebook Graph API:", error);
+  }
+}
+
+async function sendMessengerTestReply(senderPsid: string, replyText: string) {
+  const PAGE_ACCESS_TOKEN = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
+  if (!PAGE_ACCESS_TOKEN) {
+    console.error("===== MESSENGER WEBHOOK ERROR =====");
+    console.error("Neither PAGE_ACCESS_TOKEN nor FACEBOOK_PAGE_ACCESS_TOKEN is configured in environment variables.");
+    return;
+  }
+
+  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
+  const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
+
+  const requestBody = {
+    recipient: { id: senderPsid },
+    message: { text: replyText }
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const resText = await res.text();
+    let resData: any;
+    try {
+      resData = JSON.parse(resText);
+    } catch {
+      resData = resText;
+    }
+
+    if (!res.ok) {
+      console.error("===== FACEBOOK SEND RESPONSE =====");
+      console.error(`Status: ${res.status} ${res.statusText}`);
+      console.error(typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
+      console.error("===== MESSENGER WEBHOOK ERROR =====");
+      console.error(resData?.error?.message || "Failed to send message via Facebook Graph API");
+    } else {
+      console.log("===== FACEBOOK SEND RESPONSE =====");
+      console.log(typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
+    }
+  } catch (error: any) {
+    console.error("===== MESSENGER WEBHOOK ERROR =====");
+    console.error(error?.message || String(error));
   }
 }
 
@@ -2338,94 +2388,105 @@ app.get(["/api/webhook/facebook", "/webhook/facebook"], (req, res) => {
 app.post(["/api/webhook/facebook", "/webhook/facebook"], async (req, res) => {
   const body = req.body;
 
+  console.log("===== FACEBOOK WEBHOOK RAW BODY =====");
+  console.log(typeof body === "object" ? JSON.stringify(body, null, 2) : body);
+
   if (body.object === "page") {
-    // Return 200 OK immediately to Meta to prevent timeout retries
-    res.status(200).send("EVENT_RECEIVED");
-
     for (const entry of body.entry || []) {
-      const webhook_event = entry.messaging?.[0];
-      if (!webhook_event) continue;
+      for (const webhook_event of entry.messaging || []) {
+        const senderPsid = webhook_event.sender?.id;
+        if (!senderPsid) continue;
 
-      const senderPsid = webhook_event.sender?.id;
-      if (!senderPsid) continue;
-
-      // Extract message text or button payload
-      let messageText = "";
-      if (webhook_event.message?.quick_reply?.payload) {
-        messageText = webhook_event.message.quick_reply.payload;
-      } else if (webhook_event.message?.text) {
-        messageText = webhook_event.message.text;
-      } else if (webhook_event.postback?.payload) {
-        messageText = webhook_event.postback.payload;
-      }
-
-      if (messageText) {
-        console.log(`Received Messenger message from ${senderPsid}: "${messageText}"`);
-
-        // Check DB for linkage
-        const db = readDB();
-        db.tenants = db.tenants || [];
-        let linkedTenant = db.tenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
-
-        const textLower = messageText.toLowerCase().trim();
-
-        // 1. Account linking workflow: "link <query>"
-        if (textLower.startsWith("link ") || textLower.startsWith("verify ")) {
-          const query = textLower.replace(/^(link|verify)\s+/, "").trim();
-          const matchedTenant = db.tenants.find((t: any) => 
-            (t.contact && t.contact.trim().replace(/\D/g, "") === query.replace(/\D/g, "")) ||
-            (t.id && t.id.toLowerCase() === query) ||
-            (t.name && t.name.toLowerCase().includes(query))
-          );
-
-          if (matchedTenant) {
-            matchedTenant.facebook_psid = senderPsid;
-            matchedTenant.messenger_psid = senderPsid;
-            writeDB(db);
-
-            const room = db.rooms.find((r: any) => r.id === matchedTenant.room_id);
-            const roomNum = room ? room.room_number : "Unknown";
-
-            await sendFacebookMessage(senderPsid, {
-              text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum}). Your Messenger is now connected to your tenant portal.\n\nYou can now use the 1-tap buttons below to check your live balance, view your deposit ledger, or report maintenance.`
-            });
-          } else {
-            await sendFacebookMessage(senderPsid, {
-              text: `❌ Sorry, we couldn't locate a tenant record matching "${query}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
-            });
-          }
-          continue;
+        // Extract message text or button payload
+        let messageText = "";
+        if (webhook_event.message?.text) {
+          messageText = webhook_event.message.text;
+        } else if (webhook_event.message?.quick_reply?.payload) {
+          messageText = webhook_event.message.quick_reply.payload;
+        } else if (webhook_event.postback?.payload) {
+          messageText = webhook_event.postback.payload;
+        } else if (webhook_event.message?.attachments) {
+          messageText = "[Attachment/Media]";
         }
 
-        // 2. Account unlinking workflow: "unlink"
-        if (textLower === "unlink" || textLower === "disconnect") {
-          if (linkedTenant) {
-            const oldName = linkedTenant.name;
-            delete linkedTenant.facebook_psid;
-            writeDB(db);
-            await sendFacebookMessage(senderPsid, {
-              text: `🚪 You have successfully unlinked your Facebook profile from ${oldName}'s tenant record.`
-            });
-          } else {
-            await sendFacebookMessage(senderPsid, {
-              text: "No tenant account is currently linked to this Facebook Profile."
-            });
-          }
-          continue;
-        }
+        console.log("===== MESSENGER MESSAGE RECEIVED =====");
+        console.log(`Sender ID: ${senderPsid}`);
+        console.log(`Message: ${messageText}`);
 
-        // 3. Process chatbot message through the integrated engine
-        try {
-          const botReply = await processChatbotMessage(messageText, linkedTenant ? linkedTenant.id : null, senderPsid);
-          await sendFacebookMessage(senderPsid, { text: botReply });
-        } catch (err) {
-          console.error("Failed to process chatbot reply:", err);
-          await sendFacebookMessage(senderPsid, {
-            text: "Sorry, I encountered an internal error processing your request. Please try again shortly."
-          });
-        }
+        // =========================================================================
+        // TEMPORARY WEBHOOK CONNECTIVITY TEST
+        // Sends fixed reply: "✅ Messenger webhook is working!"
+        // =========================================================================
+        await sendMessengerTestReply(senderPsid, "✅ Messenger webhook is working!");
+
+        /* =========================================================================
+         * [PRESERVED ORIGINAL CHATBOT / LINKAGE LOGIC - READY FOR RESTORATION]
+         * =========================================================================
+         *
+         * // Check DB for linkage
+         * const db = readDB();
+         * db.tenants = db.tenants || [];
+         * let linkedTenant = db.tenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+         * const textLower = messageText.toLowerCase().trim();
+         *
+         * // 1. Account linking workflow: "link <query>"
+         * if (textLower.startsWith("link ") || textLower.startsWith("verify ")) {
+         *   const query = textLower.replace(/^(link|verify)\s+/, "").trim();
+         *   const matchedTenant = db.tenants.find((t: any) => 
+         *     (t.contact && t.contact.trim().replace(/\D/g, "") === query.replace(/\D/g, "")) ||
+         *     (t.id && t.id.toLowerCase() === query) ||
+         *     (t.name && t.name.toLowerCase().includes(query))
+         *   );
+         *   if (matchedTenant) {
+         *     matchedTenant.facebook_psid = senderPsid;
+         *     matchedTenant.messenger_psid = senderPsid;
+         *     writeDB(db);
+         *     const room = db.rooms.find((r: any) => r.id === matchedTenant.room_id);
+         *     const roomNum = room ? room.room_number : "Unknown";
+         *     await sendFacebookMessage(senderPsid, {
+         *       text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum}). Your Messenger is now connected to your tenant portal.\n\nYou can now use the 1-tap buttons below to check your live balance, view your deposit ledger, or report maintenance.`
+         *     });
+         *   } else {
+         *     await sendFacebookMessage(senderPsid, {
+         *       text: `❌ Sorry, we couldn't locate a tenant record matching "${query}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
+         *     });
+         *   }
+         *   continue;
+         * }
+         *
+         * // 2. Account unlinking workflow: "unlink"
+         * if (textLower === "unlink" || textLower === "disconnect") {
+         *   if (linkedTenant) {
+         *     const oldName = linkedTenant.name;
+         *     delete linkedTenant.facebook_psid;
+         *     writeDB(db);
+         *     await sendFacebookMessage(senderPsid, {
+         *       text: `🚪 You have successfully unlinked your Facebook profile from ${oldName}'s tenant record.`
+         *     });
+         *   } else {
+         *     await sendFacebookMessage(senderPsid, {
+         *       text: "No tenant account is currently linked to this Facebook Profile."
+         *     });
+         *   }
+         *   continue;
+         * }
+         *
+         * // 3. Process chatbot message through the integrated engine
+         * try {
+         *   const botReply = await processChatbotMessage(messageText, linkedTenant ? linkedTenant.id : null, senderPsid);
+         *   await sendFacebookMessage(senderPsid, { text: botReply });
+         * } catch (err) {
+         *   console.error("Failed to process chatbot reply:", err);
+         *   await sendFacebookMessage(senderPsid, {
+         *     text: "Sorry, I encountered an internal error processing your request. Please try again shortly."
+         *   });
+         * }
+         * ========================================================================= */
       }
     }
+
+    // Return 200 OK to Meta to confirm delivery succeeded
+    return res.status(200).send("EVENT_RECEIVED");
   } else {
     res.sendStatus(404);
   }

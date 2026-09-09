@@ -1421,6 +1421,244 @@ app.post("/api/billing/:id/pay", (req, res) => {
   }
 });
 
+// Duplicate prevention cache for Deploy Statement (key: tenantId:hash -> { timestamp, response })
+const statementDeployCache = new Map<string, { timestamp: number; response: any }>();
+
+// Deploy Financial Statement directly via Facebook Messenger Send API
+app.post("/api/billing/deploy-statement", async (req, res) => {
+  const { tenant_id, billing_id, statement_text } = req.body;
+
+  if (!tenant_id) {
+    return res.status(400).json({
+      success: false,
+      status: "failed",
+      error: "Missing required parameter: tenant_id."
+    });
+  }
+
+  const db = readDB();
+  const tenant = db.tenants.find((t: any) => t.id === tenant_id);
+  if (!tenant) {
+    return res.status(404).json({
+      success: false,
+      status: "failed",
+      error: `Tenant with ID "${tenant_id}" not found.`
+    });
+  }
+
+  // Use the existing prepared statement text, or generate it from the existing billing record
+  let textToSend = statement_text;
+  if (!textToSend && billing_id) {
+    const bill = db.billingRecords.find((b: any) => b.id === billing_id);
+    if (bill) {
+      textToSend = `📋 UTILITY & RENT STATEMENT\n` +
+        `👤 Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
+        `📅 Billing Cycle: ${bill.billing_month}\n` +
+        `⏰ Payment Due Date: ${bill.due_date}\n\n` +
+        `-----------------------------------\n` +
+        `🏠 Base Rent: ₱${(Number(bill.rent_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+        `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${(Number(bill.electricity_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+        `💧 Water (${bill.water_usage || 0} m³): ₱${(Number(bill.water_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+        `-----------------------------------\n` +
+        `💰 TOTAL DUE: ₱${(Number(bill.total_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+        `Status: ${(bill.payment_status || 'unpaid').toUpperCase()}\n\n` +
+        `Kindly reply with your receipt when paid. Thank you!`;
+    }
+  }
+
+  if (!textToSend) {
+    return res.status(400).json({
+      success: false,
+      status: "failed",
+      error: "No statement content or billing record provided to deploy."
+    });
+  }
+
+  // Duplicate protection: prevent repeated sends within 10 seconds
+  const contentHash = crypto.createHash("md5").update(String(textToSend)).digest("hex");
+  const cacheKey = `${tenant_id}:${contentHash}`;
+  const cached = statementDeployCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && (now - cached.timestamp < 10000)) {
+    console.log(`[DUPLICATE PROTECTION] Returning cached statement deploy response for tenant: ${tenant.name}`);
+    return res.json(cached.response);
+  }
+
+  // Check tenant's linked Messenger PSID
+  const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
+  const targetPsid = String(rawPsid).trim();
+
+  const room = db.rooms?.find((r: any) => r.id === tenant.room_id);
+  const roomNumber = room?.room_number || "N/A";
+
+  // Validate if it is a real Facebook Page-Scoped ID (PSID is a numeric string)
+  const isLinked = targetPsid && /^\d+$/.test(targetPsid);
+
+  if (!isLinked) {
+    // UNLINKED TENANT:
+    // Do NOT send the statement to any other user.
+    // Display the required warning message.
+    const unlinkedResponse = {
+      success: true,
+      status: "unlinked",
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      warning: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`,
+      message: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
+    };
+
+    logTransaction(db, {
+      category: "billing",
+      action: "update",
+      title: "Statement Deployed (Unlinked Messenger)",
+      details: `Financial statement deployed for ${tenant.name}. Tenant has no linked Facebook Messenger account.`,
+      amount: 0,
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      room_number: roomNumber
+    });
+    writeDB(db);
+
+    statementDeployCache.set(cacheKey, { timestamp: now, response: unlinkedResponse });
+    return res.json(unlinkedResponse);
+  }
+
+  // Send statement automatically through the existing Facebook Messenger Send API
+  const sendResult = await sendFacebookMessage(targetPsid, { text: textToSend });
+
+  if (sendResult.success) {
+    const successResponse = {
+      success: true,
+      status: "sent",
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      psid: targetPsid,
+      message_id: sendResult.message_id,
+      message: `✅ Statement deployed and automatically sent to ${tenant.name} via Messenger.`
+    };
+
+    logTransaction(db, {
+      category: "billing",
+      action: "update",
+      title: "Statement Deployed via Messenger",
+      details: `Financial statement deployed and automatically delivered to ${tenant.name} via Facebook Messenger (PSID: ${targetPsid}).`,
+      amount: 0,
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      room_number: roomNumber
+    });
+    writeDB(db);
+
+    statementDeployCache.set(cacheKey, { timestamp: now, response: successResponse });
+    return res.json(successResponse);
+  } else {
+    // Failure: log technical error server-side, return user-friendly message without exposing secrets
+    console.error(`[DEPLOY STATEMENT ERROR] Failed to send Messenger statement to ${tenant.name} (PSID: ${targetPsid}):`, sendResult.error);
+
+    const failureResponse = {
+      success: false,
+      status: "failed",
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      error: `Failed to dispatch statement via Facebook Messenger for ${tenant.name}. Please verify Facebook Page connection or try again.`,
+      details: sendResult.error || "Facebook Graph API delivery rejected"
+    };
+
+    logTransaction(db, {
+      category: "billing",
+      action: "update",
+      title: "Messenger Statement Dispatch Failed",
+      details: `Failed to dispatch statement to ${tenant.name} via Facebook Messenger. Technical error: ${sendResult.error || 'Unknown'}`,
+      amount: 0,
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      room_number: roomNumber
+    });
+    writeDB(db);
+
+    return res.status(502).json(failureResponse);
+  }
+});
+
+// Convenience route for deploying a specific bill by ID
+app.post("/api/billing/:id/deploy", async (req, res) => {
+  const { id } = req.params;
+  const db = readDB();
+  const bill = db.billingRecords.find((b: any) => b.id === id);
+  if (!bill) {
+    return res.status(404).json({ success: false, status: "failed", error: "Billing record not found" });
+  }
+
+  const tenant = db.tenants.find((t: any) => t.id === bill.tenant_id);
+  if (!tenant) {
+    return res.status(404).json({ success: false, status: "failed", error: "Associated tenant not found" });
+  }
+
+  const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
+  const targetPsid = String(rawPsid).trim();
+  const isLinked = targetPsid && /^\d+$/.test(targetPsid);
+
+  const statementText = req.body.statement_text || (
+    `📋 UTILITY & RENT STATEMENT\n` +
+    `👤 Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
+    `📅 Billing Cycle: ${bill.billing_month}\n` +
+    `⏰ Payment Due Date: ${bill.due_date}\n\n` +
+    `-----------------------------------\n` +
+    `🏠 Base Rent: ₱${(Number(bill.rent_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+    `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${(Number(bill.electricity_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+    `💧 Water (${bill.water_usage || 0} m³): ₱${(Number(bill.water_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+    `-----------------------------------\n` +
+    `💰 TOTAL DUE: ₱${(Number(bill.total_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+    `Status: ${(bill.payment_status || 'unpaid').toUpperCase()}\n\n` +
+    `Kindly reply with your receipt when paid. Thank you!`
+  );
+
+  const contentHash = crypto.createHash("md5").update(statementText).digest("hex");
+  const cacheKey = `${tenant.id}:${contentHash}`;
+  const cached = statementDeployCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && (now - cached.timestamp < 10000)) {
+    return res.json(cached.response);
+  }
+
+  if (!isLinked) {
+    const unlinkedResponse = {
+      success: true,
+      status: "unlinked",
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      warning: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`,
+      message: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
+    };
+    statementDeployCache.set(cacheKey, { timestamp: now, response: unlinkedResponse });
+    return res.json(unlinkedResponse);
+  }
+
+  const sendResult = await sendFacebookMessage(targetPsid, { text: statementText });
+  if (sendResult.success) {
+    const successResponse = {
+      success: true,
+      status: "sent",
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      psid: targetPsid,
+      message_id: sendResult.message_id,
+      message: `✅ Statement deployed and automatically sent to ${tenant.name} via Messenger.`
+    };
+    statementDeployCache.set(cacheKey, { timestamp: now, response: successResponse });
+    return res.json(successResponse);
+  } else {
+    return res.status(502).json({
+      success: false,
+      status: "failed",
+      tenant_id: tenant.id,
+      tenant_name: tenant.name,
+      error: `Failed to dispatch statement via Facebook Messenger for ${tenant.name}.`,
+      details: sendResult.error || "Facebook Graph API delivery rejected"
+    });
+  }
+});
+
 // 7. INQUIRIES ENDPOINTS
 app.post("/api/inquiries", (req, res) => {
   const db = readDB();
@@ -2012,11 +2250,11 @@ const standardQuickReplies = [
   { content_type: "text", title: "📜 Rules", payload: "VIEW_RULES" }
 ];
 
-async function sendFacebookMessage(senderPsid: string, responsePayload: any) {
-  const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+async function sendFacebookMessage(senderPsid: string, responsePayload: any): Promise<{ success: boolean; error?: string; message_id?: string }> {
+  const PAGE_ACCESS_TOKEN = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
   if (!PAGE_ACCESS_TOKEN) {
     console.warn("FACEBOOK_PAGE_ACCESS_TOKEN or PAGE_ACCESS_TOKEN is not configured. Cannot send reply to Messenger user.");
-    return;
+    return { success: false, error: "Facebook Page Access Token is not configured on the server." };
   }
 
   // Format message payload and include 1-tap quick action buttons
@@ -2032,23 +2270,38 @@ async function sendFacebookMessage(senderPsid: string, responsePayload: any) {
     message: msgObj
   };
 
+  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
+  const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
+
   try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
       },
       body: JSON.stringify(requestBody)
     });
 
+    const resText = await res.text();
+    let resData: any;
+    try {
+      resData = JSON.parse(resText);
+    } catch {
+      resData = resText;
+    }
+
     if (!res.ok) {
-      const errorJson = await res.json() as any;
-      console.error("Facebook Graph API Error response:", errorJson);
+      console.error("Facebook Graph API Error response:", typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
+      const safeErrorMsg = resData?.error?.message || `Facebook Graph API responded with status ${res.status}`;
+      return { success: false, error: safeErrorMsg };
     } else {
       console.log(`Successfully sent message to Facebook Messenger user: ${senderPsid}`);
+      return { success: true, message_id: resData?.message_id };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error calling Facebook Graph API:", error);
+    return { success: false, error: error?.message || "Network error communicating with Facebook Graph API" };
   }
 }
 

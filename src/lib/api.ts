@@ -322,6 +322,35 @@ export const api = {
     return { id, ...update };
   },
 
+  // Deploy Financial Statement directly via Facebook Messenger Send API
+  async deployStatement(data: { tenant_id: string; billing_id?: string; statement_text?: string }): Promise<{
+    success: boolean;
+    status: "sent" | "unlinked" | "failed";
+    tenant_id?: string;
+    tenant_name?: string;
+    message?: string;
+    warning?: string;
+    error?: string;
+    psid?: string;
+  }> {
+    try {
+      const res = await fetch("/api/billing/deploy-statement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      console.error("api.deployStatement error:", err);
+      return {
+        success: false,
+        status: "failed",
+        error: err?.message || "Failed to communicate with statement deployment endpoint."
+      };
+    }
+  },
+
   // Inquiries CRUD
   async createInquiry(data: Partial<Inquiry>): Promise<Inquiry> {
     const newInq: Inquiry = {

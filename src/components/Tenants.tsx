@@ -1460,13 +1460,11 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    window.open(messengerUrl, "_blank", "noopener,noreferrer");
-                  }}
-                  className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-98"
+                  onClick={() => setShowMessengerModal(false)}
+                  className="py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all active:scale-98"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Open Messenger</span>
+                  <X className="w-4 h-4" />
+                  <span>Close</span>
                 </button>
               </div>
             </motion.div>

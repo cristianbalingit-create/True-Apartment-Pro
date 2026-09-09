@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { DBState, api } from "../lib/api";
 import { BillingRecord, Tenant, Room } from "../types";
-import { FileText, CheckCircle2, AlertTriangle, Clock, Search, Plus, Calendar, Download, Eye, X, FileSpreadsheet, Wand2, Building, ChevronDown, ChevronUp, DollarSign, History, Calculator, Zap, Droplet, Send, MessageCircle, Share2, Copy, ExternalLink } from "lucide-react";
+import { FileText, CheckCircle2, AlertTriangle, AlertCircle, Clock, Search, Plus, Calendar, Download, Eye, X, FileSpreadsheet, Wand2, Building, ChevronDown, ChevronUp, DollarSign, History, Calculator, Zap, Droplet, Send, MessageCircle, Share2, Copy, ExternalLink } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface BillingProps {
@@ -59,7 +59,17 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   const [calcNotes, setCalcNotes] = useState("");
   const [calcSuccessMessage, setCalcSuccessMessage] = useState("");
 
-  // Messenger Dialog States
+  // Deploy Statement & Feedback States
+  const isDeployingRef = useRef(false);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployingBillId, setDeployingBillId] = useState<string | null>(null);
+  const [deployResult, setDeployResult] = useState<{
+    status: "sent" | "unlinked" | "failed";
+    message: string;
+    details?: string;
+  } | null>(null);
+
+  // Messenger Dialog States (Used for internal receipt/statement text copying)
   const [showMessengerModal, setShowMessengerModal] = useState(false);
   const [messengerSummaryText, setMessengerSummaryText] = useState("");
   const [messengerTenantName, setMessengerTenantName] = useState("");
@@ -210,30 +220,59 @@ export default function Billing({ db, onRefresh }: BillingProps) {
       `Kindly reply with your payment receipt once remitted. Thank you!`;
   };
 
-  const handleShareBillToMessenger = (bill: BillingRecord) => {
-    const text = `📋 UTILITY & RENT STATEMENT\n` +
+  // Deploy statement for an existing billing statement record directly via Facebook Messenger Send API
+  const handleDeployExistingStatement = async (bill: BillingRecord) => {
+    if (deployingBillId === bill.id || isDeployingRef.current) return;
+    isDeployingRef.current = true;
+    setDeployingBillId(bill.id);
+    setDeployResult(null);
+
+    const statementText = `📋 UTILITY & RENT STATEMENT\n` +
       `👤 Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
       `📅 Billing Cycle: ${bill.billing_month}\n` +
       `⏰ Payment Due Date: ${bill.due_date}\n\n` +
       `-----------------------------------\n` +
-      `🏠 Base Rent: ₱${bill.rent_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${bill.electricity_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `💧 Water (${bill.water_usage || 0} m³): ₱${(bill.water_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+      `🏠 Base Rent: ₱${Number(bill.rent_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+      `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${Number(bill.electricity_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+      `💧 Water (${bill.water_usage || 0} m³): ₱${Number(bill.water_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
       `-----------------------------------\n` +
-      `💰 TOTAL DUE: ₱${bill.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `Status: ${bill.payment_status.toUpperCase()}\n\n` +
+      `💰 TOTAL DUE: ₱${Number(bill.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
+      `Status: ${(bill.payment_status || 'unpaid').toUpperCase()}\n\n` +
       `Kindly reply with your receipt when paid. Thank you!`;
 
-    setMessengerSummaryText(text);
-    setMessengerTenantName(bill.tenant_name);
-    setShowMessengerModal(true);
-    setMessengerCopySuccess(false);
-
     try {
-      navigator.clipboard.writeText(text);
-      setMessengerCopySuccess(true);
-    } catch (e) {
-      console.error(e);
+      const res = await api.deployStatement({
+        tenant_id: bill.tenant_id,
+        billing_id: bill.id,
+        statement_text: statementText
+      });
+
+      if (res.status === "sent") {
+        setDeployResult({
+          status: "sent",
+          message: `✅ Statement deployed and automatically sent to ${bill.tenant_name} via Messenger.`
+        });
+      } else if (res.status === "unlinked") {
+        setDeployResult({
+          status: "unlinked",
+          message: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
+        });
+      } else {
+        setDeployResult({
+          status: "failed",
+          message: res.error || `❌ Statement deployed to ledger, but Messenger delivery failed.`
+        });
+      }
+      onRefresh();
+    } catch (err: any) {
+      console.error("handleDeployExistingStatement error:", err);
+      setDeployResult({
+        status: "failed",
+        message: err.message || "❌ Unexpected error while deploying statement."
+      });
+    } finally {
+      setDeployingBillId(null);
+      isDeployingRef.current = false;
     }
   };
 
@@ -245,10 +284,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  const handleOpenMessengerApp = () => {
-    window.open(messengerUrl || "https://www.messenger.com", "_blank", "noopener,noreferrer");
   };
 
   const getLatestTenantUtilityReadings = (tenantId: string) => {
@@ -291,12 +326,18 @@ export default function Billing({ db, onRefresh }: BillingProps) {
 
   const handleCalcSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDeployingRef.current || loading) return;
+    isDeployingRef.current = true;
+    setIsDeploying(true);
     setLoading(true);
     setCalcSuccessMessage("");
+    setDeployResult(null);
 
     const tenant = db.tenants.find((t) => t.id === calcTenantId);
     if (!tenant) {
       setLoading(false);
+      setIsDeploying(false);
+      isDeployingRef.current = false;
       return;
     }
     const room = db.rooms.find((r) => r.id === tenant.room_id);
@@ -333,13 +374,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     };
 
     try {
-      await api.createBilling(payload);
-      
-      const channels = [];
-      if (calcSendInApp) channels.push("In-App Notification");
-      if (calcSendSMS) channels.push(`SMS Notification to ${tenant.contact}`);
-      if (calcSendEmail) channels.push(`Email Invoice to ${tenant.email}`);
-      if (calcSendMessenger) channels.push(`Facebook Messenger`);
+      const createdBill = await api.createBilling(payload);
 
       const messengerMsg = generateMessengerBillText(
         tenant.name,
@@ -357,32 +392,38 @@ export default function Billing({ db, onRefresh }: BillingProps) {
         calcNotes
       );
 
-      if (calcSendMessenger) {
-        setMessengerSummaryText(messengerMsg);
-        setMessengerTenantName(tenant.name);
-        setShowMessengerModal(true);
-        setMessengerCopySuccess(false);
-        try {
-          await navigator.clipboard.writeText(messengerMsg);
-          setMessengerCopySuccess(true);
-        } catch (e) {
-          console.error(e);
-        }
+      // Deploy statement automatically through the existing Facebook Messenger Send API/backend integration
+      const deployRes = await api.deployStatement({
+        tenant_id: tenant.id,
+        billing_id: createdBill?.id,
+        statement_text: messengerMsg
+      });
+
+      if (deployRes.status === "sent") {
+        const msg = `✅ Statement deployed and automatically sent to ${tenant.name} via Messenger.`;
+        setDeployResult({ status: "sent", message: msg });
+        setCalcSuccessMessage(msg);
+      } else if (deployRes.status === "unlinked") {
+        const msg = `⚠️ Statement deployed, but this tenant has no linked Messenger account.`;
+        setDeployResult({ status: "unlinked", message: msg });
+        setCalcSuccessMessage(msg);
+      } else {
+        const errMsg = deployRes.error || "Failed to dispatch statement via Facebook Messenger.";
+        const msg = `❌ Statement deployed to ledger, but Messenger delivery failed: ${errMsg}`;
+        setDeployResult({ status: "failed", message: msg });
+        setCalcSuccessMessage(msg);
       }
 
-      setCalcSuccessMessage(`Billing created & dispatched successfully! Total: ₱${grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Outlets used: ${channels.join(", ")}`);
       onRefresh();
-
-      if (!calcSendMessenger) {
-        setTimeout(() => {
-          setCalcSuccessMessage("");
-          setActiveSubTab("billing_statements");
-        }, 4000);
-      }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("handleCalcSubmit error:", err);
+      const errMsg = err?.message || "Error creating and deploying statement.";
+      setDeployResult({ status: "failed", message: `❌ ${errMsg}` });
+      setCalcSuccessMessage(`❌ ${errMsg}`);
     } finally {
       setLoading(false);
+      setIsDeploying(false);
+      isDeployingRef.current = false;
     }
   };
 
@@ -681,6 +722,35 @@ export default function Billing({ db, onRefresh }: BillingProps) {
             </div>
           </div>
 
+          {/* Deployment Feedback Banner */}
+          {deployResult && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between border ${
+                deployResult.status === "sent"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : deployResult.status === "unlinked"
+                  ? "bg-amber-50 border-amber-200 text-amber-800"
+                  : "bg-rose-50 border-rose-200 text-rose-800"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {deployResult.status === "sent" && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                {deployResult.status === "unlinked" && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />}
+                {deployResult.status === "failed" && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                <span>{deployResult.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeployResult(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+
           {/* Table Filters bar */}
           <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col sm:flex-row gap-4 items-center">
             <div className="relative w-full sm:max-w-md">
@@ -816,6 +886,16 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                 </td>
                                 <td className="py-3.5 px-6 text-right">
                                   <div className="flex gap-2 justify-end">
+                                    <button
+                                      type="button"
+                                      disabled={deployingBillId === bill.id}
+                                      onClick={() => handleDeployExistingStatement(bill)}
+                                      className="px-2.5 py-1 bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-[10px] rounded-lg shadow-sm transition-all flex items-center gap-1 disabled:opacity-50"
+                                      title="Deploy statement directly to tenant via Messenger"
+                                    >
+                                      <Send className="w-3 h-3" />
+                                      <span>{deployingBillId === bill.id ? "Deploying..." : "Deploy Statement"}</span>
+                                    </button>
                                     {bill.payment_status !== "paid" && (
                                       <button
                                         onClick={() => handleMarkAsPaid(bill.id)}
@@ -936,13 +1016,31 @@ export default function Billing({ db, onRefresh }: BillingProps) {
             </div>
           </div>
 
-          {calcSuccessMessage && (
+          {deployResult && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold"
+              className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between border ${
+                deployResult.status === "sent"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : deployResult.status === "unlinked"
+                  ? "bg-amber-50 border-amber-200 text-amber-800"
+                  : "bg-rose-50 border-rose-200 text-rose-800"
+              }`}
             >
-              {calcSuccessMessage}
+              <div className="flex items-center gap-2">
+                {deployResult.status === "sent" && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                {deployResult.status === "unlinked" && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />}
+                {deployResult.status === "failed" && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                <span>{deployResult.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeployResult(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </motion.div>
           )}
 
@@ -1253,11 +1351,14 @@ export default function Billing({ db, onRefresh }: BillingProps) {
 
                   <button
                     type="submit"
-                    disabled={loading || !calcTenantId}
-                    className="w-full py-3 bg-brand-orange hover:bg-brand-orange/95 text-white font-black text-sm rounded-xl shadow-md shadow-brand-orange/20 transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                    disabled={loading || isDeploying || !calcTenantId}
+                    className="w-full py-3 bg-brand-orange hover:bg-brand-orange/95 text-white font-black text-sm rounded-xl shadow-md shadow-brand-orange/20 transition-all hover:scale-[1.01] active:scale-[0.99] flex flex-col items-center justify-center gap-0.5 disabled:opacity-50 disabled:pointer-events-none"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>{loading ? "Calculating & Dispatching..." : "Approve & Dispatch Statement"}</span>
+                    <div className="flex items-center justify-center gap-2">
+                      <Send className="w-4 h-4" />
+                      <span>{loading || isDeploying ? "Deploying Statement..." : "Deploy Statement"}</span>
+                    </div>
+                    <span className="text-[10px] text-white/80 font-normal">Approve & Dispatch Statement to Ledger & Messenger</span>
                   </button>
                 </div>
               </div>
@@ -1795,7 +1896,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                     <MessageCircle className="w-5 h-5 fill-blue-600 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-slate-900 text-base">Send via Facebook Messenger</h3>
+                    <h3 className="font-extrabold text-slate-900 text-base">Prepared Statement & Receipt Record</h3>
                     <p className="text-xs text-slate-500">Statement invoice for {messengerTenantName}</p>
                   </div>
                 </div>
@@ -1810,7 +1911,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               {messengerCopySuccess && (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Statement formatted & copied to clipboard! Paste directly into Messenger chat.</span>
+                  <span>Statement formatted & copied to clipboard!</span>
                 </div>
               )}
 
@@ -1824,24 +1925,29 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleCopyMessengerText}
-                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all active:scale-98"
-                >
-                  <Copy className="w-4 h-4 text-slate-600" />
-                  <span>{messengerCopySuccess ? "Copied Again!" : "Copy Text"}</span>
-                </button>
+              <div className="flex flex-col gap-2 pt-2">
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCopyMessengerText}
+                    className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all active:scale-98"
+                  >
+                    <Copy className="w-4 h-4 text-slate-600" />
+                    <span>{messengerCopySuccess ? "Copied to Clipboard!" : "Copy Statement Text"}</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenMessengerApp}
-                  className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-98"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Launch Messenger</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMessengerModal(false)}
+                    className="py-2.5 px-6 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all active:scale-98"
+                  >
+                    <X className="w-4 h-4" />
+                    <span>Close</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 text-center">
+                  Statements and receipts are automatically dispatched to tenants via Facebook Messenger when deployed.
+                </p>
               </div>
             </motion.div>
           </div>

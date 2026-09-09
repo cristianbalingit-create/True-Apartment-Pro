@@ -5,8 +5,8 @@ import os from "os";
 import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { dbService } from "./src/server/dbService.ts";
-import { handleMessengerWebhookEvent } from "./src/server/chatbotService.ts";
+import { dbService } from "./src/server/dbService";
+import { handleMessengerWebhookEvent } from "./src/server/chatbotService";
 
 dotenv.config();
 

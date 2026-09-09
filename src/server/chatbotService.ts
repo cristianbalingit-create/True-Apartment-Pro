@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { dbService } from "./dbService.ts";
+import { dbService } from "./dbService";
 
 // Official Facebook Page for ApartmentPro
 export const OFFICIAL_PAGE_ID = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "3246715018859879").trim();

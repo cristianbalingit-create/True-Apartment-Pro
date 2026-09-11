@@ -59,6 +59,13 @@ const COLLECTIONS: (keyof DBState)[] = [
   "transactionLogs"
 ];
 
+function withTimeout<T>(promise: Promise<T>, ms = 3000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Firestore client timeout after ${ms}ms`)), ms))
+  ]);
+}
+
 // Read entire state directly from Cloud Firestore
 export async function fetchDirectFromFirestore(): Promise<DBState> {
   const db = getClientDb();
@@ -67,10 +74,10 @@ export async function fetchDirectFromFirestore(): Promise<DBState> {
   await Promise.all(
     COLLECTIONS.map(async (colName) => {
       try {
-        const snap = await getDocs(collection(db, colName));
+        const snap = await withTimeout(getDocs(collection(db, colName)), 3000);
         result[colName] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      } catch (err) {
-        console.warn(`Error reading collection ${colName} directly from Firestore:`, err);
+      } catch (err: any) {
+        // Silently recover if offline or unreachable within timeout
         result[colName] = [];
       }
     })
@@ -93,15 +100,23 @@ export async function fetchDirectFromFirestore(): Promise<DBState> {
 
 // Upsert a document directly in Firestore
 export async function directUpsertDoc(colName: keyof DBState, docId: string, data: any): Promise<void> {
-  const db = getClientDb();
-  const { id, ...dataWithoutId } = data;
-  await setDoc(doc(db, colName, docId), dataWithoutId, { merge: true });
+  try {
+    const db = getClientDb();
+    const { id, ...dataWithoutId } = data;
+    await withTimeout(setDoc(doc(db, colName, docId), dataWithoutId, { merge: true }), 3000);
+  } catch (err) {
+    // Non-critical fallback; server-side handles authoritative writes
+  }
 }
 
 // Delete a document directly in Firestore
 export async function directDeleteDoc(colName: keyof DBState, docId: string): Promise<void> {
-  const db = getClientDb();
-  await deleteDoc(doc(db, colName, docId));
+  try {
+    const db = getClientDb();
+    await withTimeout(deleteDoc(doc(db, colName, docId)), 3000);
+  } catch (err) {
+    // Non-critical fallback
+  }
 }
 
 // Record a transaction log directly

@@ -1485,14 +1485,34 @@ app.post("/api/billing/deploy-statement", async (req, res) => {
   }
 
   // Check tenant's linked Messenger PSID
+  const hasLinkRecord = Boolean(tenant.facebook_psid || tenant.messenger_psid);
+  const psidField = tenant.facebook_psid && tenant.messenger_psid 
+    ? "facebook_psid & messenger_psid" 
+    : tenant.facebook_psid 
+      ? "facebook_psid" 
+      : tenant.messenger_psid 
+        ? "messenger_psid" 
+        : "none";
   const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
   const targetPsid = String(rawPsid).trim();
+  const isPsidPresent = Boolean(targetPsid && targetPsid !== "none" && targetPsid !== "false");
 
   const room = db.rooms?.find((r: any) => r.id === tenant.room_id);
   const roomNumber = room?.room_number || "N/A";
 
+  // Safe server-side diagnostics
+  console.log("===== DEPLOY STATEMENT DIAGNOSTICS =====");
+  console.log(`• Selected Tenant ID: ${tenant.id}`);
+  console.log(`• Selected Tenant Name: ${tenant.name}`);
+  console.log(`• Messenger link record found: ${hasLinkRecord ? "YES" : "NO"}`);
+  console.log(`• Database field containing PSID: ${psidField}`);
+  console.log(`• PSID present: ${isPsidPresent ? "YES" : "NO"}`);
+  console.log(`• Facebook Page ID: ${OFFICIAL_PAGE_ID}`);
+  console.log(`• Facebook Page Access Token configured: ${Boolean(process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN)}`);
+  console.log("=========================================");
+
   // Validate if it is a real Facebook Page-Scoped ID (PSID is a numeric string)
-  const isLinked = targetPsid && /^\d+$/.test(targetPsid);
+  const isLinked = isPsidPresent && /^\d+$/.test(targetPsid);
 
   if (!isLinked) {
     // UNLINKED TENANT:
@@ -1534,7 +1554,7 @@ app.post("/api/billing/deploy-statement", async (req, res) => {
       tenant_name: tenant.name,
       psid: targetPsid,
       message_id: sendResult.message_id,
-      message: `✅ Statement deployed and automatically sent to ${tenant.name} via Messenger.`
+      message: `✅ Statement sent successfully to ${tenant.name} via Messenger.`
     };
 
     logTransaction(db, {
@@ -1560,7 +1580,8 @@ app.post("/api/billing/deploy-statement", async (req, res) => {
       status: "failed",
       tenant_id: tenant.id,
       tenant_name: tenant.name,
-      error: `Failed to dispatch statement via Facebook Messenger for ${tenant.name}. Please verify Facebook Page connection or try again.`,
+      error: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
+      message: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
       details: sendResult.error || "Facebook Graph API delivery rejected"
     };
 
@@ -1594,9 +1615,30 @@ app.post("/api/billing/:id/deploy", async (req, res) => {
     return res.status(404).json({ success: false, status: "failed", error: "Associated tenant not found" });
   }
 
+  const hasLinkRecord = Boolean(tenant.facebook_psid || tenant.messenger_psid);
+  const psidField = tenant.facebook_psid && tenant.messenger_psid 
+    ? "facebook_psid & messenger_psid" 
+    : tenant.facebook_psid 
+      ? "facebook_psid" 
+      : tenant.messenger_psid 
+        ? "messenger_psid" 
+        : "none";
   const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
   const targetPsid = String(rawPsid).trim();
-  const isLinked = targetPsid && /^\d+$/.test(targetPsid);
+  const isPsidPresent = Boolean(targetPsid && targetPsid !== "none" && targetPsid !== "false");
+
+  // Safe server-side diagnostics
+  console.log("===== DEPLOY STATEMENT (:id/deploy) DIAGNOSTICS =====");
+  console.log(`• Selected Tenant ID: ${tenant.id}`);
+  console.log(`• Selected Tenant Name: ${tenant.name}`);
+  console.log(`• Messenger link record found: ${hasLinkRecord ? "YES" : "NO"}`);
+  console.log(`• Database field containing PSID: ${psidField}`);
+  console.log(`• PSID present: ${isPsidPresent ? "YES" : "NO"}`);
+  console.log(`• Facebook Page ID: ${OFFICIAL_PAGE_ID}`);
+  console.log(`• Facebook Page Access Token configured: ${Boolean(process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN)}`);
+  console.log("=====================================================");
+
+  const isLinked = isPsidPresent && /^\d+$/.test(targetPsid);
 
   const statementText = req.body.statement_text || (
     `📋 UTILITY & RENT STATEMENT\n` +
@@ -1643,7 +1685,7 @@ app.post("/api/billing/:id/deploy", async (req, res) => {
       tenant_name: tenant.name,
       psid: targetPsid,
       message_id: sendResult.message_id,
-      message: `✅ Statement deployed and automatically sent to ${tenant.name} via Messenger.`
+      message: `✅ Statement sent successfully to ${tenant.name} via Messenger.`
     };
     statementDeployCache.set(cacheKey, { timestamp: now, response: successResponse });
     return res.json(successResponse);
@@ -1653,7 +1695,8 @@ app.post("/api/billing/:id/deploy", async (req, res) => {
       status: "failed",
       tenant_id: tenant.id,
       tenant_name: tenant.name,
-      error: `Failed to dispatch statement via Facebook Messenger for ${tenant.name}.`,
+      error: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
+      message: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
       details: sendResult.error || "Facebook Graph API delivery rejected"
     });
   }
@@ -2273,6 +2316,11 @@ async function sendFacebookMessage(senderPsid: string, responsePayload: any): Pr
   const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
   const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
 
+  console.log(`[FACEBOOK SEND API] Initiating request: POST ${url}`);
+  console.log(`[FACEBOOK SEND API] Target Recipient PSID: ${senderPsid}`);
+  console.log(`[FACEBOOK SEND API] Page ID: ${OFFICIAL_PAGE_ID}`);
+  console.log(`[FACEBOOK SEND API] Message text length: ${msgObj.text?.length || 0} chars`);
+
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -2291,16 +2339,19 @@ async function sendFacebookMessage(senderPsid: string, responsePayload: any): Pr
       resData = resText;
     }
 
+    console.log(`[FACEBOOK SEND API] Response status: ${res.status} ${res.statusText}`);
+    console.log(`[FACEBOOK SEND API] Response body:`, typeof resData === "object" ? JSON.stringify(resData) : resData);
+
     if (!res.ok) {
-      console.error("Facebook Graph API Error response:", typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
+      console.error("[FACEBOOK SEND API ERROR] Graph API rejected message:", typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
       const safeErrorMsg = resData?.error?.message || `Facebook Graph API responded with status ${res.status}`;
       return { success: false, error: safeErrorMsg };
     } else {
-      console.log(`Successfully sent message to Facebook Messenger user: ${senderPsid}`);
+      console.log(`[FACEBOOK SEND API] Successfully delivered message to Facebook Messenger user: ${senderPsid}, message_id: ${resData?.message_id}`);
       return { success: true, message_id: resData?.message_id };
     }
   } catch (error: any) {
-    console.error("Error calling Facebook Graph API:", error);
+    console.error("[FACEBOOK SEND API ERROR] Error calling Facebook Graph API:", error);
     return { success: false, error: error?.message || "Network error communicating with Facebook Graph API" };
   }
 }

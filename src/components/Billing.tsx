@@ -250,17 +250,17 @@ export default function Billing({ db, onRefresh }: BillingProps) {
       if (res.status === "sent") {
         setDeployResult({
           status: "sent",
-          message: `✅ Statement deployed and automatically sent to ${bill.tenant_name} via Messenger.`
+          message: res.message || `✅ Statement sent successfully to ${bill.tenant_name} via Messenger.`
         });
       } else if (res.status === "unlinked") {
         setDeployResult({
           status: "unlinked",
-          message: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
+          message: res.warning || res.message || `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
         });
       } else {
         setDeployResult({
           status: "failed",
-          message: res.error || `❌ Statement deployed to ledger, but Messenger delivery failed.`
+          message: res.error || res.message || `❌ Failed to send statement to ${bill.tenant_name}. Please try again.`
         });
       }
       onRefresh();
@@ -400,16 +400,15 @@ export default function Billing({ db, onRefresh }: BillingProps) {
       });
 
       if (deployRes.status === "sent") {
-        const msg = `✅ Statement deployed and automatically sent to ${tenant.name} via Messenger.`;
+        const msg = deployRes.message || `✅ Statement sent successfully to ${tenant.name} via Messenger.`;
         setDeployResult({ status: "sent", message: msg });
         setCalcSuccessMessage(msg);
       } else if (deployRes.status === "unlinked") {
-        const msg = `⚠️ Statement deployed, but this tenant has no linked Messenger account.`;
+        const msg = deployRes.warning || deployRes.message || `⚠️ Statement deployed, but this tenant has no linked Messenger account.`;
         setDeployResult({ status: "unlinked", message: msg });
         setCalcSuccessMessage(msg);
       } else {
-        const errMsg = deployRes.error || "Failed to dispatch statement via Facebook Messenger.";
-        const msg = `❌ Statement deployed to ledger, but Messenger delivery failed: ${errMsg}`;
+        const msg = deployRes.error || deployRes.message || `❌ Failed to send statement to ${tenant.name}. Please try again.`;
         setDeployResult({ status: "failed", message: msg });
         setCalcSuccessMessage(msg);
       }

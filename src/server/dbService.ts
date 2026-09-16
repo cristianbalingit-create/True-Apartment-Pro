@@ -43,6 +43,7 @@ export interface DBState {
   rules: Rule[];
   depositLedger: DepositLedgerEntry[];
   transactionLogs: TransactionLog[];
+  maintenanceSessions?: Record<string, any>;
 }
 
 export const DB_COLLECTIONS: (keyof DBState)[] = [
@@ -307,7 +308,8 @@ class DatabaseService {
       announcements: [],
       rules: [],
       depositLedger: [],
-      transactionLogs: []
+      transactionLogs: [],
+      maintenanceSessions: {}
     };
     return this.inMemoryCache;
   }
@@ -324,7 +326,10 @@ class DatabaseService {
       announcements: Array.isArray(parsed.announcements) ? parsed.announcements : [],
       rules: Array.isArray(parsed.rules) ? parsed.rules : [],
       depositLedger: Array.isArray(parsed.depositLedger) ? parsed.depositLedger : [],
-      transactionLogs: Array.isArray(parsed.transactionLogs) ? parsed.transactionLogs : []
+      transactionLogs: Array.isArray(parsed.transactionLogs) ? parsed.transactionLogs : [],
+      maintenanceSessions: (parsed && typeof parsed.maintenanceSessions === "object" && parsed.maintenanceSessions !== null)
+        ? parsed.maintenanceSessions
+        : (this.inMemoryCache?.maintenanceSessions || {})
     };
 
     // Ensure tenant balance fields exist

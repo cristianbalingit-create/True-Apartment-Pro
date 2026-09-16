@@ -94,10 +94,14 @@ export interface MaintenanceRequest {
   tenant_name?: string;
   issue_description: string;
   category: 'Plumbing' | 'Electrical' | 'Internet' | 'Air Conditioning' | 'Furniture' | 'Cleaning' | 'Other';
-  priority: 'High' | 'Medium' | 'Low';
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
   photo_url?: string;
+  occurred_at?: string;
+  location?: string;
+  messenger_psid?: string;
   status: 'pending' | 'in_progress' | 'completed';
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Announcement {

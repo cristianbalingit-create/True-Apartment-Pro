@@ -116,14 +116,18 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
     }
   };
 
-  const getPriorityBadge = (priority: 'High' | 'Medium' | 'Low') => {
+  const getPriorityBadge = (priority: 'Critical' | 'High' | 'Medium' | 'Low' | string) => {
     switch (priority) {
+      case "Critical":
+        return <span className="px-2 py-0.5 bg-rose-200 text-rose-900 border border-rose-400 text-[10px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 animate-pulse">🚨 Critical Safety</span>;
       case "High":
         return <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-bold rounded-md uppercase tracking-wider flex items-center gap-1">🔴 High Urgency</span>;
       case "Medium":
         return <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-md uppercase tracking-wider flex items-center gap-1">🟡 Medium</span>;
       case "Low":
         return <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md uppercase tracking-wider flex items-center gap-1">🟢 Low</span>;
+      default:
+        return <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md uppercase tracking-wider flex items-center gap-1">{priority}</span>;
     }
   };
 

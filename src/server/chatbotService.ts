@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config();
 import { GoogleGenAI } from "@google/genai";
 import { dbService } from "./dbService";
 
@@ -211,11 +213,18 @@ export async function sendFacebookMessage(senderPsid: string, responsePayload: a
     msgObj.quick_replies = standardQuickReplies;
   }
 
+  // Only pass supported Messenger Send API fields to Facebook
+  const validMessagePayload: any = {};
+  if (msgObj.text) validMessagePayload.text = msgObj.text;
+  if (msgObj.quick_replies) validMessagePayload.quick_replies = msgObj.quick_replies;
+  if (msgObj.attachment) validMessagePayload.attachment = msgObj.attachment;
+  if (msgObj.metadata) validMessagePayload.metadata = msgObj.metadata;
+
   const requestBody = {
     recipient: {
       id: senderPsid
     },
-    message: msgObj
+    message: validMessagePayload
   };
 
   const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
@@ -254,8 +263,610 @@ export async function sendFacebookMessage(senderPsid: string, responsePayload: a
   }
 }
 
+// ==========================================
+// MAINTENANCE PRIORITY CLASSIFIER & HELPERS
+// ==========================================
+
+export type MaintenanceCategory =
+  | "Plumbing"
+  | "Electrical"
+  | "Internet"
+  | "Air Conditioning"
+  | "Furniture"
+  | "Cleaning"
+  | "Other";
+
+export type MaintenanceSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export interface MaintenanceAnalysis {
+  is_maintenance: boolean;
+  is_status_query: boolean;
+  category: MaintenanceCategory;
+  priority: MaintenanceSeverity;
+  description: string;
+  needs_clarification: boolean;
+  clarification_question?: string;
+  safety_risk: boolean;
+  safety_advisory?: string;
+}
+
+export function isMaintenanceStatusQuery(rawText: string): boolean {
+  const lower = rawText.toLowerCase().trim();
+  const statusPhrases = [
+    "what's happening with my maintenance",
+    "whats happening with my maintenance",
+    "what is happening with my maintenance",
+    "update on my repair",
+    "update on my maintenance",
+    "update on maintenance",
+    "is my aircon repair done",
+    "is my repair done",
+    "check my maintenance ticket",
+    "check my ticket",
+    "check maintenance",
+    "what's the status of my report",
+    "whats the status of my report",
+    "what is the status of my report",
+    "status of my report",
+    "status of my maintenance",
+    "status of my ticket",
+    "ticket status",
+    "maintenance status",
+    "repair status",
+    "status of repair",
+    "is my ticket finished",
+    "is my ticket resolved",
+    "any update on my repair",
+    "any update on my ticket",
+    "check my repair"
+  ];
+  return statusPhrases.some(phrase => lower.includes(phrase)) ||
+    ((lower.includes("status") || lower.includes("update") || lower.includes("check")) && (lower.includes("ticket") || lower.includes("maintenance") || lower.includes("repair")));
+}
+
+export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
+  const text = rawText.trim();
+  const lower = text.toLowerCase();
+
+  // 1. Status query check
+  if (isMaintenanceStatusQuery(rawText)) {
+    return {
+      is_maintenance: false,
+      is_status_query: true,
+      category: "Other",
+      priority: "MEDIUM",
+      description: text,
+      needs_clarification: false,
+      safety_risk: false
+    };
+  }
+
+  // 2. Non-maintenance fast filters (greetings, rent balance questions without problem description)
+  const isDirectMaintButton = lower === "report_maintenance" || lower === "report maintenance" || lower === "maintenance" || lower === "repair";
+  
+  // Guard against purely financial inquiries being misclassified as maintenance
+  const hasDefiniteProblemWord = ["leak", "leaking", "broken", "clog", "clogged", "smoke", "fire", "spark", "sparks", "repair", "fix", "outage", "blackout", "brownout", "damaged", "malfunction", "dripping", "overflow", "burst", "smell"].some(w => lower.includes(w));
+  const isPureFinancial = (
+    lower.includes("balance") ||
+    lower.includes("rent due") ||
+    lower.includes("due date") ||
+    lower.includes("how much") ||
+    lower.includes("billing") ||
+    lower.includes("statement") ||
+    lower.includes("payment") ||
+    lower.includes("receipt") ||
+    lower.includes("bayad") ||
+    lower.includes("magkano")
+  ) && !hasDefiniteProblemWord;
+
+  if (isPureFinancial && !isDirectMaintButton) {
+    return {
+      is_maintenance: false,
+      is_status_query: false,
+      category: "Other",
+      priority: "MEDIUM",
+      description: text,
+      needs_clarification: false,
+      safety_risk: false
+    };
+  }
+
+  const matchesKeyword = (kw: string) => {
+    if (kw.length <= 4) {
+      const regex = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      return regex.test(text);
+    }
+    return lower.includes(kw);
+  };
+  
+  // Specific equipment & failure indicators
+  const acKeywords = ["aircon", "air con", "air-con", "air conditioner", "air conditioning", "ac", "cooling", "freon", "refrigerant", "compressor", "split type", "not cooling", "warm air", "ac leak", "ac dripping"];
+  const plumbingKeywords = ["toilet", "cr", "comfort room", "bathroom", "shower", "sink", "faucet", "tap", "pipe", "pipes", "water", "leak", "leaking", "leaks", "leaked", "drip", "dripping", "clog", "clogged", "drain", "drainage", "overflow", "overflowing", "bidet", "burst", "bursting", "flooding", "flood", "flooded", "sewage", "sewer", "no water", "low water pressure", "ceiling", "water coming from"];
+  const electricalKeywords = ["electricity", "electrical", "power", "power outage", "blackout", "brownout", "light", "lights", "bulb", "flicker", "flickering", "flickers", "dim", "socket", "outlet", "plug", "breaker", "circuit breaker", "tripped", "wire", "wires", "wiring", "spark", "sparks", "sparking", "sparked", "short circuit", "shock", "smoke", "burning smell", "no power", "fuse"];
+  const internetKeywords = ["wifi", "wi-fi", "internet", "router", "modem", "connection", "slow connection", "lan cable", "no internet", "network", "signal"];
+  const furnitureKeywords = ["door", "door knob", "doorknob", "door lock", "padlock", "deadbolt", "key", "lock", "locked out", "window", "window latch", "window lock", "bed", "mattress", "chair", "table", "desk", "cabinet", "cupboard", "closet", "drawer", "shelf", "sofa", "furniture", "hinge"];
+  const cleaningKeywords = ["cleaning", "clean", "trash", "garbage", "rubbish", "pest", "pests", "cockroach", "cockroaches", "roach", "roaches", "ant", "ants", "bug", "bugs", "rodent", "rat", "rats", "mice", "mouse", "infestation", "mold", "mildew", "bad odor"];
+  const generalMaintWords = ["broken", "not working", "stopped working", "keeps going out", "repair", "fix", "damaged", "malfunction", "leaking", "clogged", "technician", "problem in my room", "issue in my room"];
+
+  const hasAc = acKeywords.some(kw => matchesKeyword(kw));
+  const hasPlumbing = plumbingKeywords.some(kw => matchesKeyword(kw));
+  const hasElectrical = electricalKeywords.some(kw => matchesKeyword(kw));
+  const hasInternet = internetKeywords.some(kw => matchesKeyword(kw));
+  const hasFurniture = furnitureKeywords.some(kw => matchesKeyword(kw));
+  const hasCleaning = cleaningKeywords.some(kw => matchesKeyword(kw));
+  const hasGeneralProblem = generalMaintWords.some(kw => matchesKeyword(kw));
+
+  // Determine if maintenance intent
+  const isMaintenance = isDirectMaintButton || hasAc || hasPlumbing || hasElectrical || hasInternet || hasFurniture || hasCleaning || hasGeneralProblem;
+
+  if (!isMaintenance) {
+    return {
+      is_maintenance: false,
+      is_status_query: false,
+      category: "Other",
+      priority: "MEDIUM",
+      description: text,
+      needs_clarification: false,
+      safety_risk: false
+    };
+  }
+
+  // Check if message is too vague (needs clarification)
+  const vagueInputs = ["report_maintenance", "report maintenance", "maintenance", "maintenance please", "repair", "help repair", "something is broken", "it is broken", "it's broken", "can you send a repairman", "i need maintenance", "need maintenance", "broken"];
+  const isVague = vagueInputs.includes(lower) || (text.split(" ").length <= 3 && !hasAc && !hasPlumbing && !hasElectrical && !hasFurniture && !hasInternet && !hasCleaning);
+
+  if (isVague) {
+    return {
+      is_maintenance: true,
+      is_status_query: false,
+      category: "Other",
+      priority: "MEDIUM",
+      description: text,
+      needs_clarification: true,
+      clarification_question: "🔧 **ApartmentPro Maintenance Assistance**\n\nCould you please specify what is broken or which equipment needs repair? (For example: *'My aircon is leaking water'*, *'The toilet is clogged'*, or *'The light in my room is flickering'*).\n\nOnce you describe the problem, I will immediately log your ticket and notify our administration!",
+      safety_risk: false
+    };
+  }
+
+  // Determine Category
+  let category: MaintenanceCategory = "Other";
+  if (hasAc) {
+    category = "Air Conditioning";
+  } else if (hasPlumbing) {
+    category = "Plumbing";
+  } else if (hasElectrical) {
+    category = "Electrical";
+  } else if (hasInternet) {
+    category = "Internet";
+  } else if (hasFurniture) {
+    category = "Furniture";
+  } else if (hasCleaning) {
+    category = "Cleaning";
+  }
+
+  // Determine Severity (CRITICAL, HIGH, MEDIUM, LOW)
+  // CRITICAL: Smoke, fire, flame, spark, burning, live wire, gas leak, burst pipe with major flooding, ceiling collapse
+  const criticalTriggers = ["smoke", "fire", "flame", "spark", "sparks", "sparking", "sparked", "burning", "burnt smell", "burning smell", "live wire", "exposed wire", "electric shock", "gas leak", "burst pipe", "flooding", "water everywhere", "ceiling collapsing", "structural"];
+  const isCritical = criticalTriggers.some(trigger => lower.includes(trigger));
+
+  // HIGH: Serious water leak, toilet overflowing, entire power out, heavy leak, shower no water, broken main lock
+  const highTriggers = ["heavy leak", "really bad leak", "water pouring", "water coming from the ceiling", "toilet overflow", "overflowing", "no electricity in", "entire electricity", "complete blackout", "no water", "shower has no water", "aircon leaking heavily", "lock is broken", "door won't lock", "door wont lock", "broken lock", "can't lock my door", "cant lock my door", "burst"];
+  const isHigh = !isCritical && highTriggers.some(trigger => lower.includes(trigger));
+
+  // LOW: Cosmetic, minor fixture, loose handle, slow internet, lightbulb replacement, cleaning/trash
+  const lowTriggers = ["light bulb", "bulb", "loose", "scratch", "cabinet hinge", "drawer handle", "door knob loose", "wifi", "internet", "trash", "cleaning"];
+  const isLow = !isCritical && !isHigh && lowTriggers.some(trigger => lower.includes(trigger)) && !lower.includes("leak") && !lower.includes("clogged") && !lower.includes("flickering") && !lower.includes("smoke");
+
+  let priority: MaintenanceSeverity = "MEDIUM";
+  let safety_risk = false;
+  let safety_advisory: string | undefined = undefined;
+
+  if (isCritical) {
+    priority = "CRITICAL";
+    safety_risk = true;
+    safety_advisory = "⚠️ **SAFETY PRECAUTION:** Please keep a safe distance from the hazard. Do NOT touch any damaged wiring, outlets, or flooded electrical items. If safe, switch off your unit's main circuit breaker or shut off the main water valve. If there is active smoke or fire, evacuate immediately and call emergency services (911).";
+  } else if (isHigh) {
+    priority = "HIGH";
+  } else if (isLow) {
+    priority = "LOW";
+  } else {
+    priority = "MEDIUM";
+  }
+
+  return {
+    is_maintenance: true,
+    is_status_query: false,
+    category,
+    priority,
+    description: text,
+    needs_clarification: false,
+    safety_risk,
+    safety_advisory
+  };
+}
+
+export function findOpenDuplicateTicket(
+  db: any,
+  tenantId: string | null,
+  roomNum: string,
+  category: MaintenanceCategory,
+  description: string
+): any | null {
+  const openTickets = (db.maintenanceRequests || []).filter((t: any) => {
+    const matchesTenant = (tenantId && t.tenant_id === tenantId) ||
+      (roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" && t.room_number === roomNum);
+    const isOpen = t.status === "pending" || t.status === "in_progress";
+    return matchesTenant && isOpen;
+  });
+
+  if (openTickets.length === 0) return null;
+
+  const descLower = description.toLowerCase();
+  for (const ticket of openTickets) {
+    if (ticket.category === category) {
+      const prevDescLower = (ticket.issue_description || "").toLowerCase();
+      const isContinuation = descLower.includes("still") ||
+        descLower.includes("again") ||
+        descLower.includes("update") ||
+        descLower.includes("follow up") ||
+        descLower.includes("not fixed") ||
+        descLower.includes("not yet") ||
+        descLower.includes("any news");
+
+      const wordsNew = descLower.replace(/[^\w\s]/g, " ").split(/\s+/).filter(w => w.length > 3);
+      const wordsOld = new Set(prevDescLower.replace(/[^\w\s]/g, " ").split(/\s+/).filter(w => w.length > 3));
+      const hasWordOverlap = wordsNew.some(w => wordsOld.has(w));
+
+      if (isContinuation || hasWordOverlap || openTickets.length === 1) {
+        return ticket;
+      }
+    }
+  }
+
+  return null;
+}
+
+export type MaintenanceSessionStep = "WHEN" | "WHERE" | "DESCRIPTION" | "PHOTO" | "REVIEW" | "EDIT_SELECT";
+
+export interface MaintenanceSession {
+  psid: string;
+  tenantId: string | null;
+  tenantName?: string;
+  roomNumber?: string;
+  step: MaintenanceSessionStep;
+  occurredAt?: string;
+  location?: string;
+  description?: string;
+  photoUrl?: string;
+  photoAttached?: boolean;
+  editingField?: "WHEN" | "WHERE" | "DESCRIPTION" | "PHOTO" | null;
+  updatedAt: number;
+}
+
+export interface ChatbotReplyPayload {
+  text: string;
+  quick_replies?: Array<{ content_type: string; title: string; payload: string }>;
+  session_step?: string;
+  is_maintenance_form?: boolean;
+  create_ticket?: boolean;
+  ticket_details?: {
+    category: MaintenanceCategory;
+    priority: MaintenanceSeverity;
+    description: string;
+    ticket_id?: string;
+    occurred_at?: string;
+    location?: string;
+    photo_url?: string;
+  };
+}
+
+export const whenQuickReplies = [
+  { content_type: "text", title: "Today", payload: "Today" },
+  { content_type: "text", title: "Yesterday", payload: "Yesterday" },
+  { content_type: "text", title: "This morning", payload: "This morning" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+];
+
+export const whereQuickReplies = [
+  { content_type: "text", title: "Bathroom", payload: "Bathroom" },
+  { content_type: "text", title: "Bedroom", payload: "Bedroom" },
+  { content_type: "text", title: "Kitchen", payload: "Kitchen" },
+  { content_type: "text", title: "Living room", payload: "Living room" },
+  { content_type: "text", title: "My room", payload: "My room" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+];
+
+export const descriptionQuickReplies = [
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+];
+
+export const photoQuickReplies = [
+  { content_type: "text", title: "📷 Attach Photo", payload: "ATTACH_PHOTO" },
+  { content_type: "text", title: "Skip Photo", payload: "SKIP_PHOTO" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+];
+
+export const reviewQuickReplies = [
+  { content_type: "text", title: "✅ Submit Report", payload: "SUBMIT_REPORT" },
+  { content_type: "text", title: "✏️ Edit", payload: "EDIT_REPORT" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+];
+
+export const editSelectQuickReplies = [
+  { content_type: "text", title: "📅 When", payload: "EDIT_WHEN" },
+  { content_type: "text", title: "📍 Location", payload: "EDIT_LOCATION" },
+  { content_type: "text", title: "📝 Description", payload: "EDIT_DESCRIPTION" },
+  { content_type: "text", title: "📷 Photo", payload: "EDIT_PHOTO" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+];
+
+// Conversation session management for Messenger multi-step workflows
+const memorySessionStore = new Map<string, MaintenanceSession>();
+
+export function getMaintenanceSession(psid: string): MaintenanceSession | null {
+  // Check memory store first for zero-latency lookups
+  let session = memorySessionStore.get(psid);
+  if (!session) {
+    const db = readDB();
+    if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
+      session = db.maintenanceSessions[psid];
+      if (session) {
+        memorySessionStore.set(psid, session);
+      }
+    }
+  }
+
+  if (!session) return null;
+
+  // Expire session after 2 hours of inactivity
+  if (Date.now() - (session.updatedAt || 0) > 2 * 60 * 60 * 1000) {
+    memorySessionStore.delete(psid);
+    const db = readDB();
+    if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
+      delete db.maintenanceSessions[psid];
+      writeDB(db);
+    }
+    return null;
+  }
+  return session;
+}
+
+export function saveMaintenanceSession(session: MaintenanceSession): void {
+  session.updatedAt = Date.now();
+  memorySessionStore.set(session.psid, { ...session });
+  const db = readDB();
+  db.maintenanceSessions = db.maintenanceSessions || {};
+  db.maintenanceSessions[session.psid] = { ...session };
+  writeDB(db);
+}
+
+export function clearMaintenanceSession(psid: string): void {
+  memorySessionStore.delete(psid);
+  const db = readDB();
+  if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
+    delete db.maintenanceSessions[psid];
+    writeDB(db);
+  }
+}
+
+// Intelligent extractor to preserve pre-stated info (e.g. "My aircon started leaking this morning in my bedroom")
+export function extractMaintenanceDetailsFromText(rawText: string): {
+  occurredAt?: string;
+  location?: string;
+  description?: string;
+} {
+  const text = rawText.trim();
+
+  let occurredAt: string | undefined = undefined;
+  let location: string | undefined = undefined;
+  let description: string = text;
+
+  // 1. Time / Timing extraction patterns
+  const timePatterns: Array<{ regex: RegExp; label: string }> = [
+    { regex: /\b(this\s+morning)\b/i, label: "This morning" },
+    { regex: /\b(this\s+afternoon)\b/i, label: "This afternoon" },
+    { regex: /\b(this\s+evening)\b/i, label: "This evening" },
+    { regex: /\b(today(?:\s+around\s+\d+(?::\d+)?\s*(?:am|pm)?)?)\b/i, label: "Today" },
+    { regex: /\b(yesterday(?:\s+(?:morning|afternoon|evening|night))?)\b/i, label: "Yesterday" },
+    { regex: /\b(last\s+night)\b/i, label: "Last night" },
+    { regex: /\b(earlier\s+today)\b/i, label: "Earlier today" },
+    { regex: /\b(just\s+now)\b/i, label: "Just now" },
+    { regex: /\b(a\s+few\s+moments\s+ago)\b/i, label: "A few moments ago" },
+    { regex: /\b(a\s+few\s+(?:hours?|minutes?|days?)\s+ago)\b/i, label: "A few hours ago" },
+    { regex: /\b(a\s+couple\s+(?:of\s+)?days\s+ago)\b/i, label: "A couple of days ago" },
+    { regex: /\b(\d+\s+days?\s+ago)\b/i, label: "A few days ago" },
+    { regex: /\b(since\s+yesterday)\b/i, label: "Since yesterday" },
+    { regex: /\b(since\s+this\s+morning)\b/i, label: "Since this morning" }
+  ];
+
+  for (const tp of timePatterns) {
+    const match = text.match(tp.regex);
+    if (match) {
+      occurredAt = tp.label;
+      break;
+    }
+  }
+
+  // 2. Location extraction patterns
+  const locationPatterns: Array<{ regex: RegExp; label: string }> = [
+    { regex: /\b(?:in|at|inside)\s+(?:the\s+|my\s+)?(master\s+bedroom|bedroom|bed\s+room)\b/i, label: "Bedroom" },
+    { regex: /\b(?:in|at|inside)\s+(?:the\s+|my\s+)?(bathroom|comfort\s+room|cr|toilet|shower|restroom)\b/i, label: "Bathroom" },
+    { regex: /\b(?:in|at|inside)\s+(?:the\s+|my\s+)?(kitchen)\b/i, label: "Kitchen" },
+    { regex: /\b(?:in|at|inside)\s+(?:the\s+|my\s+)?(living\s+room|livingroom|hall)\b/i, label: "Living room" },
+    { regex: /\b(?:outside\s+the\s+unit|outside\s+my\s+unit|outside\s+corridor|hallway)\b/i, label: "Outside the unit" },
+    { regex: /\b(?:near\s+the\s+front\s+door|front\s+door|doorstep)\b/i, label: "Near the front door" },
+    { regex: /\b(?:on\s+the\s+balcony|balcony)\b/i, label: "Balcony" },
+    { regex: /\b(?:on\s+the\s+ceiling|ceiling)\b/i, label: "Ceiling" },
+    { regex: /\b(?:in\s+my\s+room|my\s+room|my\s+unit)\b/i, label: "My room" }
+  ];
+
+  for (const lp of locationPatterns) {
+    if (lp.regex.test(text)) {
+      location = lp.label;
+      break;
+    }
+  }
+
+  // Direct keyword fallback if no preposition phrase
+  if (!location) {
+    if (/\b(master\s+bedroom|bedroom)\b/i.test(text)) location = "Bedroom";
+    else if (/\b(bathroom|toilet|comfort\s+room|shower)\b/i.test(text)) location = "Bathroom";
+    else if (/\b(kitchen)\b/i.test(text)) location = "Kitchen";
+    else if (/\b(living\s+room)\b/i.test(text)) location = "Living room";
+    else if (/\b(balcony)\b/i.test(text)) location = "Balcony";
+  }
+
+  return { occurredAt, location, description };
+}
+
+// Renders the review screen before ticket creation (Step 6)
+export function formatReviewSummary(session: MaintenanceSession): ChatbotReplyPayload {
+  const occurredAt = session.occurredAt || "Not specified";
+  const location = session.location || "Not specified";
+  const description = session.description || "Not specified";
+  const photoStr = session.photoAttached ? "Attached" : "No photo";
+
+  const summaryText = `🔧 **Maintenance Report**\n\n` +
+    `📅 When:\n${occurredAt}\n\n` +
+    `📍 Where:\n${location}\n\n` +
+    `📝 Problem:\n${description}\n\n` +
+    `📷 Photo:\n${photoStr}\n\n` +
+    `Please review your report.`;
+
+  return {
+    text: summaryText,
+    quick_replies: reviewQuickReplies,
+    session_step: "REVIEW",
+    is_maintenance_form: true
+  };
+}
+
+export function createMaintenanceTicketRecord(
+  db: any,
+  tenantObj: any | null,
+  roomNum: string,
+  tenantId: string | null,
+  senderPsid: string,
+  category: MaintenanceCategory,
+  priority: MaintenanceSeverity,
+  description: string,
+  occurredAt: string = "Recently",
+  location: string = "Room",
+  photoUrl?: string
+): { ticketId: string; reply: string } {
+  // Generate Clean Ticket ID matching required specification: MT-XXXXXX
+  const ticketId = `MT-${Math.floor(100000 + Math.random() * 900000)}`;
+  const tenantName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`;
+  const sanitizedRoom = roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" ? roomNum : "Unknown";
+
+  // 1. Create Ticket in database
+  const newMaint = {
+    id: ticketId,
+    room_id: tenantObj ? tenantObj.room_id : "",
+    room_number: sanitizedRoom,
+    tenant_id: tenantId || "guest",
+    tenant_name: tenantName,
+    issue_description: description,
+    description: description,
+    category,
+    priority,
+    severity: priority,
+    occurred_at: occurredAt,
+    occurredAt: occurredAt,
+    location: location,
+    photo_url: photoUrl || "",
+    photo: photoUrl || "",
+    messenger_psid: senderPsid,
+    status: "pending" as const,
+    created_at: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  db.maintenanceRequests = db.maintenanceRequests || [];
+  db.maintenanceRequests.push(newMaint);
+
+  // 2. Format Admin Alert strictly to user specifications (Step 11)
+  let adminTitle = "";
+  let urgentFootnote = "";
+  if (priority === "CRITICAL") {
+    adminTitle = "🚨 **CRITICAL MAINTENANCE REPORT**";
+    urgentFootnote = "\n\n⚠️ Immediate attention required.";
+  } else if (priority === "HIGH") {
+    adminTitle = "🔴 **HIGH PRIORITY MAINTENANCE**";
+  } else if (priority === "MEDIUM") {
+    adminTitle = "🟠 **MEDIUM PRIORITY MAINTENANCE**";
+  } else {
+    adminTitle = "🟢 **LOW PRIORITY MAINTENANCE**";
+  }
+
+  const photoStr = (photoUrl && photoUrl.trim().length > 0) ? "Attached" : "No photo";
+  const displayRoom = sanitizedRoom.startsWith("Room") ? sanitizedRoom : `Room ${sanitizedRoom}`;
+  const adminMessage = `${adminTitle}\n\n` +
+    `Tenant: ${tenantName}\n` +
+    `Room: ${displayRoom}\n\n` +
+    `Category: ${category}\n` +
+    `Severity: ${priority}\n\n` +
+    `📅 When:\n${occurredAt}\n\n` +
+    `📍 Location:\n${location}\n\n` +
+    `📝 Problem:\n${description}\n\n` +
+    `📷 Photo:\n${photoStr}\n\n` +
+    `🎫 Ticket:\n${ticketId}${urgentFootnote}`;
+
+  const newNotif = {
+    id: `notif-maint-${Date.now()}`,
+    tenant_id: tenantId || "guest",
+    tenant_name: tenantName,
+    message: adminMessage,
+    type: "general" as const,
+    status: "sent" as const,
+    channel: "in_app" as const,
+    created_at: new Date().toISOString()
+  };
+  if (!db.notifications) db.notifications = [];
+  db.notifications.push(newNotif);
+
+  // 3. Log in Transaction Audit Trail
+  logTransaction(db, {
+    category: "maintenance",
+    action: "create",
+    title: `Maintenance Request [${priority}] - ${category}`,
+    details: `Ticket ${ticketId} created for ${tenantName} (${displayRoom}): "${description}". Priority: ${priority}. Location: ${location}. Occurred: ${occurredAt}. Photo: ${photoStr}.`,
+    tenant_id: tenantId || "guest",
+    tenant_name: tenantName,
+    room_number: sanitizedRoom,
+    performed_by: "Messenger AI Bot"
+  });
+
+  writeDB(db);
+
+  // 4. Format Tenant Confirmation Response strictly to specifications (Step 12)
+  const photoNote = (photoUrl && photoUrl.trim().length > 0) ? "📷 Photo attached to the report." : "📷 No photo attached.";
+  let tenantConfirmation = `🔧 **Maintenance Report Submitted**\n\n` +
+    `Ticket ID: ${ticketId}\n\n` +
+    `📍 Location: ${location}\n` +
+    `📝 Issue: ${description}\n` +
+    `🏷️ Category: ${category}\n` +
+    `⚠️ Priority: ${priority}\n\n` +
+    `The administration has been notified.\n\n` +
+    `${photoNote}`;
+
+  if (priority === "CRITICAL") {
+    tenantConfirmation += `\n\n⚠️ **IMMEDIATE SAFETY ADVISORY:**\n` +
+      `Please keep a safe distance from the hazard. Do NOT touch any damaged wiring, outlets, or flooded electrical items. If safe, switch off your unit's main circuit breaker or shut off the main water valve. If there is active smoke or fire, evacuate immediately and call emergency services (911).`;
+  }
+
+  return { ticketId, reply: tenantConfirmation };
+}
+
 // Core ApartmentPro Chatbot Engine
-export async function processChatbotMessage(messageText: string, tenantId: string | null, senderPsid: string): Promise<string> {
+export async function processChatbotMessage(
+  messageText: string,
+  tenantId: string | null,
+  senderPsid: string,
+  attachmentUrl?: string
+): Promise<ChatbotReplyPayload | string> {
   const db = readDB();
   const announcementsList = db.announcements || [];
   const rulesList = db.rules || [];
@@ -301,9 +912,506 @@ Tenant Profile:
     }
   }
 
+  const textTrimmed = (messageText || "").trim();
+  const textLower = textTrimmed.toLowerCase();
+
+  // =========================================================================
+  // PRIORITY 0: ACTIVE MULTI-STEP MAINTENANCE SESSION STATE MACHINE
+  // =========================================================================
+  const activeSession = getMaintenanceSession(senderPsid);
+  if (activeSession) {
+    // 0A. Handle Cancel Request (Can cancel anytime)
+    const isCancel = textLower === "cancel" ||
+      textLower === "cancel report" ||
+      textLower === "cancel maintenance" ||
+      textLower === "stop" ||
+      textLower === "cancel_form" ||
+      textLower === "cancel_maintenance" ||
+      textLower === "exit" ||
+      textTrimmed === "CANCEL_FORM" ||
+      textTrimmed === "CANCEL_MAINTENANCE" ||
+      textTrimmed === "❌ Cancel";
+
+    if (isCancel) {
+      clearMaintenanceSession(senderPsid);
+      return {
+        text: "Maintenance report cancelled. No ticket was created.",
+        quick_replies: standardQuickReplies,
+        is_maintenance_form: false
+      };
+    }
+
+    // 0B. Step: WHEN
+    if (activeSession.step === "WHEN") {
+      activeSession.occurredAt = textTrimmed;
+
+      if (activeSession.editingField === "WHEN") {
+        activeSession.editingField = null;
+        activeSession.step = "REVIEW";
+        saveMaintenanceSession(activeSession);
+        return formatReviewSummary(activeSession);
+      }
+
+      if (!activeSession.location) {
+        activeSession.step = "WHERE";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📍 **Where is the problem located?**",
+          quick_replies: whereQuickReplies,
+          session_step: "WHERE",
+          is_maintenance_form: true
+        };
+      } else if (!activeSession.description) {
+        activeSession.step = "DESCRIPTION";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📝 **Please describe the problem.**",
+          quick_replies: descriptionQuickReplies,
+          session_step: "DESCRIPTION",
+          is_maintenance_form: true
+        };
+      } else {
+        activeSession.step = "PHOTO";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📷 **Would you like to attach a photo?**",
+          quick_replies: photoQuickReplies,
+          session_step: "PHOTO",
+          is_maintenance_form: true
+        };
+      }
+    }
+
+    // 0C. Step: WHERE
+    if (activeSession.step === "WHERE") {
+      if (textLower === "my room" || textLower === "in my room" || textLower === "my unit" || textLower === "room") {
+        activeSession.location = roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Tenant Room";
+      } else {
+        activeSession.location = textTrimmed;
+      }
+
+      if (activeSession.editingField === "WHERE") {
+        activeSession.editingField = null;
+        activeSession.step = "REVIEW";
+        saveMaintenanceSession(activeSession);
+        return formatReviewSummary(activeSession);
+      }
+
+      if (!activeSession.description) {
+        activeSession.step = "DESCRIPTION";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📝 **Please describe the problem.**",
+          quick_replies: descriptionQuickReplies,
+          session_step: "DESCRIPTION",
+          is_maintenance_form: true
+        };
+      } else {
+        activeSession.step = "PHOTO";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📷 **Would you like to attach a photo?**",
+          quick_replies: photoQuickReplies,
+          session_step: "PHOTO",
+          is_maintenance_form: true
+        };
+      }
+    }
+
+    // 0D. Step: DESCRIPTION
+    if (activeSession.step === "DESCRIPTION") {
+      activeSession.description = textTrimmed;
+      if (attachmentUrl) {
+        activeSession.photoUrl = attachmentUrl;
+        activeSession.photoAttached = true;
+      }
+
+      if (activeSession.editingField === "DESCRIPTION") {
+        activeSession.editingField = null;
+        activeSession.step = "REVIEW";
+        saveMaintenanceSession(activeSession);
+        return formatReviewSummary(activeSession);
+      }
+
+      activeSession.step = "PHOTO";
+      saveMaintenanceSession(activeSession);
+      return {
+        text: "📷 **Would you like to attach a photo?**",
+        quick_replies: photoQuickReplies,
+        session_step: "PHOTO",
+        is_maintenance_form: true
+      };
+    }
+
+    // 0E. Step: PHOTO
+    if (activeSession.step === "PHOTO") {
+      const isPhotoAttachment = Boolean(attachmentUrl || textLower.startsWith("http://") || textLower.startsWith("https://") || textLower.startsWith("data:image"));
+      const isSkip = textLower === "skip" ||
+        textLower === "skip photo" ||
+        textLower === "skip_photo" ||
+        textTrimmed === "SKIP_PHOTO" ||
+        textTrimmed === "Skip Photo" ||
+        textLower === "no" ||
+        textLower === "no photo" ||
+        textLower === "none" ||
+        textLower === "pass";
+      const isAttachPrompt = textLower === "attach photo" ||
+        textLower === "attach" ||
+        textLower === "upload" ||
+        textLower === "attach_photo" ||
+        textTrimmed === "ATTACH_PHOTO" ||
+        textTrimmed === "📷 Attach Photo" ||
+        textLower === "photo";
+
+      if (isPhotoAttachment) {
+        activeSession.photoUrl = attachmentUrl || textTrimmed;
+        activeSession.photoAttached = true;
+        activeSession.step = "REVIEW";
+        activeSession.editingField = null;
+        saveMaintenanceSession(activeSession);
+        return formatReviewSummary(activeSession);
+      } else if (isSkip) {
+        activeSession.photoUrl = undefined;
+        activeSession.photoAttached = false;
+        activeSession.step = "REVIEW";
+        activeSession.editingField = null;
+        saveMaintenanceSession(activeSession);
+        return formatReviewSummary(activeSession);
+      } else if (isAttachPrompt) {
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📷 Please send or upload the photo of the issue now.",
+          quick_replies: [
+            { content_type: "text", title: "Skip Photo", payload: "SKIP_PHOTO" },
+            { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+          ],
+          session_step: "PHOTO",
+          is_maintenance_form: true
+        };
+      } else {
+        // Text provided at photo step - treat as optional skip or review
+        activeSession.step = "REVIEW";
+        activeSession.editingField = null;
+        saveMaintenanceSession(activeSession);
+        return formatReviewSummary(activeSession);
+      }
+    }
+
+    // 0F. Step: REVIEW
+    if (activeSession.step === "REVIEW") {
+      const isSubmit = textLower === "submit" ||
+        textLower === "submit report" ||
+        textLower === "submit_report" ||
+        textTrimmed === "SUBMIT_REPORT" ||
+        textTrimmed === "✅ Submit Report" ||
+        textLower === "confirm" ||
+        textLower === "yes" ||
+        textLower === "proceed" ||
+        textLower === "send";
+
+      const isEdit = textLower === "edit" ||
+        textLower === "edit report" ||
+        textLower === "edit_report" ||
+        textTrimmed === "EDIT_REPORT" ||
+        textTrimmed === "✏️ Edit" ||
+        textLower === "change" ||
+        textLower === "modify";
+
+      if (isSubmit) {
+        // 1. AI Analysis (Step 7)
+        const maintAnalysis = analyzeMaintenanceIntent(activeSession.description || "");
+        const category = maintAnalysis.category || "Other";
+        const priority = maintAnalysis.priority || "MEDIUM";
+
+        // 2. Server-Side Validation (Step 8)
+        const finalDesc = (activeSession.description || "").trim();
+        if (!finalDesc || finalDesc.length < 3) {
+          activeSession.step = "DESCRIPTION";
+          saveMaintenanceSession(activeSession);
+          return {
+            text: "⚠️ Please provide a clear description of the maintenance issue so our technicians know what to fix.\n\n📝 **Please describe the problem:**",
+            quick_replies: descriptionQuickReplies,
+            session_step: "DESCRIPTION",
+            is_maintenance_form: true
+          };
+        }
+
+        const finalOccurred = (activeSession.occurredAt || "Recently").trim();
+        const finalLocation = (activeSession.location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).trim();
+
+        // 3. Duplicate Ticket Check (Step 9)
+        const openDuplicate = findOpenDuplicateTicket(db, tenantId, roomNum, category, finalDesc);
+        if (openDuplicate) {
+          clearMaintenanceSession(senderPsid);
+
+          logTransaction(db, {
+            category: "maintenance",
+            action: "update",
+            title: `Tenant Follow-Up on Ticket ${openDuplicate.id}`,
+            details: `Tenant ${tenantObj?.name || "Guest"} (Room ${roomNum}) sent update for open ticket ${openDuplicate.id}: "${finalDesc}". Location: ${finalLocation}. Occurred: ${finalOccurred}.`,
+            tenant_id: tenantId || "guest",
+            tenant_name: tenantObj?.name || "Guest",
+            room_number: roomNum,
+            performed_by: "Messenger AI Bot"
+          });
+
+          const notifMsg = `ℹ️ Tenant Follow-up: Room ${roomNum} sent an update regarding open ticket [${openDuplicate.id}]: "${finalDesc}"`;
+          if (!db.notifications) db.notifications = [];
+          db.notifications.push({
+            id: `notif-followup-${Date.now()}`,
+            tenant_id: tenantId || "guest",
+            tenant_name: tenantObj?.name || "Guest",
+            message: notifMsg,
+            type: "general" as const,
+            status: "sent" as const,
+            channel: "in_app" as const,
+            created_at: new Date().toISOString()
+          });
+          writeDB(db);
+
+          const statusLabel = openDuplicate.status === "in_progress" ? "In Progress" : "Pending";
+          const duplicateReply = `🔧 **Existing Maintenance Report Found**\n\n` +
+            `You already have an active maintenance report for this issue.\n\n` +
+            `Ticket ID: ${openDuplicate.id}\n` +
+            `Status: ${statusLabel}\n\n` +
+            `Your new information has been added as a follow-up.`;
+
+          return {
+            text: duplicateReply,
+            quick_replies: standardQuickReplies,
+            is_maintenance_form: false,
+            ticket_details: {
+              category: openDuplicate.category,
+              priority: openDuplicate.priority,
+              description: openDuplicate.issue_description,
+              ticket_id: openDuplicate.id
+            }
+          };
+        }
+
+        // 4. Create Ticket Record (Step 10, Step 11, Step 12)
+        const ticketResult = createMaintenanceTicketRecord(
+          db,
+          tenantObj,
+          roomNum,
+          tenantId,
+          senderPsid,
+          category,
+          priority,
+          finalDesc,
+          finalOccurred,
+          finalLocation,
+          activeSession.photoUrl
+        );
+
+        clearMaintenanceSession(senderPsid);
+
+        return {
+          text: ticketResult.reply,
+          quick_replies: standardQuickReplies,
+          create_ticket: true,
+          is_maintenance_form: false,
+          ticket_details: {
+            category,
+            priority,
+            description: finalDesc,
+            ticket_id: ticketResult.ticketId,
+            occurred_at: finalOccurred,
+            location: finalLocation,
+            photo_url: activeSession.photoUrl
+          }
+        };
+      }
+
+      if (isEdit) {
+        activeSession.step = "EDIT_SELECT";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "✏️ **What would you like to edit?**\n\nPlease choose which information to change:",
+          quick_replies: editSelectQuickReplies,
+          session_step: "EDIT_SELECT",
+          is_maintenance_form: true
+        };
+      }
+
+      // Default review prompt
+      return formatReviewSummary(activeSession);
+    }
+
+    // 0G. Step: EDIT_SELECT
+    if (activeSession.step === "EDIT_SELECT") {
+      if (textTrimmed === "EDIT_WHEN" || textTrimmed === "📅 When" || textLower === "when" || textLower.includes("when") || textLower.includes("time") || textLower.includes("date")) {
+        activeSession.step = "WHEN";
+        activeSession.editingField = "WHEN";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: `📅 When did the problem happen?\n\n(Current: "${activeSession.occurredAt || "Not specified"}")`,
+          quick_replies: whenQuickReplies,
+          session_step: "WHEN",
+          is_maintenance_form: true
+        };
+      } else if (textTrimmed === "EDIT_LOCATION" || textTrimmed === "📍 Location" || textLower === "where" || textLower === "location" || textLower.includes("where") || textLower.includes("location")) {
+        activeSession.step = "WHERE";
+        activeSession.editingField = "WHERE";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: `📍 **Where is the problem located?**\n\n(Current: "${activeSession.location || "Not specified"}")`,
+          quick_replies: whereQuickReplies,
+          session_step: "WHERE",
+          is_maintenance_form: true
+        };
+      } else if (textTrimmed === "EDIT_DESCRIPTION" || textTrimmed === "📝 Description" || textLower === "description" || textLower.includes("description") || textLower.includes("problem") || textLower.includes("issue")) {
+        activeSession.step = "DESCRIPTION";
+        activeSession.editingField = "DESCRIPTION";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: `📝 **Please describe the problem.**\n\n(Current: "${activeSession.description || "Not specified"}")`,
+          quick_replies: descriptionQuickReplies,
+          session_step: "DESCRIPTION",
+          is_maintenance_form: true
+        };
+      } else if (textTrimmed === "EDIT_PHOTO" || textTrimmed === "📷 Photo" || textLower === "photo" || textLower.includes("photo") || textLower.includes("image") || textLower.includes("picture")) {
+        activeSession.step = "PHOTO";
+        activeSession.editingField = "PHOTO";
+        saveMaintenanceSession(activeSession);
+        return {
+          text: `📷 **Would you like to attach a photo?**\n\n(Current: ${activeSession.photoAttached ? "Photo attached" : "No photo"})`,
+          quick_replies: photoQuickReplies,
+          session_step: "PHOTO",
+          is_maintenance_form: true
+        };
+      } else {
+        return {
+          text: "✏️ **What would you like to edit?**\n\nPlease choose which information to change:",
+          quick_replies: editSelectQuickReplies,
+          session_step: "EDIT_SELECT",
+          is_maintenance_form: true
+        };
+      }
+    }
+  }
+
+  // Pre-analyze message intent
+  const maintAnalysis = analyzeMaintenanceIntent(messageText);
+
+  // =========================================================================
+  // PRIORITY 1: BUTTON TRIGGERED OR NATURAL LANGUAGE MAINTENANCE REPORTING
+  // =========================================================================
+  const isMaintenanceButton = textTrimmed === "REPORT_MAINTENANCE" ||
+    textTrimmed === "report_maintenance" ||
+    textTrimmed === "🔧 Report Maintenance" ||
+    textTrimmed === "🔧 Maintenance" ||
+    textLower === "maintenance" ||
+    textLower === "report maintenance" ||
+    textLower === "repair";
+
+  if (isMaintenanceButton) {
+    const session: MaintenanceSession = {
+      psid: senderPsid,
+      tenantId,
+      tenantName: tenantObj?.name,
+      roomNumber: roomNum,
+      step: "WHEN",
+      updatedAt: Date.now()
+    };
+    saveMaintenanceSession(session);
+
+    return {
+      text: `🔧 **Maintenance Report**\n\nI can help you submit a maintenance request.\n\nPlease provide the following information:\n\n📅 When did the problem happen?`,
+      quick_replies: whenQuickReplies,
+      session_step: "WHEN",
+      is_maintenance_form: true
+    };
+  }
+
+  if (maintAnalysis.is_maintenance) {
+    const extracted = extractMaintenanceDetailsFromText(messageText);
+    const session: MaintenanceSession = {
+      psid: senderPsid,
+      tenantId,
+      tenantName: tenantObj?.name,
+      roomNumber: roomNum,
+      occurredAt: extracted.occurredAt,
+      location: extracted.location,
+      description: extracted.description || textTrimmed,
+      updatedAt: Date.now(),
+      step: "WHEN"
+    };
+
+    if (!session.occurredAt) {
+      session.step = "WHEN";
+      saveMaintenanceSession(session);
+      return {
+        text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When did the problem start?`,
+        quick_replies: whenQuickReplies,
+        session_step: "WHEN",
+        is_maintenance_form: true
+      };
+    } else if (!session.location) {
+      session.step = "WHERE";
+      saveMaintenanceSession(session);
+      return {
+        text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n\n📍 **Where is the problem located?**`,
+        quick_replies: whereQuickReplies,
+        session_step: "WHERE",
+        is_maintenance_form: true
+      };
+    } else {
+      session.step = "PHOTO";
+      saveMaintenanceSession(session);
+      return {
+        text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n📍 Where: ${session.location}\n📝 Problem: ${session.description}\n\n📷 **Would you like to attach a photo?**`,
+        quick_replies: photoQuickReplies,
+        session_step: "PHOTO",
+        is_maintenance_form: true
+      };
+    }
+  }
+
   // Local Rule-Based Fallback Generator (Guaranteed reliable, fast, zero secrets)
   const generateLocalResponse = (msg: string): string => {
     const text = msg.toLowerCase().trim();
+
+    // =========================================================================
+    // PRIORITY 1: MAINTENANCE STATUS CHECK
+    // =========================================================================
+    if (maintAnalysis.is_status_query) {
+      const tenantTickets = (db.maintenanceRequests || []).filter((t: any) => {
+        return (tenantId && t.tenant_id === tenantId) ||
+          (roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" && t.room_number === roomNum);
+      });
+
+      if (tenantTickets.length === 0) {
+        return `ℹ️ *NO ACTIVE MAINTENANCE TICKETS*\n\nThere are currently no maintenance tickets on file for Room ${roomNum}.\n\nIf you have an issue that needs repair, simply describe the problem (e.g. *"My aircon is leaking"* or *"The toilet is clogged"*), and I will log it for you right away!`;
+      }
+
+      const recentTickets = [...tenantTickets].reverse().slice(0, 5);
+      let statusReply = `🔧 *YOUR MAINTENANCE TICKETS (Room ${roomNum}):*\n\n`;
+      recentTickets.forEach((t: any) => {
+        const priorityEmoji = t.priority === "Critical" ? "🚨 CRITICAL" : t.priority === "High" ? "🔴 HIGH" : t.priority === "Medium" ? "🟡 MEDIUM" : "🟢 LOW";
+        const statusText = t.status === "completed" ? "✅ Completed" : t.status === "in_progress" ? "🛠️ In Progress" : "⏳ Pending Admin Review";
+        const dateStr = t.created_at ? new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
+        statusReply += `• *Ticket ID:* \`${t.id}\` [${priorityEmoji}]\n` +
+          `  *Category:* ${t.category}\n` +
+          `  *Status:* ${statusText}\n` +
+          `  *Reported:* ${dateStr}\n` +
+          `  *Issue:* "${t.issue_description}"\n\n`;
+      });
+      statusReply += `Our property administration is monitoring all open tickets. If you have immediate safety concerns, please contact management directly.`;
+      return statusReply;
+    }
+
+    // =========================================================================
+    // PRIORITY 2: NATURAL-LANGUAGE MAINTENANCE REPORTING
+    // (Handled via structured form above; fallback note if called directly)
+    // =========================================================================
+    if (maintAnalysis.is_maintenance) {
+      return `🔧 *MAINTENANCE REPORTING*\n\nTo report a maintenance issue, please use the structured report options:\n• When did it happen?\n• Where is it located?\n• Description\n• Photo (optional)\n\nPlease tap the 🔧 *Report Maintenance* button below to begin!`;
+    }
+
+    // =========================================================================
+    // PRIORITY 3: NON-MAINTENANCE INTENTS (LEDGER, PAYMENT, BALANCE, RULES)
+    // =========================================================================
 
     // 1. TRANSACTION HISTORY & FINANCIAL LEDGER
     if (text === "get_history" || text === "history" || text.includes("transaction history") || text.includes("my transactions") || text.includes("ledger history") || text.includes("payment history")) {
@@ -323,7 +1431,6 @@ Tenant Profile:
       if (tenantLedgers.length === 0 && tenantBills.length === 0 && tenantLogs.length === 0) {
         historyText += `No transactions have been recorded yet for your account.`;
       } else {
-        // Section A: Security Deposit & Advance Rent Transactions
         historyText += `🛡️ *DEPOSIT & ADVANCE ESCROW LEDGER:*\n`;
         if (tenantLedgers.length === 0) {
           historyText += `_No escrow adjustments recorded._\n\n`;
@@ -337,7 +1444,6 @@ Tenant Profile:
           historyText += `\n`;
         }
 
-        // Section B: Monthly Statements & Invoices
         historyText += `📄 *MONTHLY BILLING INVOICES:*\n`;
         if (tenantBills.length === 0) {
           historyText += `_No billing statements generated yet._\n\n`;
@@ -350,7 +1456,6 @@ Tenant Profile:
           historyText += `\n`;
         }
 
-        // Section C: Current Running Balances
         const curDep = tenantObj.deposit_balance !== undefined ? tenantObj.deposit_balance : tenantObj.deposit || 0;
         const curAdv = tenantObj.advance_balance !== undefined ? tenantObj.advance_balance : (tenantObj.advance_payment || tenantObj.rent_amount || 0);
         historyText += `-----------------------------------\n` +
@@ -402,7 +1507,7 @@ Tenant Profile:
       logTransaction(db, {
         category: "payment",
         action: "create",
-        title: `Payment Reference Submitted via Messenger`,
+        title: "Payment Reference Submitted via Messenger",
         details: `Tenant ${senderName} (${senderRoom}) submitted payment reference: "${msg}". Awaiting admin verification and invoice clearing.`,
         tenant_id: tenantObj?.id || "guest",
         tenant_name: senderName,
@@ -429,7 +1534,7 @@ Tenant Profile:
     }
 
     // 4. BALANCES, DUE DATES, ESCROWS
-    if (text === "get_balance" || text === "balance" || text.includes("my balance") || text.includes("deposit balance") || text.includes("advance balance") || text.includes("how much") || text.includes("rent due") || text.includes("statement") || text.includes("bill") || text.includes("utility") || text.includes("utilities")) {
+    if (text === "get_balance" || text === "balance" || text.includes("balance") || text.includes("due") || text.includes("how much") || text.includes("rent due") || text.includes("statement") || text.includes("bill") || text.includes("utility") || text.includes("utilities")) {
       if (!tenantObj) {
         return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nTo view your live balances, deposit ledger, and due date, please link your tenant account:\n\n👉 Type: *link <contact_number>*\nExample: *link 09171234567*`;
       }
@@ -475,70 +1580,16 @@ Tenant Profile:
       }
     }
 
-    // 8. MAINTENANCE & REPAIR TICKETS
-    const categories = ["plumbing", "electrical", "internet", "aircon", "air conditioning", "furniture", "cleaning", "leak", "water", "light", "faucet", "clogged", "broken", "wifi", "maintenance", "repair"];
-    const containsMaintKeyword = text === "report_maintenance" || categories.some(cat => text.includes(cat));
-
-    if (containsMaintKeyword) {
-      let category: any = "Other";
-      let priority: "High" | "Medium" | "Low" = "Medium";
-      let description = msg;
-
-      if (text.includes("leak") || text.includes("water") || text.includes("plumbing") || text.includes("faucet") || text.includes("toilet") || text.includes("sink")) {
-        category = "Plumbing";
-        if (text.includes("no water") || text.includes("burst") || text.includes("flooding") || text.includes("flood")) priority = "High";
-      } else if (text.includes("electricity") || text.includes("light") || text.includes("wire") || text.includes("spark") || text.includes("power") || text.includes("outlet") || text.includes("electrical")) {
-        category = "Electrical";
-        if (text.includes("no power") || text.includes("spark") || text.includes("burning") || text.includes("short circuit")) priority = "High";
-      } else if (text.includes("internet") || text.includes("wifi") || text.includes("router") || text.includes("connection")) {
-        category = "Internet";
-        priority = "Low";
-      } else if (text.includes("aircon") || text.includes("air conditioning") || text.includes("cooling") || text.includes("ac")) {
-        category = "Air Conditioning";
-        priority = "Medium";
-      }
-
-      const newMaintId = `maint-${Date.now()}`;
-      const newMaint = {
-        id: newMaintId,
-        room_id: tenantObj ? tenantObj.room_id : "",
-        room_number: roomNum || "Guest/Unknown",
-        tenant_id: tenantId || "guest",
-        tenant_name: tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`,
-        issue_description: description,
-        category,
-        priority,
-        status: "pending" as const,
-        created_at: new Date().toISOString()
-      };
-
-      db.maintenanceRequests = db.maintenanceRequests || [];
-      db.maintenanceRequests.push(newMaint);
-
-      const urgencyStr = priority === "High" ? "🔴 HIGH PRIORITY" : priority === "Medium" ? "🟡 MEDIUM PRIORITY" : "🟢 LOW PRIORITY";
-      const newNotif = {
-        id: `notif-${Date.now()}`,
-        tenant_id: tenantId || "guest",
-        tenant_name: tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`,
-        message: `🔧 Maintenance Ticket [${urgencyStr}]: New ${category} ticket submitted via Facebook Messenger by Room ${roomNum || "Guest"} - "${description.substring(0, 80)}..."`,
-        type: "general" as const,
-        status: "sent" as const,
-        channel: "in_app" as const,
-        created_at: new Date().toISOString()
-      };
-      if (!db.notifications) db.notifications = [];
-      db.notifications.push(newNotif);
-      writeDB(db);
-
-      const priorityEmoji = priority === "High" ? "🔴" : priority === "Medium" ? "🟡" : "🟢";
-      return `🔧 *MAINTENANCE TICKET FILED SUCCESSFULLY!*\n\nI have automatically logged your issue in our maintenance database:\n- *Ticket ID:* \`${newMaintId}\`\n- *Category:* ${category}\n- *Priority:* ${priorityEmoji} ${priority}\n- *Unit:* Room ${roomNum || "Guest"}\n- *Status:* ⏳ Pending Admin Review\n\nOur maintenance staff has been dispatched an alert.`;
-    }
-
     // Default conversational greeting & navigation menu
-    return `👋 Hello! I am the **ApartmentPro Assistant**.\n\nHow can I help you today? Tap any of the quick action buttons below:\n\n• 📋 *Transaction History* — View ledger & receipts\n• 💳 *Send Payment* — Payment channels & instructions\n• 💰 *Balances* — Live rent & utility summary\n• 🔧 *Report Maintenance* — Log a repair ticket\n• 📢 *Announcements* — Building news & advisories\n• 📜 *Apartment Rules* — Policies & guidelines\n\n👉 If you are a tenant, type: *link <your_contact_number>* (e.g. *link 09171234567*) to securely link your profile!`;
+    return `👋 Hello! I am the **ApartmentPro Assistant**.\n\nHow can I help you today? Tap any of the quick action buttons below:\n\n• 🔧 *Report Maintenance* — Log a repair ticket (e.g. "My aircon is leaking")\n• 📋 *Transaction History* — View ledger & receipts\n• 💳 *Send Payment* — Payment channels & instructions\n• 💰 *Balances* — Live rent & utility summary\n• 📢 *Announcements* — Building news & advisories\n• 📜 *Apartment Rules* — Policies & guidelines\n\n👉 If you are a tenant, type: *link <your_contact_number>* (e.g. *link 09171234567*) to securely link your profile!`;
   };
 
-  // Try Gemini AI Generation if available
+  // If Maintenance Intent is detected, process it through the verified priority workflow!
+  if (maintAnalysis.is_maintenance || maintAnalysis.is_status_query) {
+    return generateLocalResponse(messageText);
+  }
+
+  // Try Gemini AI Generation with safety fallback for open conversation
   const ai = getAIClient();
   if (!ai) {
     return generateLocalResponse(messageText);
@@ -549,7 +1600,7 @@ Tenant Profile:
     const annSummary = announcementsList.map((a: any) => `- [${a.title}]: ${a.content} (Posted: ${a.created_at})`).join("\n");
 
     const systemPrompt = `You are "ApartmentPro Assistant", a highly polished, helpful, and professional virtual property assistant for the ApartmentPro property management system.
-Your job is to assist tenants and guests via Facebook Messenger. You are connected to the live ApartmentPro database.
+You are assisting tenants and guests via Facebook Messenger.
 
 Current Context:
 ${tenantContext}
@@ -560,87 +1611,153 @@ ${rulesSummary || "Quiet hours from 10 PM to 7 AM. Keep corridors clean. Turn of
 Active Announcements:
 ${annSummary || "No active announcements."}
 
-CRITICAL PRIVACY RULES:
-1. If the user is NOT logged in/verified as a tenant (browsing as Guest) and asks for personal tenant data (like rent dues, personal utility bills, deposit balance, ledger history, contract status):
-   - You MUST NOT reveal any confidential tenant balances or history.
-   - Instruct them to link their tenant profile by typing: link <contact_number> (e.g. link 09171234567).
-2. If the user IS logged in as a tenant and asks about their balances, history, due dates, or lease:
-   - Provide their exact financial details from the context above.
-3. If the user is reporting a maintenance issue (water leak, electrical problem, AC, etc.):
-   - Set "create_ticket" to true.
-   - Select "category" from: "Plumbing", "Electrical", "Internet", "Air Conditioning", "Furniture", "Cleaning", "Other".
-   - Select "priority" from: "High", "Medium", "Low".
-4. If the user asks how to pay rent:
-   - Explain payment options: GCash/Maya (0917-888-9999) or Bank Transfer (BDO: 0012-3456-7890, BPI: 0987-6543-2100).
-   - Tell them they can confirm payment by typing: paid <amount> ref <reference_number>.
-5. Format your response cleanly using emojis and bold headers (*text*). Do NOT output HTML tags.
-6. Return a JSON object matching this schema:
+CRITICAL DIRECTIVES:
+1. MAINTENANCE REPORTING PRIORITY:
+   - If the user is reporting any maintenance issue or physical problem in their unit (AC, plumbing, electrical, lock, wifi, leak, etc.):
+     * DO NOT give generic AI advice or DIY repair tutorials for electrical or high hazard problems.
+     * Set "is_maintenance": true.
+     * Select "category" from: "Plumbing", "Electrical", "Internet", "Air Conditioning", "Furniture", "Cleaning", "Other".
+     * Select "priority" from: "CRITICAL", "HIGH", "MEDIUM", "LOW".
+     * Provide a clean summary in "description".
+2. STATUS CHECK:
+   - If the user asks for the status of their maintenance repair or ticket:
+     * Set "is_status_query": true.
+3. FINANCIAL PRIVACY:
+   - If unverified/guest asks for personal balances/bills, ask them to link their account (link <contact_number>).
+4. Return a clean JSON matching this schema:
 {
   "reply": "Conversational reply text formatted in clean Markdown with emojis",
-  "intent": "get_history | send_payment | get_balance | report_maintenance | view_announcements | view_rules | view_profile | chat",
-  "create_ticket": true or false,
-  "ticket_details": {
-    "category": "Plumbing | Electrical | Internet | Air Conditioning | Furniture | Cleaning | Other",
-    "priority": "High | Medium | Low",
-    "description": "Brief summary of the issue reported"
-  }
+  "intent": "maintenance_report | maintenance_status | get_history | send_payment | get_balance | view_announcements | view_rules | view_profile | chat",
+  "is_maintenance": boolean,
+  "is_status_query": boolean,
+  "category": "Plumbing | Electrical | Internet | Air Conditioning | Furniture | Cleaning | Other",
+  "priority": "CRITICAL | HIGH | MEDIUM | LOW",
+  "description": "Clean summary of maintenance problem"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const generatePromise = ai.models.generateContent({
+      model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text: messageText }] }],
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
-        temperature: 0.3
+        temperature: 0.2
       }
     });
 
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini timeout")), 3500));
+    const response: any = await Promise.race([generatePromise, timeoutPromise]);
     const parsedRes = JSON.parse((response.text || "").trim());
 
-    if (parsedRes.create_ticket && parsedRes.ticket_details) {
-      const details = parsedRes.ticket_details;
-      const newMaintId = `maint-${Date.now()}`;
-      const newMaint = {
-        id: newMaintId,
-        room_id: tenantObj ? tenantObj.room_id : "",
-        room_number: roomNum || "Guest/Unknown",
-        tenant_id: tenantId || "guest",
-        tenant_name: tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`,
-        issue_description: details.description || messageText,
-        category: details.category || "Other",
-        priority: details.priority || "Medium",
-        status: "pending" as const,
-        created_at: new Date().toISOString()
+    // If Gemini identified maintenance, start the structured maintenance form!
+    if (parsedRes.is_maintenance || parsedRes.intent === "maintenance_report") {
+      const desc = parsedRes.description || messageText;
+      const extracted = extractMaintenanceDetailsFromText(desc);
+      const session: MaintenanceSession = {
+        psid: senderPsid,
+        tenantId,
+        tenantName: tenantObj?.name,
+        roomNumber: roomNum,
+        occurredAt: extracted.occurredAt,
+        location: extracted.location,
+        description: extracted.description || desc,
+        updatedAt: Date.now(),
+        step: "WHEN"
       };
 
-      db.maintenanceRequests = db.maintenanceRequests || [];
-      db.maintenanceRequests.push(newMaint);
+      if (!session.occurredAt) {
+        session.step = "WHEN";
+        saveMaintenanceSession(session);
+        return {
+          text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When did the problem start?`,
+          quick_replies: whenQuickReplies,
+          session_step: "WHEN",
+          is_maintenance_form: true
+        };
+      } else if (!session.location) {
+        session.step = "WHERE";
+        saveMaintenanceSession(session);
+        return {
+          text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n\n📍 **Where is the problem located?**`,
+          quick_replies: whereQuickReplies,
+          session_step: "WHERE",
+          is_maintenance_form: true
+        };
+      } else {
+        session.step = "PHOTO";
+        saveMaintenanceSession(session);
+        return {
+          text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n📍 Where: ${session.location}\n📝 Problem: ${session.description}\n\n📷 **Would you like to attach a photo?**`,
+          quick_replies: photoQuickReplies,
+          session_step: "PHOTO",
+          is_maintenance_form: true
+        };
+      }
+    }
 
-      const urgencyStr = newMaint.priority === "High" ? "🔴 HIGH PRIORITY" : newMaint.priority === "Medium" ? "🟡 MEDIUM PRIORITY" : "🟢 LOW PRIORITY";
-      const newNotif = {
-        id: `notif-${Date.now()}`,
-        tenant_id: tenantId || "guest",
-        tenant_name: tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`,
-        message: `🔧 Maintenance Ticket [${urgencyStr}]: New ${newMaint.category} ticket submitted via Facebook Messenger by Room ${roomNum || "Guest"} - "${newMaint.issue_description.substring(0, 80)}..."`,
-        type: "general" as const,
-        status: "sent" as const,
-        channel: "in_app" as const,
-        created_at: new Date().toISOString()
-      };
-      if (!db.notifications) db.notifications = [];
-      db.notifications.push(newNotif);
-      writeDB(db);
-
-      const priorityEmoji = newMaint.priority === "High" ? "🔴" : newMaint.priority === "Medium" ? "🟡" : "🟢";
-      return `${parsedRes.reply}\n\n🔧 *Maintenance Request Filed!*\n- *Ticket ID:* \`${newMaintId}\`\n- *Category:* ${newMaint.category}\n- *Priority:* ${priorityEmoji} ${newMaint.priority}\n- *Status:* ⏳ Pending Admin Review`;
+    if (parsedRes.is_status_query || parsedRes.intent === "maintenance_status") {
+      return generateLocalResponse(messageText);
     }
 
     return parsedRes.reply || generateLocalResponse(messageText);
   } catch (error) {
-    console.error("Gemini AI error, seamlessly using local rules engine:", error);
+    console.error("Gemini AI error or timeout, seamlessly using local rules engine:", error);
     return generateLocalResponse(messageText);
   }
+}
+
+// Unified query function for internal web app chatbot & external endpoints
+export async function queryChatbotWithResult(
+  messageText: string,
+  tenantId: string | null,
+  senderPsid: string = "web-client",
+  attachmentUrl?: string
+): Promise<{
+  reply: string;
+  intent: string;
+  create_ticket?: boolean;
+  ticket_details?: {
+    category: MaintenanceCategory;
+    priority: MaintenanceSeverity;
+    description: string;
+    ticket_id?: string;
+    occurred_at?: string;
+    location?: string;
+    photo_url?: string;
+  };
+  suggested_replies?: string[];
+  session_step?: string;
+  is_maintenance_form?: boolean;
+}> {
+  const res = await processChatbotMessage(messageText, tenantId, senderPsid, attachmentUrl);
+  const maint = analyzeMaintenanceIntent(messageText);
+
+  if (typeof res === "object") {
+    const suggestedReplies = res.quick_replies ? res.quick_replies.map((q: any) => q.title) : undefined;
+    return {
+      reply: res.text,
+      intent: res.create_ticket ? "report_maintenance" : res.is_maintenance_form ? "report_maintenance_form" : "chat",
+      create_ticket: res.create_ticket,
+      ticket_details: res.ticket_details,
+      suggested_replies: suggestedReplies,
+      session_step: res.session_step,
+      is_maintenance_form: res.is_maintenance_form
+    };
+  }
+
+  if (maint.is_status_query) {
+    return {
+      reply: res,
+      intent: "maintenance_status",
+      suggested_replies: ["Report another issue", "💰 Check Rent Balance", "📜 Apartment Rules"]
+    };
+  }
+
+  return {
+    reply: res,
+    intent: "chat",
+    suggested_replies: ["🔧 Report Maintenance", "💰 Check Rent Balance", "📜 Apartment Rules"]
+  };
 }
 
 // Master Messenger Webhook Event Processor
@@ -648,14 +1765,25 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   const senderPsid = webhook_event.sender?.id;
   if (!senderPsid) return;
 
-  // Extract message text or button payload
+  // Extract message text, button payload, or attachments
   let messageText = "";
+  let attachmentUrl: string | undefined = undefined;
+
+  if (webhook_event.message?.attachments && webhook_event.message.attachments.length > 0) {
+    const firstAttachment = webhook_event.message.attachments[0];
+    if (firstAttachment?.type === "image" && firstAttachment?.payload?.url) {
+      attachmentUrl = firstAttachment.payload.url;
+    }
+  }
+
   if (webhook_event.message?.text) {
     messageText = webhook_event.message.text;
   } else if (webhook_event.message?.quick_reply?.payload) {
     messageText = webhook_event.message.quick_reply.payload;
   } else if (webhook_event.postback?.payload) {
     messageText = webhook_event.postback.payload;
+  } else if (attachmentUrl) {
+    messageText = attachmentUrl;
   } else if (webhook_event.message?.attachments) {
     messageText = "[Attachment/Media]";
   }
@@ -663,6 +1791,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   console.log("===== MESSENGER MESSAGE RECEIVED =====");
   console.log(`Sender ID: ${senderPsid}`);
   console.log(`Message: ${messageText}`);
+  if (attachmentUrl) console.log(`Attachment: ${attachmentUrl}`);
 
   // Safe Token Identity Diagnostic
   await runSafeTokenDiagnostic(webhookPageId);
@@ -725,8 +1854,17 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
 
   // 3. Process chatbot message through the real ApartmentPro AI Engine
   try {
-    const botReply = await processChatbotMessage(messageText, linkedTenant ? linkedTenant.id : null, senderPsid);
-    await sendFacebookMessage(senderPsid, { text: botReply });
+    const botReply = await processChatbotMessage(
+      messageText,
+      linkedTenant ? linkedTenant.id : null,
+      senderPsid,
+      attachmentUrl
+    );
+    if (typeof botReply === "string") {
+      await sendFacebookMessage(senderPsid, { text: botReply });
+    } else {
+      await sendFacebookMessage(senderPsid, botReply);
+    }
   } catch (err) {
     console.error("Failed to process chatbot reply:", err);
     await sendFacebookMessage(senderPsid, {

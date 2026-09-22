@@ -469,8 +469,8 @@ class DatabaseService {
   }
 
   // Get current DB State (synchronous, backed by memory cache)
-  public getDB(): DBState {
-    if (!this.inMemoryCache) {
+  public getDB(forceReload = false): DBState {
+    if (!this.inMemoryCache || forceReload) {
       this.loadFallbackData();
     }
     return this.inMemoryCache!;

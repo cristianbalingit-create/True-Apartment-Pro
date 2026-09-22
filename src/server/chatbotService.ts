@@ -200,11 +200,14 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
 }
 
 // Send Message via Facebook Graph API
-export async function sendFacebookMessage(senderPsid: string, responsePayload: any): Promise<boolean> {
+export async function sendFacebookMessage(
+  senderPsid: string,
+  responsePayload: any
+): Promise<{ success: boolean; error?: string; message_id?: string }> {
   const PAGE_ACCESS_TOKEN = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
   if (!PAGE_ACCESS_TOKEN) {
     console.warn("FACEBOOK_PAGE_ACCESS_TOKEN or PAGE_ACCESS_TOKEN is not configured. Cannot send reply to Messenger user.");
-    return false;
+    return { success: false, error: "Facebook Page Access Token is not configured on the server." };
   }
 
   // Format message payload and include 1-tap quick action buttons
@@ -252,14 +255,15 @@ export async function sendFacebookMessage(senderPsid: string, responsePayload: a
       console.error("===== FACEBOOK SEND RESPONSE ERROR =====");
       console.error(`Status: ${res.status} ${res.statusText}`);
       console.error(typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
-      return false;
+      const safeErrorMsg = resData?.error?.message || `Facebook Graph API responded with status ${res.status}`;
+      return { success: false, error: safeErrorMsg };
     } else {
       console.log(`Successfully sent message to Facebook Messenger user: ${senderPsid}`);
-      return true;
+      return { success: true, message_id: resData?.message_id };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error calling Facebook Graph API:", error);
-    return false;
+    return { success: false, error: error?.message || "Network error communicating with Facebook Graph API" };
   }
 }
 
@@ -952,34 +956,14 @@ Tenant Profile:
         return formatReviewSummary(activeSession);
       }
 
-      if (!activeSession.location) {
-        activeSession.step = "WHERE";
-        saveMaintenanceSession(activeSession);
-        return {
-          text: "📍 **Where is the problem located?**",
-          quick_replies: whereQuickReplies,
-          session_step: "WHERE",
-          is_maintenance_form: true
-        };
-      } else if (!activeSession.description) {
-        activeSession.step = "DESCRIPTION";
-        saveMaintenanceSession(activeSession);
-        return {
-          text: "📝 **Please describe the problem.**",
-          quick_replies: descriptionQuickReplies,
-          session_step: "DESCRIPTION",
-          is_maintenance_form: true
-        };
-      } else {
-        activeSession.step = "PHOTO";
-        saveMaintenanceSession(activeSession);
-        return {
-          text: "📷 **Would you like to attach a photo?**",
-          quick_replies: photoQuickReplies,
-          session_step: "PHOTO",
-          is_maintenance_form: true
-        };
-      }
+      activeSession.step = "WHERE";
+      saveMaintenanceSession(activeSession);
+      return {
+        text: "📍 **Where is the problem located?**",
+        quick_replies: whereQuickReplies,
+        session_step: "WHERE",
+        is_maintenance_form: true
+      };
     }
 
     // 0C. Step: WHERE
@@ -997,30 +981,24 @@ Tenant Profile:
         return formatReviewSummary(activeSession);
       }
 
-      if (!activeSession.description) {
-        activeSession.step = "DESCRIPTION";
-        saveMaintenanceSession(activeSession);
-        return {
-          text: "📝 **Please describe the problem.**",
-          quick_replies: descriptionQuickReplies,
-          session_step: "DESCRIPTION",
-          is_maintenance_form: true
-        };
-      } else {
-        activeSession.step = "PHOTO";
-        saveMaintenanceSession(activeSession);
-        return {
-          text: "📷 **Would you like to attach a photo?**",
-          quick_replies: photoQuickReplies,
-          session_step: "PHOTO",
-          is_maintenance_form: true
-        };
-      }
+      activeSession.step = "DESCRIPTION";
+      saveMaintenanceSession(activeSession);
+      const descPrompt = activeSession.description
+        ? `📝 **Please describe the problem in detail:**\n_(You mentioned: "${activeSession.description}")_`
+        : "📝 **Please describe the problem.**";
+      return {
+        text: descPrompt,
+        quick_replies: descriptionQuickReplies,
+        session_step: "DESCRIPTION",
+        is_maintenance_form: true
+      };
     }
 
     // 0D. Step: DESCRIPTION
     if (activeSession.step === "DESCRIPTION") {
-      activeSession.description = textTrimmed;
+      if (textLower !== "same" && textLower !== "same as above" && textLower !== "keep" && textLower !== "continue") {
+        activeSession.description = textTrimmed;
+      }
       if (attachmentUrl) {
         activeSession.photoUrl = attachmentUrl;
         activeSession.photoAttached = true;
@@ -1036,7 +1014,7 @@ Tenant Profile:
       activeSession.step = "PHOTO";
       saveMaintenanceSession(activeSession);
       return {
-        text: "📷 **Would you like to attach a photo?**",
+        text: "📷 **Would you like to attach a photo?** (Optional)\n\nYou can upload a photo now, or tap **Skip Photo** to proceed.",
         quick_replies: photoQuickReplies,
         session_step: "PHOTO",
         is_maintenance_form: true

@@ -352,17 +352,17 @@ export default function MaintenanceReportViewer({
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-300/50 pb-1.5 mb-3 flex items-center gap-1.5">
               <ImageIcon className="w-3.5 h-3.5 text-brand-orange" />
-              <span>PHOTO</span>
+              <span>📷 Attached Photo</span>
             </div>
 
-            {ticket.photo_url ? (
+            {(ticket.photo_url || (ticket as any).photoUrl) ? (
               <div className="neu-pressed p-3.5 rounded-xl space-y-3">
                 <div 
                   onClick={() => setIsPhotoLightboxOpen(true)}
                   className="relative group rounded-xl overflow-hidden cursor-pointer max-h-72 bg-slate-900 flex items-center justify-center border border-slate-300 shadow-inner"
                 >
                   <img
-                    src={ticket.photo_url}
+                    src={ticket.photo_url || (ticket as any).photoUrl}
                     alt="Tenant uploaded maintenance issue proof"
                     className="max-h-72 w-full object-contain group-hover:scale-105 transition-transform duration-200"
                     referrerPolicy="no-referrer"
@@ -373,7 +373,7 @@ export default function MaintenanceReportViewer({
                 </div>
 
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-500 font-medium">
                     Uploaded by tenant via Messenger
                   </span>
                   <button
@@ -386,8 +386,8 @@ export default function MaintenanceReportViewer({
                 </div>
               </div>
             ) : (
-              <div className="p-6 neu-pressed rounded-xl text-center text-[#8c6753] text-xs font-medium flex items-center justify-center gap-2">
-                <span className="text-lg">📷</span>
+              <div className="p-6 neu-pressed rounded-xl text-center text-slate-600 text-xs sm:text-sm font-semibold flex items-center justify-center gap-2">
+                <span className="text-xl">📷</span>
                 <span>No photo attached</span>
               </div>
             )}
@@ -479,7 +479,7 @@ export default function MaintenanceReportViewer({
       </div>
 
       {/* Photo Lightbox Modal */}
-      {isPhotoLightboxOpen && ticket.photo_url && (
+      {isPhotoLightboxOpen && (ticket.photo_url || (ticket as any).photoUrl) && (
         <div 
           onClick={() => setIsPhotoLightboxOpen(false)}
           className="fixed inset-0 z-60 bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-md cursor-zoom-out"
@@ -492,7 +492,7 @@ export default function MaintenanceReportViewer({
               <X className="w-4 h-4" /> CLOSE PHOTO
             </button>
             <img
-              src={ticket.photo_url}
+              src={ticket.photo_url || (ticket as any).photoUrl}
               alt="Full size maintenance issue proof"
               className="max-h-[85vh] max-w-full object-contain rounded-xl shadow-2xl border border-white/20"
               referrerPolicy="no-referrer"

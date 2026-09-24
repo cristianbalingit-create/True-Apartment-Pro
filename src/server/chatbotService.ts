@@ -777,19 +777,62 @@ export function extractMaintenanceDetailsFromText(rawText: string): {
   return { occurredAt, location, description };
 }
 
+// Persists remote Facebook Messenger attachment URLs to Firebase Storage / local uploads
+export async function persistMessengerAttachmentUrl(attachmentUrl: string): Promise<string> {
+  if (!attachmentUrl || typeof attachmentUrl !== "string") return "";
+  const trimmed = attachmentUrl.trim();
+  if (trimmed.startsWith("/uploads/") || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+
+  // If remote URL, attempt download to ensure permanent retention
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(trimmed, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const buffer = Buffer.from(await res.arrayBuffer());
+        if (buffer.length > 0) {
+          const contentType = res.headers.get("content-type") || "image/jpeg";
+          const ext = contentType.includes("png") ? ".png" : ".jpg";
+          const fileName = `maint_photo_${Date.now()}${ext}`;
+          const base64Data = `data:${contentType};base64,${buffer.toString("base64")}`;
+          const uploadRes = await dbService.uploadFile(fileName, base64Data);
+          if (uploadRes && uploadRes.url) {
+            console.log(`✅ Successfully persisted Messenger image to ${uploadRes.storage}: ${uploadRes.url}`);
+            return uploadRes.url;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("⚠️ Failed to download/persist Facebook attachment image, falling back to original URL:", err?.message || err);
+    }
+  }
+
+  return trimmed;
+}
+
 // Renders the review screen before ticket creation (Step 6)
-export function formatReviewSummary(session: MaintenanceSession): ChatbotReplyPayload {
+export function formatReviewSummary(session: MaintenanceSession, justAttachedPhoto: boolean = false): ChatbotReplyPayload {
   const occurredAt = session.occurredAt || "Not specified";
   const location = session.location || "Not specified";
   const description = session.description || "Not specified";
-  const photoStr = session.photoAttached ? "Attached" : "No photo";
+  const hasPhoto = Boolean(session.photoAttached && session.photoUrl);
+  const photoStr = hasPhoto ? "✅ Attached" : "No photo attached";
 
-  const summaryText = `🔧 **Maintenance Report**\n\n` +
+  const prefix = justAttachedPhoto
+    ? "📷 Photo received successfully!\n\nHere is your maintenance report:\n\n"
+    : "Here is your maintenance report:\n\n";
+
+  const summaryText = `${prefix}🔧 MAINTENANCE REPORT\n\n` +
     `📅 When:\n${occurredAt}\n\n` +
     `📍 Where:\n${location}\n\n` +
     `📝 Problem:\n${description}\n\n` +
     `📷 Photo:\n${photoStr}\n\n` +
-    `Please review your report.`;
+    `Please review your report before submitting.`;
 
   return {
     text: summaryText,
@@ -817,21 +860,32 @@ export function createMaintenanceTicketRecord(
   const tenantName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`;
   const sanitizedRoom = roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" ? roomNum : "Unknown";
 
-  // 1. Create Ticket in database
+  const hasPhoto = Boolean(photoUrl && photoUrl.trim().length > 0);
+
+  // 1. Create Ticket in database matching all required fields
   const newMaint = {
     id: ticketId,
+    ticketId: ticketId,
     room_id: tenantObj ? tenantObj.room_id : "",
     room_number: sanitizedRoom,
+    roomNumber: sanitizedRoom,
     tenant_id: tenantId || "guest",
+    tenantId: tenantId || "guest",
     tenant_name: tenantName,
-    issue_description: description,
-    description: description,
+    tenantName: tenantName,
     category,
     priority,
     severity: priority,
+    when: occurredAt,
     occurred_at: occurredAt,
     occurredAt: occurredAt,
+    where: location,
     location: location,
+    description: description,
+    issue_description: description,
+    photoAttached: hasPhoto,
+    photo_attached: hasPhoto,
+    photoUrl: photoUrl || "",
     photo_url: photoUrl || "",
     photo: photoUrl || "",
     messenger_psid: senderPsid,
@@ -923,7 +977,8 @@ export async function processChatbotMessage(
   messageText: string,
   tenantId: string | null,
   senderPsid: string,
-  attachmentUrl?: string
+  attachmentUrl?: string,
+  hasUnsupportedAttachment?: boolean
 ): Promise<ChatbotReplyPayload | string> {
   const db = readDB();
   const announcementsList = db.announcements || [];
@@ -1068,7 +1123,7 @@ Tenant Profile:
       activeSession.step = "PHOTO";
       saveMaintenanceSession(activeSession);
       return {
-        text: "📷 **Would you like to attach a photo?** (Optional)\n\nYou can upload a photo now, or tap **Skip Photo** to proceed.",
+        text: "📷 Would you like to attach a photo?",
         quick_replies: photoQuickReplies,
         session_step: "PHOTO",
         is_maintenance_form: true
@@ -1077,7 +1132,27 @@ Tenant Profile:
 
     // 0E. Step: PHOTO
     if (activeSession.step === "PHOTO") {
-      const isPhotoAttachment = Boolean(attachmentUrl || textLower.startsWith("http://") || textLower.startsWith("https://") || textLower.startsWith("data:image"));
+      // 1. Check for unsupported attachment (Requirement 8 / Test Case 4)
+      if (hasUnsupportedAttachment) {
+        saveMaintenanceSession(activeSession);
+        return {
+          text: "📷 Please send an image/photo of the maintenance problem, or choose Skip Photo.",
+          quick_replies: [
+            { content_type: "text", title: "Skip Photo", payload: "SKIP_PHOTO" },
+            { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
+          ],
+          session_step: "PHOTO",
+          is_maintenance_form: true
+        };
+      }
+
+      const isPhotoAttachment = Boolean(
+        attachmentUrl ||
+        textLower.startsWith("http://") ||
+        textLower.startsWith("https://") ||
+        textLower.startsWith("data:image")
+      );
+
       const isSkip = textLower === "skip" ||
         textLower === "skip photo" ||
         textLower === "skip_photo" ||
@@ -1087,6 +1162,7 @@ Tenant Profile:
         textLower === "no photo" ||
         textLower === "none" ||
         textLower === "pass";
+
       const isAttachPrompt = textLower === "attach photo" ||
         textLower === "attach" ||
         textLower === "upload" ||
@@ -1096,23 +1172,25 @@ Tenant Profile:
         textLower === "photo";
 
       if (isPhotoAttachment) {
-        activeSession.photoUrl = attachmentUrl || textTrimmed;
+        const rawPhotoUrl = attachmentUrl || textTrimmed;
+        const finalPhotoUrl = await persistMessengerAttachmentUrl(rawPhotoUrl);
+        activeSession.photoUrl = finalPhotoUrl || rawPhotoUrl;
         activeSession.photoAttached = true;
         activeSession.step = "REVIEW";
         activeSession.editingField = null;
         saveMaintenanceSession(activeSession);
-        return formatReviewSummary(activeSession);
+        return formatReviewSummary(activeSession, true);
       } else if (isSkip) {
         activeSession.photoUrl = undefined;
         activeSession.photoAttached = false;
         activeSession.step = "REVIEW";
         activeSession.editingField = null;
         saveMaintenanceSession(activeSession);
-        return formatReviewSummary(activeSession);
+        return formatReviewSummary(activeSession, false);
       } else if (isAttachPrompt) {
         saveMaintenanceSession(activeSession);
         return {
-          text: "📷 Please send or upload the photo of the issue now.",
+          text: "📷 Please send the photo of the problem here.",
           quick_replies: [
             { content_type: "text", title: "Skip Photo", payload: "SKIP_PHOTO" },
             { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
@@ -1121,11 +1199,13 @@ Tenant Profile:
           is_maintenance_form: true
         };
       } else {
-        // Text provided at photo step - treat as optional skip or review
+        // Any other text input provided at photo step - treat as skip photo and proceed to REVIEW
+        activeSession.photoUrl = undefined;
+        activeSession.photoAttached = false;
         activeSession.step = "REVIEW";
         activeSession.editingField = null;
         saveMaintenanceSession(activeSession);
-        return formatReviewSummary(activeSession);
+        return formatReviewSummary(activeSession, false);
       }
     }
 
@@ -1743,7 +1823,8 @@ export async function queryChatbotWithResult(
   messageText: string,
   tenantId: string | null,
   senderPsid: string = "web-client",
-  attachmentUrl?: string
+  attachmentUrl?: string,
+  hasUnsupportedAttachment?: boolean
 ): Promise<{
   reply: string;
   intent: string;
@@ -1761,7 +1842,7 @@ export async function queryChatbotWithResult(
   session_step?: string;
   is_maintenance_form?: boolean;
 }> {
-  const res = await processChatbotMessage(messageText, tenantId, senderPsid, attachmentUrl);
+  const res = await processChatbotMessage(messageText, tenantId, senderPsid, attachmentUrl, hasUnsupportedAttachment);
   const maint = analyzeMaintenanceIntent(messageText);
 
   if (typeof res === "object") {
@@ -1797,16 +1878,18 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   const senderPsid = webhook_event.sender?.id;
   if (!senderPsid) return;
 
-  // Extract message text, button payload, or attachments
-  let messageText = "";
-  let attachmentUrl: string | undefined = undefined;
+  // Extract attachments (Requirement 1: do not require message.text to exist)
+  const attachments = webhook_event.message?.attachments || [];
+  const imageAttachment = attachments.find(
+    (attachment: any) => attachment.type === "image" && attachment.payload?.url
+  );
+  const unsupportedAttachment = attachments.find(
+    (attachment: any) => attachment.type !== "image"
+  );
+  const hasUnsupportedAttachment = Boolean(unsupportedAttachment && !imageAttachment);
 
-  if (webhook_event.message?.attachments && webhook_event.message.attachments.length > 0) {
-    const firstAttachment = webhook_event.message.attachments[0];
-    if (firstAttachment?.type === "image" && firstAttachment?.payload?.url) {
-      attachmentUrl = firstAttachment.payload.url;
-    }
-  }
+  let attachmentUrl: string | undefined = imageAttachment?.payload?.url;
+  let messageText = "";
 
   if (webhook_event.message?.text) {
     messageText = webhook_event.message.text;
@@ -1816,14 +1899,20 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     messageText = webhook_event.postback.payload;
   } else if (attachmentUrl) {
     messageText = attachmentUrl;
-  } else if (webhook_event.message?.attachments) {
-    messageText = "[Attachment/Media]";
+  } else if (attachments.length > 0) {
+    messageText = "[Unsupported Attachment]";
+  }
+
+  // If there is neither text nor attachments, ignore event (e.g. read receipts or delivery confirmations)
+  if (!messageText && !attachmentUrl && attachments.length === 0) {
+    return;
   }
 
   console.log("===== MESSENGER MESSAGE RECEIVED =====");
   console.log(`Sender ID: ${senderPsid}`);
   console.log(`Message: ${messageText}`);
   if (attachmentUrl) console.log(`Attachment: ${attachmentUrl}`);
+  if (hasUnsupportedAttachment) console.log(`Unsupported Attachment detected: ${attachments[0]?.type}`);
 
   // Safe Token Identity Diagnostic
   await runSafeTokenDiagnostic(webhookPageId);
@@ -1890,7 +1979,8 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       messageText,
       linkedTenant ? linkedTenant.id : null,
       senderPsid,
-      attachmentUrl
+      attachmentUrl,
+      hasUnsupportedAttachment
     );
     if (typeof botReply === "string") {
       await sendFacebookMessage(senderPsid, { text: botReply });

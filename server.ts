@@ -1652,14 +1652,14 @@ const getAIClient = () => {
 
 // Chatbot query route (Unified ApartmentPro AI Engine)
 app.post("/api/chatbot/query", async (req, res) => {
-  const { message, tenantId, senderPsid, attachmentUrl } = req.body;
-  if (!message && !attachmentUrl) {
+  const { message, tenantId, senderPsid, attachmentUrl, hasUnsupportedAttachment } = req.body;
+  if (!message && !attachmentUrl && !hasUnsupportedAttachment) {
     return res.status(400).json({ error: "Message or attachment is required" });
   }
 
   try {
     const psid = senderPsid || (tenantId ? `tenant-web-${tenantId}` : "web-chat");
-    const result = await queryChatbotWithResult(message || "", tenantId || null, psid, attachmentUrl);
+    const result = await queryChatbotWithResult(message || "", tenantId || null, psid, attachmentUrl, hasUnsupportedAttachment);
     res.json(result);
   } catch (error: any) {
     console.error("Chatbot query error:", error);

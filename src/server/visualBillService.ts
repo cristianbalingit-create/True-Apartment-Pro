@@ -101,25 +101,40 @@ export function generateBillSvg(bill: BillingRecord): string {
 
   const billRef = getBillReference(bill);
 
+  // Dynamic subline calculations with rates
+  let electricitySub = "Power & Utility Consumption";
+  if (bill.electricity_usage && Number(bill.electricity_usage) > 0) {
+    const kwh = Number(bill.electricity_usage);
+    const rate = electricity > 0 ? (electricity / kwh).toFixed(2) : "";
+    electricitySub = rate ? `${kwh} kWh × ₱${rate}/kWh` : `${kwh} kWh metered consumption`;
+  }
+
+  let waterSub = "Water Utility Consumption";
+  if (bill.water_usage && Number(bill.water_usage) > 0) {
+    const m3 = Number(bill.water_usage);
+    const rate = water > 0 ? (water / m3).toFixed(2) : "";
+    waterSub = rate ? `${m3} m³ × ₱${rate}/m³` : `${m3} m³ metered consumption`;
+  }
+
   // Line items
   const items: Array<{ label: string; sub: string; amount: number; icon: string }> = [
     {
-      label: "RENT",
-      sub: "Monthly Base Room Rent",
+      label: "Monthly Room Rent",
+      sub: "Base Lease Rate",
       amount: rent,
       icon: "🏠"
     },
     {
-      label: "WATER",
-      sub: bill.water_usage ? `${bill.water_usage} m³ metered consumption` : "Metered Water Utility",
-      amount: water,
-      icon: "💧"
-    },
-    {
-      label: "ELECTRICITY",
-      sub: bill.electricity_usage ? `${bill.electricity_usage} kWh metered consumption` : "Metered Power Utility",
+      label: "Electricity",
+      sub: electricitySub,
       amount: electricity,
       icon: "⚡"
+    },
+    {
+      label: "Water",
+      sub: waterSub,
+      amount: water,
+      icon: "💧"
     }
   ];
 
@@ -410,15 +425,14 @@ export async function sendVisualBillToMessenger(
     };
   }
 
-  // 4. PREPARE MESSENGER NOTIFICATION (Requirements 8 & 9)
-  const shortIntroText =
-    `🏠 ApartmentPro\n\n` +
-    `Your monthly bill for ${bill.billing_month} is ready.\n\n` +
-    `Total Amount Due:\n${formatPHP(bill.total_amount)}\n\n` +
-    `Due Date:\n${bill.due_date}\n\n` +
-    `Please see the attached bill for the complete breakdown.`;
+  // 4. PREPARE MESSENGER NOTIFICATION (User specification: Image first, followed by short message)
+  const shortFollowUpText =
+    `📋 Your monthly bill is ready.\n\n` +
+    `Please review the attached statement and settle the total amount on or before the due date.\n\n` +
+    `💳 After payment, please send your payment receipt through this Messenger chat.\n\n` +
+    `Thank you! — ApartmentPro`;
 
-  // Standard ApartmentPro Messenger Action Menu (Requirement 9)
+  // Standard ApartmentPro Messenger Action Menu
   const billQuickReplies = [
     { content_type: "text", title: "💰 View Balance", payload: "GET_BALANCE" },
     { content_type: "text", title: "📋 History", payload: "GET_HISTORY" },
@@ -426,24 +440,13 @@ export async function sendVisualBillToMessenger(
   ];
 
   try {
-    // Step 4A: Send introductory text message
-    const introRes = await sendFacebookMessage(targetPsid, {
-      text: shortIntroText
-    });
-
-    if (!introRes.success) {
-      console.warn("Intro text dispatch note:", introRes.error);
-    }
-
-    // Step 4B: Send Visual Bill Image (Requirement 2 & 8)
-    // First try direct multipart buffer upload so Facebook doesn't need external fetch
+    // Step 4A: Send Visual Bill Image first
     let imageSendRes: { success: boolean; error?: string; message_id?: string } = { success: false };
 
     if (pngBuffer && pngBuffer.length > 0) {
       imageSendRes = await sendFacebookMessage(targetPsid, {
         fileBuffer: pngBuffer,
-        fileName: `bill_${bill.id}.png`,
-        quick_replies: billQuickReplies
+        fileName: `bill_${bill.id}.png`
       });
     }
 
@@ -457,13 +460,36 @@ export async function sendVisualBillToMessenger(
             url: publicImageUrl,
             is_reusable: true
           }
-        },
+        }
+      });
+    }
+
+    // Step 4B: Send short companion text with quick reply actions
+    let textSendRes: { success: boolean; error?: string; message_id?: string } = { success: false };
+    if (imageSendRes.success) {
+      textSendRes = await sendFacebookMessage(targetPsid, {
+        text: shortFollowUpText,
+        quick_replies: billQuickReplies
+      });
+    } else {
+      // If image delivery couldn't be sent, try fallback text with emergency details
+      console.warn("Visual bill image sending failed, checking fallback:", imageSendRes.error);
+      const emergencyFallbackText =
+        `🏠 ApartmentPro\n\n` +
+        `Your monthly bill for ${bill.billing_month} is ready.\n\n` +
+        `Total Amount Due: ${formatPHP(bill.total_amount)}\n` +
+        `Due Date: ${bill.due_date}\n\n` +
+        `💳 After payment, please send your payment receipt through this Messenger chat.\n\n` +
+        `View Digital Bill: ${publicImageUrl}`;
+
+      textSendRes = await sendFacebookMessage(targetPsid, {
+        text: emergencyFallbackText,
         quick_replies: billQuickReplies
       });
     }
 
     // 5. EVALUATE RESULT
-    if (imageSendRes.success || introRes.success) {
+    if (imageSendRes.success || textSendRes.success) {
       // Success: Record that notification was sent
       bill.notification_sent = true;
       bill.notification_sent_at = new Date().toISOString();
@@ -511,13 +537,13 @@ export async function sendVisualBillToMessenger(
     } else {
       // 6. MESSENGER FAILURE (Requirement 15)
       // DO NOT delete the bill. Keep the bill in the database.
-      console.error(`Messenger delivery failed for tenant ${tenant.name}:`, imageSendRes.error || introRes.error);
+      console.error(`Messenger delivery failed for tenant ${tenant.name}:`, imageSendRes.error || textSendRes.error);
 
       logTransaction(db, {
         category: "billing",
         action: "update",
         title: "Messenger Bill Dispatch Failed",
-        details: `Failed to deliver monthly bill to ${tenant.name} via Messenger. Error: ${imageSendRes.error || introRes.error || "Graph API delivery rejected"}`,
+        details: `Failed to deliver monthly bill to ${tenant.name} via Messenger. Error: ${imageSendRes.error || textSendRes.error || "Graph API delivery rejected"}`,
         amount: Number(bill.total_amount || 0),
         tenant_id: tenant.id,
         tenant_name: tenant.name,
@@ -532,7 +558,7 @@ export async function sendVisualBillToMessenger(
         bill_image_url: bill.bill_image_url,
         error: "Bill saved successfully, but Messenger notification could not be delivered.",
         message: "Bill saved successfully, but Messenger notification could not be delivered.",
-        details: imageSendRes.error || introRes.error
+        details: imageSendRes.error || textSendRes.error
       };
     }
   } catch (deliveryErr: any) {

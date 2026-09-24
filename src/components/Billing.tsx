@@ -62,6 +62,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   const [deployResult, setDeployResult] = useState<{
     status: "sent" | "unlinked" | "failed";
     message: string;
+    bill_image_url?: string;
     details?: string;
   } | null>(null);
 
@@ -223,35 +224,23 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     setDeployingBillId(bill.id);
     setDeployResult(null);
 
-    const statementText = `📋 UTILITY & RENT STATEMENT\n` +
-      `👤 Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
-      `📅 Billing Cycle: ${bill.billing_month}\n` +
-      `⏰ Payment Due Date: ${bill.due_date}\n\n` +
-      `-----------------------------------\n` +
-      `🏠 Base Rent: ₱${Number(bill.rent_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${Number(bill.electricity_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `💧 Water (${bill.water_usage || 0} m³): ₱${Number(bill.water_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `-----------------------------------\n` +
-      `💰 TOTAL DUE: ₱${Number(bill.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-      `Status: ${(bill.payment_status || 'unpaid').toUpperCase()}\n\n` +
-      `Kindly reply with your receipt when paid. Thank you!`;
-
     try {
       const res = await api.deployStatement({
         tenant_id: bill.tenant_id,
-        billing_id: bill.id,
-        statement_text: statementText
+        billing_id: bill.id
       });
 
       if (res.status === "sent") {
         setDeployResult({
           status: "sent",
-          message: res.message || `✅ Statement sent successfully to ${bill.tenant_name} via Messenger.`
+          message: res.message || `✅ Statement sent successfully to ${bill.tenant_name} via Messenger.`,
+          bill_image_url: res.bill_image_url
         });
       } else if (res.status === "unlinked") {
         setDeployResult({
           status: "unlinked",
-          message: res.warning || res.message || `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
+          message: res.warning || res.message || `⚠️ Statement deployed, but this tenant has no linked Messenger account.`,
+          bill_image_url: res.bill_image_url
         });
       } else {
         setDeployResult({
@@ -391,17 +380,16 @@ export default function Billing({ db, onRefresh }: BillingProps) {
       // Deploy statement automatically through the existing Facebook Messenger Send API/backend integration
       const deployRes = await api.deployStatement({
         tenant_id: tenant.id,
-        billing_id: createdBill?.id,
-        statement_text: messengerMsg
+        billing_id: createdBill?.id
       });
 
       if (deployRes.status === "sent") {
         const msg = deployRes.message || `✅ Statement sent successfully to ${tenant.name} via Messenger.`;
-        setDeployResult({ status: "sent", message: msg });
+        setDeployResult({ status: "sent", message: msg, bill_image_url: deployRes.bill_image_url });
         setCalcSuccessMessage(msg);
       } else if (deployRes.status === "unlinked") {
         const msg = deployRes.warning || deployRes.message || `⚠️ Statement deployed, but this tenant has no linked Messenger account.`;
-        setDeployResult({ status: "unlinked", message: msg });
+        setDeployResult({ status: "unlinked", message: msg, bill_image_url: deployRes.bill_image_url });
         setCalcSuccessMessage(msg);
       } else {
         const msg = deployRes.error || deployRes.message || `❌ Failed to send statement to ${tenant.name}. Please try again.`;
@@ -724,25 +712,61 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               animate={{ opacity: 1, y: 0 }}
               className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between border ${
                 deployResult.status === "sent"
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                   : deployResult.status === "unlinked"
-                  ? "bg-amber-50 border-amber-200 text-amber-800"
-                  : "bg-rose-50 border-rose-200 text-rose-800"
+                  ? "bg-amber-50 border-amber-200 text-amber-900"
+                  : "bg-rose-50 border-rose-200 text-rose-900"
               }`}
             >
-              <div className="flex items-center gap-2">
-                {deployResult.status === "sent" && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                {deployResult.status === "unlinked" && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />}
-                {deployResult.status === "failed" && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                <span>{deployResult.message}</span>
+              <div className="flex items-start sm:items-center gap-3">
+                {deployResult.status === "sent" && <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />}
+                {deployResult.status === "unlinked" && <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />}
+                {deployResult.status === "failed" && <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 sm:mt-0" />}
+                <div>
+                  {deployResult.status === "sent" ? (
+                    <div>
+                      <div className="font-bold text-sm text-emerald-950 flex flex-wrap items-center gap-2">
+                        <span className="text-emerald-700">Bill image generated ✓</span>
+                        <span className="text-emerald-400">•</span>
+                        <span className="text-emerald-700">Messenger delivery sent ✓</span>
+                      </div>
+                      <p className="text-xs text-emerald-800 mt-0.5">{deployResult.message}</p>
+                    </div>
+                  ) : deployResult.status === "unlinked" ? (
+                    <div>
+                      <div className="font-bold text-sm text-amber-950">
+                        <span className="text-amber-800">Bill image generated ✓</span>
+                      </div>
+                      <p className="text-xs text-amber-800 mt-0.5">{deployResult.message}</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="font-bold text-sm text-rose-950">Bill generation failed ✕</div>
+                      <p className="text-xs text-rose-800 mt-0.5">{deployResult.message}</p>
+                    </div>
+                  )}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setDeployResult(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                {deployResult.bill_image_url && (
+                  <a
+                    href={deployResult.bill_image_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-[11px] rounded-lg shadow-2xs transition-all flex items-center gap-1"
+                  >
+                    <span>View Bill Image</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDeployResult(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </motion.div>
           )}
 
@@ -889,8 +913,17 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                       title="Deploy statement directly to tenant via Messenger"
                                     >
                                       <Send className="w-3 h-3 text-white" />
-                                      <span>{deployingBillId === bill.id ? "Deploying..." : "Deploy Statement"}</span>
+                                      <span>{deployingBillId === bill.id ? "Generating bill..." : "Deploy Statement"}</span>
                                     </button>
+                                    <a
+                                      href={`/api/billing/${bill.id}/image.png`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 hover:text-sky-900 rounded-lg transition-all active:scale-95 shadow-2xs flex items-center gap-1"
+                                      title="View Generated Digital Bill Image"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </a>
                                     {bill.payment_status !== "paid" && (
                                       <button
                                         onClick={() => handleMarkAsPaid(bill.id)}
@@ -1017,25 +1050,61 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               animate={{ opacity: 1, y: 0 }}
               className={`p-4 rounded-xl text-xs font-semibold flex items-center justify-between border ${
                 deployResult.status === "sent"
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                   : deployResult.status === "unlinked"
-                  ? "bg-amber-50 border-amber-200 text-amber-800"
-                  : "bg-rose-50 border-rose-200 text-rose-800"
+                  ? "bg-amber-50 border-amber-200 text-amber-900"
+                  : "bg-rose-50 border-rose-200 text-rose-900"
               }`}
             >
-              <div className="flex items-center gap-2">
-                {deployResult.status === "sent" && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                {deployResult.status === "unlinked" && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />}
-                {deployResult.status === "failed" && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                <span>{deployResult.message}</span>
+              <div className="flex items-start sm:items-center gap-3">
+                {deployResult.status === "sent" && <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />}
+                {deployResult.status === "unlinked" && <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />}
+                {deployResult.status === "failed" && <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 sm:mt-0" />}
+                <div>
+                  {deployResult.status === "sent" ? (
+                    <div>
+                      <div className="font-bold text-sm text-emerald-950 flex flex-wrap items-center gap-2">
+                        <span className="text-emerald-700">Bill image generated ✓</span>
+                        <span className="text-emerald-400">•</span>
+                        <span className="text-emerald-700">Messenger delivery sent ✓</span>
+                      </div>
+                      <p className="text-xs text-emerald-800 mt-0.5">{deployResult.message}</p>
+                    </div>
+                  ) : deployResult.status === "unlinked" ? (
+                    <div>
+                      <div className="font-bold text-sm text-amber-950">
+                        <span className="text-amber-800">Bill image generated ✓</span>
+                      </div>
+                      <p className="text-xs text-amber-800 mt-0.5">{deployResult.message}</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="font-bold text-sm text-rose-950">Bill generation failed ✕</div>
+                      <p className="text-xs text-rose-800 mt-0.5">{deployResult.message}</p>
+                    </div>
+                  )}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setDeployResult(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                {deployResult.bill_image_url && (
+                  <a
+                    href={deployResult.bill_image_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-[11px] rounded-lg shadow-2xs transition-all flex items-center gap-1"
+                  >
+                    <span>View Bill Image</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDeployResult(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </motion.div>
           )}
 
@@ -1283,7 +1352,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                   >
                     <div className="flex items-center justify-center gap-2">
                       <Send className="w-4 h-4 text-white" />
-                      <span>{loading || isDeploying ? "Deploying Statement..." : "Deploy Statement"}</span>
+                      <span>{loading || isDeploying ? "Generating bill..." : "Deploy Statement"}</span>
                     </div>
                     <span className="text-[10px] text-white/80 font-normal">Approve & Record Statement to Financial Ledgers</span>
                   </button>

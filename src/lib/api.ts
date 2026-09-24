@@ -333,6 +333,8 @@ export const api = {
     warning?: string;
     error?: string;
     psid?: string;
+    bill_image_url?: string;
+    bill_id?: string;
   }> {
     try {
       const res = await fetch("/api/billing/deploy-statement", {

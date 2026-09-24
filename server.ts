@@ -1422,12 +1422,48 @@ app.post("/api/billing/:id/pay", (req, res) => {
   }
 });
 
+// Dynamic Visual Bill Image endpoints (Serving high-contrast, professional receipt image)
+app.get("/api/billing/:id/image.png", (req, res) => {
+  const db = readDB();
+  const bill = db.billingRecords?.find((b: any) => b.id === req.params.id);
+  if (!bill) {
+    return res.status(404).send("Billing record not found");
+  }
+  try {
+    const pngBuffer = generateBillPng(bill);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Content-Disposition", `inline; filename="bill_${bill.id}.png"`);
+    res.send(pngBuffer);
+  } catch (err: any) {
+    console.error("Error generating bill image:", err);
+    res.status(500).send("Error generating bill image");
+  }
+});
+
+app.get("/api/billing/:id/render-svg", (req, res) => {
+  const db = readDB();
+  const bill = db.billingRecords?.find((b: any) => b.id === req.params.id);
+  if (!bill) {
+    return res.status(404).send("Billing record not found");
+  }
+  try {
+    const svg = generateBillSvg(bill);
+    res.setHeader("Content-Type", "image/svg+xml");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.send(svg);
+  } catch (err: any) {
+    console.error("Error generating bill SVG:", err);
+    res.status(500).send("Error generating bill SVG");
+  }
+});
+
 // Duplicate prevention cache for Deploy Statement (key: tenantId:hash -> { timestamp, response })
 const statementDeployCache = new Map<string, { timestamp: number; response: any }>();
 
-// Deploy Financial Statement directly via Facebook Messenger Send API
+// Deploy Financial Statement directly via Facebook Messenger Send API with Visual Bill Receipt Image
 app.post("/api/billing/deploy-statement", async (req, res) => {
-  const { tenant_id, billing_id, statement_text } = req.body;
+  const { tenant_id, billing_id, force_retry } = req.body;
 
   if (!tenant_id) {
     return res.status(400).json({
@@ -1447,158 +1483,55 @@ app.post("/api/billing/deploy-statement", async (req, res) => {
     });
   }
 
-  // Use the existing prepared statement text, or generate it from the existing billing record
-  let textToSend = statement_text;
-  if (!textToSend && billing_id) {
-    const bill = db.billingRecords.find((b: any) => b.id === billing_id);
-    if (bill) {
-      textToSend = `📋 UTILITY & RENT STATEMENT\n` +
-        `👤 Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
-        `📅 Billing Cycle: ${bill.billing_month}\n` +
-        `⏰ Payment Due Date: ${bill.due_date}\n\n` +
-        `-----------------------------------\n` +
-        `🏠 Base Rent: ₱${(Number(bill.rent_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-        `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${(Number(bill.electricity_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-        `💧 Water (${bill.water_usage || 0} m³): ₱${(Number(bill.water_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-        `-----------------------------------\n` +
-        `💰 TOTAL DUE: ₱${(Number(bill.total_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-        `Status: ${(bill.payment_status || 'unpaid').toUpperCase()}\n\n` +
-        `Kindly reply with your receipt when paid. Thank you!`;
+  // Find target billing record
+  let bill = billing_id ? db.billingRecords?.find((b: any) => b.id === billing_id) : null;
+  if (!bill) {
+    const tenantBills = (db.billingRecords || []).filter((b: any) => b.tenant_id === tenant_id);
+    if (tenantBills.length > 0) {
+      bill = tenantBills[tenantBills.length - 1];
     }
   }
 
-  if (!textToSend) {
-    return res.status(400).json({
+  if (!bill) {
+    return res.status(404).json({
       success: false,
       status: "failed",
-      error: "No statement content or billing record provided to deploy."
+      error: `No billing record found for tenant "${tenant.name}". Please generate a monthly bill first.`
     });
   }
 
   // Duplicate protection: prevent repeated sends within 10 seconds
-  const contentHash = crypto.createHash("md5").update(String(textToSend)).digest("hex");
-  const cacheKey = `${tenant_id}:${contentHash}`;
+  const cacheKey = `${tenant_id}:${bill.id}`;
   const cached = statementDeployCache.get(cacheKey);
   const now = Date.now();
-  if (cached && (now - cached.timestamp < 10000)) {
+  if (!force_retry && cached && (now - cached.timestamp < 10000)) {
     console.log(`[DUPLICATE PROTECTION] Returning cached statement deploy response for tenant: ${tenant.name}`);
     return res.json(cached.response);
   }
 
-  // Check tenant's linked Messenger PSID
-  const hasLinkRecord = Boolean(tenant.facebook_psid || tenant.messenger_psid);
-  const psidField = tenant.facebook_psid && tenant.messenger_psid 
-    ? "facebook_psid & messenger_psid" 
-    : tenant.facebook_psid 
-      ? "facebook_psid" 
-      : tenant.messenger_psid 
-        ? "messenger_psid" 
-        : "none";
-  const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
-  const targetPsid = String(rawPsid).trim();
-  const isPsidPresent = Boolean(targetPsid && targetPsid !== "none" && targetPsid !== "false");
-
-  const room = db.rooms?.find((r: any) => r.id === tenant.room_id);
-  const roomNumber = room?.room_number || "N/A";
-
-  // Safe server-side diagnostics
-  console.log("===== DEPLOY STATEMENT DIAGNOSTICS =====");
-  console.log(`• Selected Tenant ID: ${tenant.id}`);
-  console.log(`• Selected Tenant Name: ${tenant.name}`);
-  console.log(`• Messenger link record found: ${hasLinkRecord ? "YES" : "NO"}`);
-  console.log(`• Database field containing PSID: ${psidField}`);
-  console.log(`• PSID present: ${isPsidPresent ? "YES" : "NO"}`);
-  console.log(`• Facebook Page ID: ${OFFICIAL_PAGE_ID}`);
-  console.log(`• Facebook Page Access Token configured: ${Boolean(process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN)}`);
-  console.log("=========================================");
-
-  // Validate if it is a real Facebook Page-Scoped ID (PSID is a numeric string)
-  const isLinked = isPsidPresent && /^\d+$/.test(targetPsid);
-
-  if (!isLinked) {
-    // UNLINKED TENANT:
-    // Do NOT send the statement to any other user.
-    // Display the required warning message.
-    const unlinkedResponse = {
-      success: true,
-      status: "unlinked",
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      warning: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`,
-      message: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
-    };
-
-    logTransaction(db, {
-      category: "billing",
-      action: "update",
-      title: "Statement Deployed (Unlinked Messenger)",
-      details: `Financial statement deployed for ${tenant.name}. Tenant has no linked Facebook Messenger account.`,
-      amount: 0,
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      room_number: roomNumber
+  try {
+    const deployResult = await sendVisualBillToMessenger(tenant, bill, {
+      forceRetry: Boolean(force_retry),
+      req
     });
-    writeDB(db);
 
-    statementDeployCache.set(cacheKey, { timestamp: now, response: unlinkedResponse });
-    return res.json(unlinkedResponse);
-  }
+    statementDeployCache.set(cacheKey, { timestamp: now, response: deployResult });
 
-  // Send statement automatically through the existing Facebook Messenger Send API
-  const sendResult = await sendFacebookMessage(targetPsid, { text: textToSend });
-
-  if (sendResult.success) {
-    const successResponse = {
-      success: true,
-      status: "sent",
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      psid: targetPsid,
-      message_id: sendResult.message_id,
-      message: `✅ Statement sent successfully to ${tenant.name} via Messenger.`
-    };
-
-    logTransaction(db, {
-      category: "billing",
-      action: "update",
-      title: "Statement Deployed via Messenger",
-      details: `Financial statement deployed and automatically delivered to ${tenant.name} via Facebook Messenger (PSID: ${targetPsid}).`,
-      amount: 0,
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      room_number: roomNumber
-    });
-    writeDB(db);
-
-    statementDeployCache.set(cacheKey, { timestamp: now, response: successResponse });
-    return res.json(successResponse);
-  } else {
-    // Failure: log technical error server-side, return user-friendly message without exposing secrets
-    console.error(`[DEPLOY STATEMENT ERROR] Failed to send Messenger statement to ${tenant.name} (PSID: ${targetPsid}):`, sendResult.error);
-
-    const failureResponse = {
+    if (!deployResult.success) {
+      return res.status(502).json(deployResult);
+    }
+    return res.json(deployResult);
+  } catch (err: any) {
+    console.error(`[DEPLOY STATEMENT ERROR] Exception deploying bill for ${tenant.name}:`, err);
+    return res.status(500).json({
       success: false,
       status: "failed",
       tenant_id: tenant.id,
       tenant_name: tenant.name,
-      error: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
-      message: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
-      details: sendResult.error || "Facebook Graph API delivery rejected"
-    };
-
-    logTransaction(db, {
-      category: "billing",
-      action: "update",
-      title: "Messenger Statement Dispatch Failed",
-      details: `Failed to dispatch statement to ${tenant.name} via Facebook Messenger. Technical error: ${sendResult.error || 'Unknown'}`,
-      amount: 0,
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      room_number: roomNumber
+      bill_id: bill.id,
+      error: `❌ Bill generation or deployment failed: ${err?.message || "Unknown error"}`,
+      message: `❌ Bill generation or deployment failed: ${err?.message || "Unknown error"}`
     });
-    writeDB(db);
-
-    return res.status(502).json(failureResponse);
   }
 });
 
@@ -1606,99 +1539,45 @@ app.post("/api/billing/deploy-statement", async (req, res) => {
 app.post("/api/billing/:id/deploy", async (req, res) => {
   const { id } = req.params;
   const db = readDB();
-  const bill = db.billingRecords.find((b: any) => b.id === id);
+  const bill = db.billingRecords?.find((b: any) => b.id === id);
   if (!bill) {
     return res.status(404).json({ success: false, status: "failed", error: "Billing record not found" });
   }
 
-  const tenant = db.tenants.find((t: any) => t.id === bill.tenant_id);
+  const tenant = db.tenants?.find((t: any) => t.id === bill.tenant_id);
   if (!tenant) {
     return res.status(404).json({ success: false, status: "failed", error: "Associated tenant not found" });
   }
 
-  const hasLinkRecord = Boolean(tenant.facebook_psid || tenant.messenger_psid);
-  const psidField = tenant.facebook_psid && tenant.messenger_psid 
-    ? "facebook_psid & messenger_psid" 
-    : tenant.facebook_psid 
-      ? "facebook_psid" 
-      : tenant.messenger_psid 
-        ? "messenger_psid" 
-        : "none";
-  const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
-  const targetPsid = String(rawPsid).trim();
-  const isPsidPresent = Boolean(targetPsid && targetPsid !== "none" && targetPsid !== "false");
-
-  // Safe server-side diagnostics
-  console.log("===== DEPLOY STATEMENT (:id/deploy) DIAGNOSTICS =====");
-  console.log(`• Selected Tenant ID: ${tenant.id}`);
-  console.log(`• Selected Tenant Name: ${tenant.name}`);
-  console.log(`• Messenger link record found: ${hasLinkRecord ? "YES" : "NO"}`);
-  console.log(`• Database field containing PSID: ${psidField}`);
-  console.log(`• PSID present: ${isPsidPresent ? "YES" : "NO"}`);
-  console.log(`• Facebook Page ID: ${OFFICIAL_PAGE_ID}`);
-  console.log(`• Facebook Page Access Token configured: ${Boolean(process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN)}`);
-  console.log("=====================================================");
-
-  const isLinked = isPsidPresent && /^\d+$/.test(targetPsid);
-
-  const statementText = req.body.statement_text || (
-    `📋 UTILITY & RENT STATEMENT\n` +
-    `👤 Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
-    `📅 Billing Cycle: ${bill.billing_month}\n` +
-    `⏰ Payment Due Date: ${bill.due_date}\n\n` +
-    `-----------------------------------\n` +
-    `🏠 Base Rent: ₱${(Number(bill.rent_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-    `⚡ Power (${bill.electricity_usage || 0} kWh): ₱${(Number(bill.electricity_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-    `💧 Water (${bill.water_usage || 0} m³): ₱${(Number(bill.water_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-    `-----------------------------------\n` +
-    `💰 TOTAL DUE: ₱${(Number(bill.total_amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n` +
-    `Status: ${(bill.payment_status || 'unpaid').toUpperCase()}\n\n` +
-    `Kindly reply with your receipt when paid. Thank you!`
-  );
-
-  const contentHash = crypto.createHash("md5").update(statementText).digest("hex");
-  const cacheKey = `${tenant.id}:${contentHash}`;
+  const cacheKey = `${tenant.id}:${bill.id}`;
   const cached = statementDeployCache.get(cacheKey);
   const now = Date.now();
-  if (cached && (now - cached.timestamp < 10000)) {
+  if (!req.body.force_retry && cached && (now - cached.timestamp < 10000)) {
     return res.json(cached.response);
   }
 
-  if (!isLinked) {
-    const unlinkedResponse = {
-      success: true,
-      status: "unlinked",
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      warning: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`,
-      message: `⚠️ Statement deployed, but this tenant has no linked Messenger account.`
-    };
-    statementDeployCache.set(cacheKey, { timestamp: now, response: unlinkedResponse });
-    return res.json(unlinkedResponse);
-  }
+  try {
+    const deployResult = await sendVisualBillToMessenger(tenant, bill, {
+      forceRetry: Boolean(req.body.force_retry),
+      req
+    });
 
-  const sendResult = await sendFacebookMessage(targetPsid, { text: statementText });
-  if (sendResult.success) {
-    const successResponse = {
-      success: true,
-      status: "sent",
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      psid: targetPsid,
-      message_id: sendResult.message_id,
-      message: `✅ Statement sent successfully to ${tenant.name} via Messenger.`
-    };
-    statementDeployCache.set(cacheKey, { timestamp: now, response: successResponse });
-    return res.json(successResponse);
-  } else {
-    return res.status(502).json({
+    statementDeployCache.set(cacheKey, { timestamp: now, response: deployResult });
+
+    if (!deployResult.success) {
+      return res.status(502).json(deployResult);
+    }
+    return res.json(deployResult);
+  } catch (err: any) {
+    console.error(`[DEPLOY STATEMENT ERROR] Exception deploying bill ${id} for ${tenant.name}:`, err);
+    return res.status(500).json({
       success: false,
       status: "failed",
       tenant_id: tenant.id,
       tenant_name: tenant.name,
-      error: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
-      message: `❌ Failed to send statement to ${tenant.name}. Please try again.`,
-      details: sendResult.error || "Facebook Graph API delivery rejected"
+      bill_id: bill.id,
+      error: `❌ Bill generation or deployment failed: ${err?.message || "Unknown error"}`,
+      message: `❌ Bill generation or deployment failed: ${err?.message || "Unknown error"}`
     });
   }
 });

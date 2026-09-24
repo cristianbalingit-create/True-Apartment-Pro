@@ -7,7 +7,7 @@ import { readDB, writeDB, logTransaction, sendFacebookMessage } from "./chatbotS
 import { dbService } from "./dbService";
 
 // Helper to escape XML / SVG special characters
-function escapeXml(unsafe: string | number | undefined | null): string {
+export function escapeXml(unsafe: string | number | undefined | null): string {
   if (unsafe === undefined || unsafe === null) return "";
   return String(unsafe)
     .replace(/&/g, "&amp;")
@@ -61,125 +61,221 @@ export function getBillReference(bill: BillingRecord): string {
   if (bill.invoice_number && bill.invoice_number.trim().length > 0) {
     return bill.invoice_number.trim();
   }
-  if (bill.id.startsWith("bill-")) {
+  if (bill.id && bill.id.startsWith("bill-")) {
     return bill.id.replace("bill-", "INV-");
   }
-  return bill.id;
+  return bill.id || `INV-${Date.now()}`;
 }
 
-// Generate Elder-Friendly, High-Contrast, Professional SVG Bill
-export function generateBillSvg(bill: BillingRecord): string {
-  const width = 800;
+// Exact Receipt Data Object matching user specification
+export interface ReceiptDataObject {
+  tenantName: string;
+  roomNumber: string;
+  billingPeriod: string;
+  billNumber: string;
+  dueDate: string;
+  rent: number;
+  electricityKwh: number;
+  electricityRate: number;
+  electricityAmount: number;
+  waterCubicMeters: number;
+  waterRate: number;
+  waterAmount: number;
+  otherCharges?: number;
+  otherChargesDescription?: string;
+  totalAmountDue: number;
+  paymentStatus: string;
+}
+
+// Data validation before rendering
+export function validateReceiptData(data: ReceiptDataObject): { valid: boolean; error?: string } {
+  if (!data.tenantName || data.tenantName.trim().length === 0) {
+    return { valid: false, error: "Validation Error: Tenant name is missing. Please assign a tenant name." };
+  }
+  if (!data.roomNumber || data.roomNumber.trim().length === 0) {
+    return { valid: false, error: "Validation Error: Room number is missing. Please assign a room number." };
+  }
+  if (!data.billingPeriod || data.billingPeriod.trim().length === 0) {
+    return { valid: false, error: "Validation Error: Billing period is missing. Please set the billing period." };
+  }
+  if (!data.dueDate || data.dueDate.trim().length === 0) {
+    return { valid: false, error: "Validation Error: Due date is missing. Please set the payment due date." };
+  }
+  if (typeof data.rent !== "number" || isNaN(data.rent) || data.rent < 0) {
+    return { valid: false, error: "Validation Error: Rent amount is missing or invalid." };
+  }
+  if (typeof data.totalAmountDue !== "number" || isNaN(data.totalAmountDue) || data.totalAmountDue < 0) {
+    return { valid: false, error: "Validation Error: Total amount due is missing or invalid." };
+  }
+  return { valid: true };
+}
+
+// Build receipt data object from database records
+export function buildReceiptData(tenant: Tenant, bill: BillingRecord, db?: any): ReceiptDataObject {
+  const tenantName = (bill.tenant_name || tenant.name || "").trim();
+
+  let roomNumber = (bill.room_number || "").trim();
+  if (!roomNumber && db?.rooms && tenant.room_id) {
+    const room = db.rooms.find((r: any) => r.id === tenant.room_id);
+    if (room && room.room_number) {
+      roomNumber = room.room_number.trim();
+    }
+  }
+  if (!roomNumber && tenant.room_id) {
+    roomNumber = tenant.room_id.replace(/^room-/, "");
+  }
+  if (!roomNumber) {
+    roomNumber = "101";
+  }
+
+  const billingPeriod = (bill.billing_month || "").trim();
+  const billNumber = getBillReference(bill);
+  const dueDate = (bill.due_date || "").trim();
+
   const rent = Number(bill.rent_amount || 0);
-  const water = Number(bill.water_amount || 0);
-  const electricity = Number(bill.electricity_amount || 0);
-  const other = Number(bill.other_charges || 0);
-  const total = Number(bill.total_amount || 0);
+  const electricityKwh = Number(bill.electricity_usage || 0);
+  const electricityAmount = Number(bill.electricity_amount || 0);
+  const electricityRate = electricityKwh > 0 && electricityAmount > 0
+    ? Number((electricityAmount / electricityKwh).toFixed(2))
+    : Number((bill as any).electricity_rate || 10);
 
-  const rawStatus = (bill.payment_status || "unpaid").toLowerCase();
-  let statusText = "UNPAID";
-  let statusColor = "#dc2626"; // High contrast red
-  let statusBg = "#fef2f2";
-  let statusBorder = "#f87171";
+  const waterCubicMeters = Number(bill.water_usage || 0);
+  const waterAmount = Number(bill.water_amount || 0);
+  const waterRate = waterCubicMeters > 0 && waterAmount > 0
+    ? Number((waterAmount / waterCubicMeters).toFixed(2))
+    : Number((bill as any).water_rate || 35);
 
-  if (rawStatus === "paid") {
-    statusText = "PAID";
-    statusColor = "#15803d"; // Emerald green
-    statusBg = "#f0fdf4";
-    statusBorder = "#4ade80";
-  } else if (rawStatus === "overdue") {
-    statusText = "OVERDUE";
-    statusColor = "#b91c1c"; // Bold crimson
-    statusBg = "#fff1f2";
-    statusBorder = "#fb7185";
-  } else if (rawStatus === "partial" || rawStatus === "partially paid") {
-    statusText = "PARTIALLY PAID";
-    statusColor = "#6d28d9"; // Purple
-    statusBg = "#faf5ff";
-    statusBorder = "#a78bfa";
+  const otherCharges = Number(bill.other_charges || 0);
+  const otherChargesDescription = bill.other_charges_description;
+  const totalAmountDue = Number(bill.total_amount || (rent + electricityAmount + waterAmount + otherCharges));
+  const paymentStatus = (bill.payment_status || "UNPAID").toUpperCase();
+
+  return {
+    tenantName,
+    roomNumber,
+    billingPeriod,
+    billNumber,
+    dueDate,
+    rent,
+    electricityKwh,
+    electricityRate,
+    electricityAmount,
+    waterCubicMeters,
+    waterRate,
+    waterAmount,
+    otherCharges,
+    otherChargesDescription,
+    totalAmountDue,
+    paymentStatus
+  };
+}
+
+// Generate deterministic SVG receipt template matching the ApartmentPro design reference
+export function generateReceiptSvg(data: ReceiptDataObject): string {
+  const width = 800;
+
+  // Payment status styling
+  let statusBadgeBg = "#fee2e2";
+  let statusBadgeBorder = "#f87171";
+  let statusTextColor = "#dc2626";
+
+  if (data.paymentStatus === "PAID") {
+    statusBadgeBg = "#dcfce7";
+    statusBadgeBorder = "#4ade80";
+    statusTextColor = "#16a34a";
+  } else if (data.paymentStatus === "OVERDUE") {
+    statusBadgeBg = "#ffe4e6";
+    statusBadgeBorder = "#fb7185";
+    statusTextColor = "#b91c1c";
+  } else if (data.paymentStatus.includes("PARTIAL")) {
+    statusBadgeBg = "#f3e8ff";
+    statusBadgeBorder = "#c084fc";
+    statusTextColor = "#7e22ce";
   }
 
-  const billRef = getBillReference(bill);
+  // Sublines with calculations
+  const rentSub = "Base Lease Rate";
+  const electricitySub = data.electricityKwh > 0
+    ? `${data.electricityKwh} kWh × ₱${data.electricityRate.toFixed(2)}/kWh`
+    : "Metered Power Consumption";
+  const waterSub = data.waterCubicMeters > 0
+    ? `${data.waterCubicMeters} m³ × ₱${data.waterRate.toFixed(2)}/m³`
+    : "Metered Water Consumption";
 
-  // Dynamic subline calculations with rates
-  let electricitySub = "Power & Utility Consumption";
-  if (bill.electricity_usage && Number(bill.electricity_usage) > 0) {
-    const kwh = Number(bill.electricity_usage);
-    const rate = electricity > 0 ? (electricity / kwh).toFixed(2) : "";
-    electricitySub = rate ? `${kwh} kWh × ₱${rate}/kWh` : `${kwh} kWh metered consumption`;
-  }
-
-  let waterSub = "Water Utility Consumption";
-  if (bill.water_usage && Number(bill.water_usage) > 0) {
-    const m3 = Number(bill.water_usage);
-    const rate = water > 0 ? (water / m3).toFixed(2) : "";
-    waterSub = rate ? `${m3} m³ × ₱${rate}/m³` : `${m3} m³ metered consumption`;
-  }
-
-  // Line items
-  const items: Array<{ label: string; sub: string; amount: number; icon: string }> = [
+  // Rows definition with clean vector SVG icons (NO emojis to avoid missing glyphs)
+  const rows: Array<{
+    title: string;
+    sub: string;
+    amount: number;
+    iconSvg: string;
+  }> = [
     {
-      label: "Monthly Room Rent",
-      sub: "Base Lease Rate",
-      amount: rent,
-      icon: "🏠"
+      title: "Monthly Room Rent",
+      sub: rentSub,
+      amount: data.rent,
+      // Home icon path
+      iconSvg: `<path d="M3 10.5L12 3l9 7.5v9a1.5 1.5 0 0 1-1.5 1.5H15v-6h-6v6H4.5A1.5 1.5 0 0 1 3 19.5v-9z" fill="#0284c7"/>`
     },
     {
-      label: "Electricity",
+      title: "Electricity",
       sub: electricitySub,
-      amount: electricity,
-      icon: "⚡"
+      amount: data.electricityAmount,
+      // Lightning icon path
+      iconSvg: `<path d="M13 2L3 14h7v8l11-12h-8l1-8z" fill="#f59e0b"/>`
     },
     {
-      label: "Water",
+      title: "Water",
       sub: waterSub,
-      amount: water,
-      icon: "💧"
+      amount: data.waterAmount,
+      // Water droplet path
+      iconSvg: `<path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="#06b6d4"/>`
     }
   ];
 
-  // Optional other charges: only include if > 0 (Requirement 7)
-  if (other > 0) {
-    items.push({
-      label: "OTHER CHARGES",
-      sub: bill.other_charges_description || "Property Services & Add-on Fees",
-      amount: other,
-      icon: "📋"
+  if (data.otherCharges && data.otherCharges > 0) {
+    rows.push({
+      title: "Other Charges",
+      sub: data.otherChargesDescription || "Property Services & Add-on Fees",
+      amount: data.otherCharges,
+      // Document path
+      iconSvg: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" fill="#64748b"/>`
     });
   }
 
-  const startY = 370;
-  const itemHeight = 78;
-  const itemsSvg = items
-    .map((item, idx) => {
-      const y = startY + idx * itemHeight;
+  const startY = 380;
+  const rowHeight = 74;
+  const rowsSvg = rows
+    .map((row, i) => {
+      const y = startY + i * rowHeight;
       return `
+      <!-- Row ${i + 1}: ${escapeXml(row.title)} -->
       <g transform="translate(50, ${y})">
-        <rect width="700" height="66" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-        <!-- Item Icon & Label -->
-        <text x="24" y="32" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="800" fill="#0f172a" letter-spacing="0.5">
-          ${item.icon}  ${escapeXml(item.label)}
+        <rect width="700" height="66" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+        <g transform="translate(20, 20) scale(1.1)">
+          ${row.iconSvg}
+        </g>
+        <text x="62" y="32" font-family="FreeSans" font-size="18" font-weight="bold" fill="#0f172a">
+          ${escapeXml(row.title)}
         </text>
-        <text x="56" y="52" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600" fill="#475569">
-          ${escapeXml(item.sub)}
+        <text x="62" y="52" font-family="FreeSans" font-size="12" fill="#64748b">
+          ${escapeXml(row.sub)}
         </text>
-        <!-- Amount -->
-        <text x="676" y="42" text-anchor="end" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900" fill="#0f172a">
-          ${formatPHP(item.amount)}
+        <text x="676" y="42" text-anchor="end" font-family="FreeSans" font-size="22" font-weight="bold" fill="#0f172a">
+          ${formatPHP(row.amount)}
         </text>
       </g>
-    `;
+      `;
     })
     .join("");
 
-  const totalBoxY = startY + items.length * itemHeight + 20;
-  const footerY = totalBoxY + 195;
-  const totalHeight = footerY + 130;
+  const totalBoxY = startY + rows.length * rowHeight + 15;
+  const footerY = totalBoxY + 165;
+  const totalHeight = footerY + 115;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}" viewBox="0 0 ${width} ${totalHeight}">
   <defs>
-    <linearGradient id="headerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0f172a"/>
       <stop offset="100%" stop-color="#1e293b"/>
     </linearGradient>
@@ -192,137 +288,207 @@ export function generateBillSvg(bill: BillingRecord): string {
     </filter>
   </defs>
 
-  <!-- Clean Background Canvas -->
+  <!-- Canvas Background -->
   <rect width="${width}" height="${totalHeight}" fill="#f1f5f9"/>
 
   <!-- Main Statement Card -->
-  <rect x="25" y="20" width="750" height="${totalHeight - 40}" rx="24" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#cardShadow)"/>
+  <rect x="25" y="20" width="750" height="${totalHeight - 40}" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" filter="url(#cardShadow)"/>
 
-  <!-- Top Brand Accent Ribbon -->
-  <path d="M 25 44 A 24 24 0 0 1 49 20 L 751 20 A 24 24 0 0 1 775 44 L 775 32 L 25 32 Z" fill="url(#accentBar)"/>
+  <!-- Brand Accent Top Bar -->
+  <path d="M 25 42 A 22 22 0 0 1 47 20 L 753 20 A 22 22 0 0 1 775 42 L 775 32 L 25 32 Z" fill="url(#accentBar)"/>
 
   <!-- Header Banner -->
   <g transform="translate(50, 48)">
-    <rect width="700" height="115" rx="16" fill="url(#headerBg)"/>
+    <rect width="700" height="110" rx="16" fill="url(#headerGrad)"/>
     <circle cx="650" cy="55" r="75" fill="#fb6c00" opacity="0.12"/>
     
-    <text x="32" y="44" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="900" fill="#ffffff" letter-spacing="2">
+    <text x="32" y="44" font-family="FreeSans" font-size="28" font-weight="bold" fill="#ffffff" letter-spacing="1">
       APARTMENTPRO
     </text>
-    <text x="32" y="74" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="800" fill="#fb923c" letter-spacing="1.5">
+    <text x="32" y="74" font-family="FreeSans" font-size="16" font-weight="bold" fill="#fb923c" letter-spacing="1">
       MONTHLY BILL
     </text>
-    <text x="32" y="96" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#94a3b8">
-      Official Digital Statement of Account
+    <text x="32" y="96" font-family="FreeSans" font-size="12" fill="#94a3b8">
+      Official Utility &amp; Rent Statement
     </text>
 
-    <!-- Bill Reference Tag -->
-    <rect x="520" y="32" width="155" height="34" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-    <text x="597" y="54" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#cbd5e1" letter-spacing="0.5">
-      ${escapeXml(billRef)}
+    <!-- Bill Reference Pill -->
+    <rect x="525" y="36" width="145" height="34" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1.2"/>
+    <text x="597" y="58" text-anchor="middle" font-family="FreeSans" font-size="12" font-weight="bold" fill="#cbd5e1">
+      ${escapeXml(data.billNumber)}
     </text>
   </g>
 
   <!-- Tenant Details Card (High Contrast, Elder-Friendly) -->
-  <g transform="translate(50, 180)">
+  <g transform="translate(50, 175)">
     <rect width="700" height="165" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
     
-    <!-- Left Column: Tenant Name -->
-    <text x="28" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="800" fill="#64748b" letter-spacing="1">
-      TENANT NAME
+    <!-- Tenant Name -->
+    <text x="30" y="34" font-family="FreeSans" font-size="12" font-weight="bold" fill="#64748b" letter-spacing="1">
+      TENANT
     </text>
-    <text x="28" y="66" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" fill="#0f172a">
-      ${escapeXml(bill.tenant_name)}
-    </text>
-
-    <!-- Right Column: Room Number -->
-    <text x="420" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="800" fill="#64748b" letter-spacing="1">
-      ROOM NUMBER
-    </text>
-    <text x="420" y="66" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" fill="#0f172a">
-      Room ${escapeXml(bill.room_number)}
+    <text x="30" y="66" font-family="FreeSans" font-size="23" font-weight="bold" fill="#0f172a">
+      ${escapeXml(data.tenantName)}
     </text>
 
-    <!-- Divider -->
-    <line x1="28" y1="90" x2="672" y2="90" stroke="#e2e8f0" stroke-width="1.5"/>
+    <!-- Room Number -->
+    <text x="420" y="34" font-family="FreeSans" font-size="12" font-weight="bold" fill="#64748b" letter-spacing="1">
+      ROOM
+    </text>
+    <text x="420" y="66" font-family="FreeSans" font-size="23" font-weight="bold" fill="#0f172a">
+      ${escapeXml(data.roomNumber)}
+    </text>
 
-    <!-- Left Column: Billing Period -->
-    <text x="28" y="118" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="800" fill="#64748b" letter-spacing="1">
+    <!-- Divider Line -->
+    <line x1="30" y1="90" x2="670" y2="90" stroke="#e2e8f0" stroke-width="1.5"/>
+
+    <!-- Billing Period -->
+    <text x="30" y="118" font-family="FreeSans" font-size="12" font-weight="bold" fill="#64748b" letter-spacing="1">
       BILLING PERIOD
     </text>
-    <text x="28" y="146" font-family="system-ui, -apple-system, sans-serif" font-size="19" font-weight="800" fill="#1e293b">
-      ${escapeXml(bill.billing_month)}
+    <text x="30" y="146" font-family="FreeSans" font-size="18" font-weight="bold" fill="#1e293b">
+      ${escapeXml(data.billingPeriod)}
     </text>
 
-    <!-- Right Column: Due Date (Highlighted) -->
-    <text x="420" y="118" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="800" fill="#64748b" letter-spacing="1">
+    <!-- Due Date (High Contrast Warning Color) -->
+    <text x="420" y="118" font-family="FreeSans" font-size="12" font-weight="bold" fill="#64748b" letter-spacing="1">
       DUE DATE
     </text>
-    <text x="420" y="146" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="900" fill="#dc2626">
-      ${escapeXml(bill.due_date)}
+    <text x="420" y="146" font-family="FreeSans" font-size="19" font-weight="bold" fill="#dc2626">
+      ${escapeXml(data.dueDate)}
     </text>
   </g>
 
-  <!-- Items Breakdown -->
-  ${itemsSvg}
+  <!-- Section Title: BILL BREAKDOWN -->
+  <g transform="translate(50, 362)">
+    <text x="5" y="0" font-family="FreeSans" font-size="13" font-weight="bold" fill="#475569" letter-spacing="1">
+      BILL BREAKDOWN
+    </text>
+    <line x1="150" y1="-4" x2="700" y2="-4" stroke="#cbd5e1" stroke-width="1"/>
+  </g>
 
-  <!-- Grand Total Amount Due Box (High Visual Emphasis) -->
+  <!-- Dynamic Item Rows -->
+  ${rowsSvg}
+
+  <!-- Grand Total Box (Massive Visual Prominence) -->
   <g transform="translate(50, ${totalBoxY})">
-    <rect width="700" height="175" rx="18" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
-    <circle cx="650" cy="50" r="90" fill="#fb6c00" opacity="0.14"/>
+    <rect width="700" height="150" rx="18" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
+    <circle cx="650" cy="50" r="85" fill="#fb6c00" opacity="0.12"/>
 
-    <!-- Top Label -->
-    <text x="32" y="44" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="900" fill="#94a3b8" letter-spacing="2">
+    <text x="32" y="40" font-family="FreeSans" font-size="13" font-weight="bold" fill="#94a3b8" letter-spacing="1.5">
       TOTAL AMOUNT DUE
     </text>
 
-    <!-- Massive Readable Amount -->
-    <text x="32" y="98" font-family="system-ui, -apple-system, sans-serif" font-size="46" font-weight="900" fill="#ffffff" letter-spacing="0.5">
-      ${formatPHP(total)}
+    <text x="32" y="92" font-family="FreeSans" font-size="44" font-weight="bold" fill="#ffffff" letter-spacing="0.5">
+      ${formatPHP(data.totalAmountDue)}
     </text>
 
     <!-- Payment Status Badge -->
-    <rect x="32" y="118" width="190" height="38" rx="8" fill="${statusBg}" stroke="${statusBorder}" stroke-width="2"/>
-    <text x="127" y="143" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="900" fill="${statusColor}" letter-spacing="1">
-      ${escapeXml(statusText)}
+    <rect x="32" y="106" width="160" height="32" rx="7" fill="${statusBadgeBg}" stroke="${statusBadgeBorder}" stroke-width="1.5"/>
+    <text x="112" y="127" text-anchor="middle" font-family="FreeSans" font-size="13" font-weight="bold" fill="${statusTextColor}" letter-spacing="1">
+      ${escapeXml(data.paymentStatus)}
     </text>
 
-    <!-- Right Side Currency Badge -->
-    <text x="668" y="90" text-anchor="end" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="700" fill="#cbd5e1">
+    <text x="668" y="78" text-anchor="end" font-family="FreeSans" font-size="14" font-weight="bold" fill="#cbd5e1">
       Philippine Peso (PHP)
     </text>
-    <text x="668" y="114" text-anchor="end" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="500" fill="#94a3b8">
+    <text x="668" y="100" text-anchor="end" font-family="FreeSans" font-size="12" fill="#94a3b8">
       Rent &amp; utilities included
     </text>
   </g>
 
-  <!-- Elder-Friendly Bottom Notice -->
+  <!-- Elder-Friendly Footer -->
   <g transform="translate(50, ${footerY})">
-    <rect width="700" height="84" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
-    <text x="350" y="36" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="800" fill="#0f172a">
-      Thank you. Please settle your bill on or before the due date.
+    <rect width="700" height="75" rx="12" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+    <text x="350" y="34" text-anchor="middle" font-family="FreeSans" font-size="14" font-weight="bold" fill="#1e293b">
+      Please settle your bill on or before the due date.
     </text>
-    <text x="350" y="62" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#64748b">
-      ApartmentPro Property Management • Use the Messenger buttons below to send payment or check balance
+    <text x="350" y="56" text-anchor="middle" font-family="FreeSans" font-size="13" fill="#64748b">
+      Thank you! — ApartmentPro
     </text>
   </g>
 </svg>`;
 }
 
-// Render SVG to clean, high-resolution PNG Buffer
-export function generateBillPng(bill: BillingRecord): Buffer {
-  const svg = generateBillSvg(bill);
+// Global cached font buffers for deterministic rendering
+let cachedFontBuffers: Buffer[] | null = null;
+
+export function getFontBuffers(): Buffer[] {
+  if (cachedFontBuffers) return cachedFontBuffers;
+
+  const fontCandidates = [
+    path.join(process.cwd(), "src/server/fonts/FreeSans.ttf"),
+    path.join(process.cwd(), "src/server/fonts/FreeSansBold.ttf"),
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+  ];
+
+  const buffers: Buffer[] = [];
+  for (const fp of fontCandidates) {
+    try {
+      if (fs.existsSync(fp)) {
+        buffers.push(fs.readFileSync(fp));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  cachedFontBuffers = buffers;
+  return buffers;
+}
+
+// Render Receipt PNG from ReceiptDataObject
+export function renderReceiptPng(data: ReceiptDataObject): Buffer {
+  // Validate required fields
+  const validation = validateReceiptData(data);
+  if (!validation.valid) {
+    throw new Error(validation.error || "Invalid receipt data.");
+  }
+
+  const svg = generateReceiptSvg(data);
+  const fontRegular = path.join(process.cwd(), "src/server/fonts/FreeSans.ttf");
+  const fontBold = path.join(process.cwd(), "src/server/fonts/FreeSansBold.ttf");
+  const fontFiles = [fontRegular, fontBold, "/usr/share/fonts/truetype/freefont/FreeSans.ttf", "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"].filter(p => fs.existsSync(p));
+
   const resvg = new Resvg(svg, {
     fitTo: {
       mode: "width",
       value: 800
     },
     font: {
+      fontFiles: fontFiles.length > 0 ? fontFiles : undefined,
+      defaultFontFamily: "FreeSans",
       loadSystemFonts: true
     }
   });
+
   const rendered = resvg.render();
   return Buffer.from(rendered.asPng());
+}
+
+// Backwards-compatible SVG generator
+export function generateBillSvg(bill: BillingRecord): string {
+  const db = readDB();
+  const tenant = db.tenants?.find((t: any) => t.id === bill.tenant_id) || {
+    id: bill.tenant_id,
+    name: bill.tenant_name,
+    room_id: bill.room_id
+  };
+  const data = buildReceiptData(tenant as Tenant, bill, db);
+  return generateReceiptSvg(data);
+}
+
+// Backwards-compatible PNG generator
+export function generateBillPng(bill: BillingRecord): Buffer {
+  const db = readDB();
+  const tenant = db.tenants?.find((t: any) => t.id === bill.tenant_id) || {
+    id: bill.tenant_id,
+    name: bill.tenant_name,
+    room_id: bill.room_id
+  };
+  const data = buildReceiptData(tenant as Tenant, bill, db);
+  return renderReceiptPng(data);
 }
 
 // Master Visual Bill Dispatcher to Facebook Messenger
@@ -345,11 +511,23 @@ export async function sendVisualBillToMessenger(
   psid?: string;
 }> {
   const db = readDB();
-  const room = db.rooms?.find((r: any) => r.id === tenant.room_id);
-  const roomNumber = room?.room_number || bill.room_number || "N/A";
   const forceRetry = options?.forceRetry || false;
 
-  // 1. DUPLICATE PREVENTION (Requirement 14)
+  // 1. DATA VALIDATION (Stop deployment immediately if required fields are missing!)
+  const receiptData = buildReceiptData(tenant, bill, db);
+  const validation = validateReceiptData(receiptData);
+  if (!validation.valid) {
+    console.error(`[VALIDATION FAILED] Missing required fields for tenant ${tenant.name}:`, validation.error);
+    return {
+      success: false,
+      status: "failed",
+      bill_id: bill.id,
+      error: validation.error,
+      message: validation.error
+    };
+  }
+
+  // 2. DUPLICATE PREVENTION
   if (bill.notification_sent && !forceRetry) {
     console.log(`[DUPLICATE PREVENTION] Bill notification already sent for bill ID ${bill.id}`);
     return {
@@ -361,42 +539,48 @@ export async function sendVisualBillToMessenger(
     };
   }
 
-  // 2. Resolve Public Base URL and generate PNG
+  // 3. Resolve Public Base URL and render PNG image deterministically
   const publicBaseUrl = getPublicBaseUrl(options?.req);
-  const publicImageUrl = `${publicBaseUrl}/api/billing/${bill.id}/image.png`;
+  let publicImageUrl = `${publicBaseUrl}/api/billing/${bill.id}/image.png`;
   bill.bill_image_url = publicImageUrl;
 
   let pngBuffer: Buffer;
   try {
-    pngBuffer = generateBillPng(bill);
+    pngBuffer = renderReceiptPng(receiptData);
   } catch (err: any) {
-    console.error("Failed to generate bill PNG:", err);
-    pngBuffer = Buffer.from("");
+    console.error("Failed to render bill PNG:", err);
+    return {
+      success: false,
+      status: "failed",
+      bill_id: bill.id,
+      error: `Failed to render receipt image: ${err?.message || "Unknown rendering error"}`,
+      message: `Failed to render receipt image: ${err?.message || "Unknown rendering error"}`
+    };
   }
 
-  // Save image file to uploads / Firebase Storage if available
+  // 4. Upload image to Firebase Storage infrastructure (or uploads directory)
   if (pngBuffer && pngBuffer.length > 0) {
     try {
       const base64Data = pngBuffer.toString("base64");
       const uploadRes = await dbService.uploadFile(`bill_${bill.id}.png`, `data:image/png;base64,${base64Data}`);
       if (uploadRes.url && uploadRes.url.startsWith("http")) {
+        publicImageUrl = uploadRes.url;
         bill.bill_image_url = uploadRes.url;
       }
     } catch (e: any) {
-      console.warn("Storage upload optional sync note:", e?.message);
+      console.warn("Storage upload note:", e?.message);
     }
   }
 
-  // Check tenant's linked Messenger PSID
+  // 5. Check tenant's linked Messenger PSID
   const rawPsid = tenant.facebook_psid || tenant.messenger_psid || "";
   const targetPsid = String(rawPsid).trim();
   const isLinked = Boolean(targetPsid && targetPsid !== "none" && targetPsid !== "false" && /^\d+$/.test(targetPsid));
 
-  // 3. UNLINKED TENANT HANDLING (Do NOT send to any other tenant!)
+  // If tenant is unlinked: Save bill in DB, log transaction, but DO NOT send to anyone else!
   if (!isLinked) {
     console.warn(`[UNLINKED TENANT] Tenant ${tenant.name} has no linked Facebook Messenger account. Bill saved.`);
     
-    // Save bill in DB with image url
     const billIdx = db.billingRecords?.findIndex((b: any) => b.id === bill.id);
     if (billIdx !== -1 && billIdx !== undefined) {
       db.billingRecords[billIdx].bill_image_url = bill.bill_image_url;
@@ -407,11 +591,11 @@ export async function sendVisualBillToMessenger(
       category: "billing",
       action: "update",
       title: "Visual Bill Ready (Unlinked Messenger)",
-      details: `Generated visual bill for ${tenant.name} (Room ${roomNumber}). Tenant has not yet connected their Facebook Messenger account.`,
+      details: `Generated visual bill for ${tenant.name} (Room ${receiptData.roomNumber}). Tenant has not yet connected their Facebook Messenger account.`,
       amount: Number(bill.total_amount || 0),
       tenant_id: tenant.id,
       tenant_name: tenant.name,
-      room_number: roomNumber
+      room_number: receiptData.roomNumber
     });
     writeDB(db);
 
@@ -425,14 +609,13 @@ export async function sendVisualBillToMessenger(
     };
   }
 
-  // 4. PREPARE MESSENGER NOTIFICATION (User specification: Image first, followed by short message)
-  const shortFollowUpText =
+  // 6. PREPARE MESSENGER NOTIFICATION
+  // Exact user requested companion text:
+  const companionMessageText =
     `📋 Your monthly bill is ready.\n\n` +
-    `Please review the attached statement and settle the total amount on or before the due date.\n\n` +
-    `💳 After payment, please send your payment receipt through this Messenger chat.\n\n` +
+    `Please review your attached statement and settle the total amount on or before the due date.\n\n` +
     `Thank you! — ApartmentPro`;
 
-  // Standard ApartmentPro Messenger Action Menu
   const billQuickReplies = [
     { content_type: "text", title: "💰 View Balance", payload: "GET_BALANCE" },
     { content_type: "text", title: "📋 History", payload: "GET_HISTORY" },
@@ -440,7 +623,7 @@ export async function sendVisualBillToMessenger(
   ];
 
   try {
-    // Step 4A: Send Visual Bill Image first
+    // Step A: Send ACTUAL GENERATED RECEIPT IMAGE first
     let imageSendRes: { success: boolean; error?: string; message_id?: string } = { success: false };
 
     if (pngBuffer && pngBuffer.length > 0) {
@@ -464,23 +647,22 @@ export async function sendVisualBillToMessenger(
       });
     }
 
-    // Step 4B: Send short companion text with quick reply actions
+    // Step B: Send companion text with quick reply actions
     let textSendRes: { success: boolean; error?: string; message_id?: string } = { success: false };
     if (imageSendRes.success) {
       textSendRes = await sendFacebookMessage(targetPsid, {
-        text: shortFollowUpText,
+        text: companionMessageText,
         quick_replies: billQuickReplies
       });
     } else {
-      // If image delivery couldn't be sent, try fallback text with emergency details
       console.warn("Visual bill image sending failed, checking fallback:", imageSendRes.error);
       const emergencyFallbackText =
         `🏠 ApartmentPro\n\n` +
-        `Your monthly bill for ${bill.billing_month} is ready.\n\n` +
+        `Your monthly bill for ${receiptData.billingPeriod} is ready.\n\n` +
         `Total Amount Due: ${formatPHP(bill.total_amount)}\n` +
-        `Due Date: ${bill.due_date}\n\n` +
-        `💳 After payment, please send your payment receipt through this Messenger chat.\n\n` +
-        `View Digital Bill: ${publicImageUrl}`;
+        `Due Date: ${receiptData.dueDate}\n\n` +
+        `View Digital Bill: ${publicImageUrl}\n\n` +
+        `Thank you! — ApartmentPro`;
 
       textSendRes = await sendFacebookMessage(targetPsid, {
         text: emergencyFallbackText,
@@ -488,9 +670,8 @@ export async function sendVisualBillToMessenger(
       });
     }
 
-    // 5. EVALUATE RESULT
+    // 7. EVALUATE RESULT
     if (imageSendRes.success || textSendRes.success) {
-      // Success: Record that notification was sent
       bill.notification_sent = true;
       bill.notification_sent_at = new Date().toISOString();
       bill.notification_channel = "messenger";
@@ -500,14 +681,13 @@ export async function sendVisualBillToMessenger(
         db.billingRecords[billIdx] = { ...db.billingRecords[billIdx], ...bill };
       }
 
-      // Add Notification item
       if (!db.notifications) db.notifications = [];
       db.notifications.push({
         id: `notif-${Date.now()}`,
         tenant_id: tenant.id,
         tenant_name: tenant.name,
         billing_id: bill.id,
-        message: `Visual monthly bill for ${bill.billing_month} sent via Messenger to ${tenant.name}. Total due: ${formatPHP(bill.total_amount)}.`,
+        message: `Visual monthly bill for ${receiptData.billingPeriod} sent via Messenger to ${tenant.name}. Total due: ${formatPHP(bill.total_amount)}.`,
         type: "billing",
         status: "sent",
         channel: "messenger",
@@ -522,7 +702,7 @@ export async function sendVisualBillToMessenger(
         amount: Number(bill.total_amount || 0),
         tenant_id: tenant.id,
         tenant_name: tenant.name,
-        room_number: roomNumber
+        room_number: receiptData.roomNumber
       });
       writeDB(db);
 
@@ -535,8 +715,6 @@ export async function sendVisualBillToMessenger(
         message: `✅ Statement sent successfully to ${tenant.name} via Messenger.`
       };
     } else {
-      // 6. MESSENGER FAILURE (Requirement 15)
-      // DO NOT delete the bill. Keep the bill in the database.
       console.error(`Messenger delivery failed for tenant ${tenant.name}:`, imageSendRes.error || textSendRes.error);
 
       logTransaction(db, {
@@ -547,7 +725,7 @@ export async function sendVisualBillToMessenger(
         amount: Number(bill.total_amount || 0),
         tenant_id: tenant.id,
         tenant_name: tenant.name,
-        room_number: roomNumber
+        room_number: receiptData.roomNumber
       });
       writeDB(db);
 

@@ -417,29 +417,69 @@ export const api = {
 
   // Maintenance Requests CRUD
   async createMaintenanceRequest(data: Partial<MaintenanceRequest>): Promise<MaintenanceRequest> {
+    const ticketId = data.id || data.ticketId || `maint-${Date.now()}`;
+    const desc = String(data.issue_description || data.description || "").trim();
+    const tenantName = String(data.tenant_name || data.tenantName || "Guest Visitor").trim();
+    const roomNum = String(data.room_number || data.roomNumber || "Unknown").trim();
+    const category = String(data.category || "General Maintenance").trim();
+    const priority = String(data.priority || data.severity || "Medium").trim();
+    const photo = String(data.photo_url || data.photoUrl || data.photo || "").trim();
+    const occurredAt = String(data.occurred_at || data.occurredAt || data.when || "Today").trim();
+    const location = String(data.location || data.where || (roomNum !== "Unknown" ? `Room ${roomNum}` : "Unit")).trim();
+    const now = new Date().toISOString();
+
     const newReq: MaintenanceRequest = {
-      id: `maint-${Date.now()}`,
-      tenant_id: data.tenant_id || "",
+      id: ticketId,
+      ticketId: ticketId,
       room_id: data.room_id || "",
-      category: data.category || "Other",
-      issue_description: data.issue_description || "",
-      priority: data.priority || "Medium",
-      status: "pending",
-      created_at: new Date().toISOString(),
+      room_number: roomNum,
+      roomNumber: roomNum,
+      tenant_id: data.tenant_id || data.tenantId || "guest",
+      tenantId: data.tenant_id || data.tenantId || "guest",
+      tenant_name: tenantName,
+      tenantName: tenantName,
+      category,
+      priority,
+      severity: priority,
+      issue_description: desc,
+      description: desc,
+      photo_url: photo,
+      photoUrl: photo,
+      photo: photo,
+      photo_attached: Boolean(photo),
+      photoAttached: Boolean(photo),
+      occurred_at: occurredAt,
+      occurredAt: occurredAt,
+      when: occurredAt,
+      location,
+      where: location,
+      messenger_psid: data.messenger_psid || "",
+      status: data.status || "pending",
+      created_at: data.created_at || data.createdAt || now,
+      createdAt: data.created_at || data.createdAt || now,
+      updated_at: now,
+      updatedAt: now,
       ...data
     };
+
     try {
       const res = await fetch("/api/maintenance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
+        body: JSON.stringify(newReq)
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const saved = await res.json();
+        const merged = { ...newReq, ...saved };
+        await directUpsertDoc("maintenanceRequests", merged.id, merged);
+        await directLogTransaction("maintenance", "Created Maintenance Ticket", `Ticket ${merged.id} created: ${merged.issue_description || merged.description}`, "create");
+        return merged;
+      }
     } catch (e) {
       // ignore
     }
     await directUpsertDoc("maintenanceRequests", newReq.id, newReq);
-    await directLogTransaction("maintenance", "Created Maintenance Ticket", `Ticket ${newReq.id} created: ${newReq.issue_description}`, "create");
+    await directLogTransaction("maintenance", "Created Maintenance Ticket", `Ticket ${newReq.id} created: ${newReq.issue_description || newReq.description}`, "create");
     return newReq;
   },
 
@@ -450,7 +490,12 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data)
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const updated = await res.json();
+        await directUpsertDoc("maintenanceRequests", id, { ...data, ...updated });
+        await directLogTransaction("maintenance", "Updated Maintenance Ticket", `Ticket ${id} status updated to ${data.status || 'updated'}`, "update");
+        return { ...data, ...updated } as MaintenanceRequest;
+      }
     } catch (e) {
       // ignore
     }
@@ -464,7 +509,11 @@ export const api = {
       const res = await fetch(`/api/maintenance/${id}`, {
         method: "DELETE"
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        await directDeleteDoc("maintenanceRequests", id);
+        await directLogTransaction("maintenance", "Deleted Maintenance Ticket", `Ticket ${id} deleted`, "delete");
+        return await res.json();
+      }
     } catch (e) {
       // ignore
     }

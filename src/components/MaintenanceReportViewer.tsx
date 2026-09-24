@@ -128,12 +128,19 @@ export default function MaintenanceReportViewer({
 
   if (!ticket) return null;
 
-  const prio = getPriorityDisplay(ticket.priority);
+  const prio = getPriorityDisplay(ticket.priority || ticket.severity);
   const stat = getStatusDisplay(ticket.status);
-  const isCritical = (ticket.priority || "").toLowerCase() === "critical";
-  const roomClean = ticket.room_number 
-    ? (ticket.room_number.toLowerCase().includes("room") ? ticket.room_number : `Room ${ticket.room_number}`) 
+  const isCritical = ((ticket.priority || ticket.severity || "").toLowerCase() === "critical");
+  const rawRoom = ticket.room_number || ticket.roomNumber;
+  const roomClean = rawRoom 
+    ? (String(rawRoom).toLowerCase().includes("room") ? String(rawRoom) : `Room ${rawRoom}`) 
     : "Room N/A";
+  const tenantDisplayName = ticket.tenant_name || ticket.tenantName || "Guest Visitor";
+  const descDisplay = ticket.issue_description || ticket.description || "No description provided.";
+  const occurredAtDisplay = ticket.occurred_at || ticket.occurredAt || ticket.when || formatSubmittedDate(ticket.created_at || ticket.createdAt);
+  const locationDisplay = ticket.location || ticket.where || (rawRoom ? `Room ${rawRoom}` : "Not specified");
+  const submittedTimestampDisplay = formatSubmittedDate(ticket.created_at || ticket.createdAt);
+  const ticketIdDisplay = ticket.id || ticket.ticketId || "N/A";
 
   const handleStatusChange = async (newStatus: "pending" | "in_progress" | "completed") => {
     try {
@@ -233,7 +240,7 @@ export default function MaintenanceReportViewer({
                   Ticket ID
                 </span>
                 <span className="text-base font-mono font-bold text-slate-900 block">
-                  {ticket.id}
+                  {ticketIdDisplay}
                 </span>
               </div>
 
@@ -274,7 +281,7 @@ export default function MaintenanceReportViewer({
                   Tenant Name
                 </span>
                 <span className="text-base font-bold text-slate-900 block truncate">
-                  {ticket.tenant_name || "Guest Visitor"}
+                  {tenantDisplayName}
                 </span>
               </div>
 
@@ -315,7 +322,7 @@ export default function MaintenanceReportViewer({
                     <Clock className="w-3.5 h-3.5 text-brand-orange" /> When It Occurred
                   </span>
                   <p className="text-sm font-bold text-slate-900 mt-0.5">
-                    {ticket.occurred_at || formatSubmittedDate(ticket.created_at)}
+                    {occurredAtDisplay}
                   </p>
                 </div>
 
@@ -324,7 +331,7 @@ export default function MaintenanceReportViewer({
                     <MapPin className="w-3.5 h-3.5 text-brand-orange" /> Where In The Unit
                   </span>
                   <p className="text-sm font-bold text-slate-900 mt-0.5">
-                    {ticket.location || (ticket.room_number ? `Room ${ticket.room_number}` : "Not specified")}
+                    {locationDisplay}
                   </p>
                 </div>
               </div>
@@ -335,7 +342,7 @@ export default function MaintenanceReportViewer({
                   Description (Original Report from Tenant):
                 </span>
                 <div className="neu-pressed p-3.5 rounded-xl text-slate-800 text-xs sm:text-sm leading-relaxed font-normal whitespace-pre-wrap">
-                  {ticket.issue_description || "No description provided."}
+                  {descDisplay}
                 </div>
               </div>
 
@@ -343,7 +350,7 @@ export default function MaintenanceReportViewer({
               <div className="text-xs font-medium text-slate-500 flex items-center gap-1.5 pt-0.5">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <span>Date & Time Submitted: </span>
-                <strong className="text-slate-800 font-semibold">{formatSubmittedDate(ticket.created_at)}</strong>
+                <strong className="text-slate-800 font-semibold">{submittedTimestampDisplay}</strong>
               </div>
             </div>
           </div>

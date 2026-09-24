@@ -1668,20 +1668,61 @@ app.post("/api/chatbot/query", async (req, res) => {
 });
 
 // Maintenance requests endpoints
-app.post("/api/maintenance", (req, res) => {
+app.post("/api/maintenance", async (req, res) => {
   const db = readDB();
+  const ticketId = req.body.id || req.body.ticketId || `maint-${Date.now()}`;
+  const now = new Date().toISOString();
+
+  const desc = String(req.body.issue_description || req.body.description || req.body.issueDescription || "").trim();
+  const tenantName = String(req.body.tenant_name || req.body.tenantName || "Guest").trim();
+  const roomNum = String(req.body.room_number || req.body.roomNumber || "Unknown").trim();
+  const category = String(req.body.category || "General Maintenance").trim();
+  const priority = String(req.body.priority || req.body.severity || "Medium").trim();
+  const status = req.body.status || "pending";
+  const photo = String(req.body.photo_url || req.body.photoUrl || req.body.photo || "").trim();
+  const occurredAt = String(req.body.occurred_at || req.body.occurredAt || req.body.when || "Today").trim();
+  const location = String(req.body.location || req.body.where || (roomNum !== "Unknown" ? `Room ${roomNum}` : "Unit")).trim();
+
   const newMaint = {
-    id: `maint-${Date.now()}`,
-    status: "pending",
-    created_at: new Date().toISOString(),
-    ...req.body
+    id: ticketId,
+    ticketId: ticketId,
+    room_id: req.body.room_id || "",
+    room_number: roomNum,
+    roomNumber: roomNum,
+    tenant_id: req.body.tenant_id || req.body.tenantId || "guest",
+    tenantId: req.body.tenant_id || req.body.tenantId || "guest",
+    tenant_name: tenantName,
+    tenantName: tenantName,
+    issue_description: desc,
+    description: desc,
+    category: category,
+    priority: priority,
+    severity: priority,
+    status: status,
+    photo_url: photo,
+    photoUrl: photo,
+    photo: photo,
+    photo_attached: Boolean(photo),
+    photoAttached: Boolean(photo),
+    occurred_at: occurredAt,
+    occurredAt: occurredAt,
+    when: occurredAt,
+    location: location,
+    where: location,
+    messenger_psid: req.body.messenger_psid || "",
+    created_at: req.body.created_at || req.body.createdAt || now,
+    createdAt: req.body.created_at || req.body.createdAt || now,
+    updated_at: now,
+    updatedAt: now
   };
+
   db.maintenanceRequests = db.maintenanceRequests || [];
-  db.maintenanceRequests.push(newMaint);
+  // Prepend so latest ticket appears first
+  db.maintenanceRequests.unshift(newMaint);
 
   // Notify admin
-  const urgencyStr = newMaint.priority === "High" ? "🔴 HIGH PRIORITY" : newMaint.priority === "Medium" ? "🟡 MEDIUM PRIORITY" : "🟢 LOW PRIORITY";
-  const descText = String(newMaint.issue_description || newMaint.description || "Maintenance request submitted");
+  const urgencyStr = (priority.toLowerCase() === "critical" ? "🚨 CRITICAL PRIORITY" : priority.toLowerCase() === "high" ? "🔴 HIGH PRIORITY" : priority.toLowerCase() === "medium" ? "🟡 MEDIUM PRIORITY" : "🟢 LOW PRIORITY");
+  const descText = desc || "Maintenance request submitted";
   const newNotif = {
     id: `notif-${Date.now()}`,
     tenant_id: newMaint.tenant_id || "guest",
@@ -1692,65 +1733,93 @@ app.post("/api/maintenance", (req, res) => {
     channel: "in_app" as const,
     created_at: new Date().toISOString()
   };
+  if (!db.notifications) db.notifications = [];
   db.notifications.push(newNotif);
 
   logTransaction(db, {
     category: "maintenance",
     action: "create",
     title: `Maintenance Request [${newMaint.category || 'General'}]`,
-    details: `Ticket submitted for Room ${newMaint.room_number || 'N/A'}: "${descText}" (${urgencyStr}).`,
+    details: `Ticket ${ticketId} submitted for Room ${newMaint.room_number || 'N/A'}: "${descText}" (${urgencyStr}).`,
     tenant_id: newMaint.tenant_id,
     tenant_name: newMaint.tenant_name,
     room_number: newMaint.room_number
   });
 
   writeDB(db);
+
+  // Direct upsert to Firestore document to guarantee cloud synchronization
+  try {
+    await dbService.upsertDoc("maintenanceRequests", newMaint.id, newMaint);
+  } catch (fsErr: any) {
+    console.warn("Firestore upsert warning for maintenance ticket:", fsErr?.message || fsErr);
+  }
+
   res.json(newMaint);
 });
 
-app.put("/api/maintenance/:id", (req, res) => {
+app.put("/api/maintenance/:id", async (req, res) => {
   const db = readDB();
   const { id } = req.params;
   db.maintenanceRequests = db.maintenanceRequests || [];
-  const index = db.maintenanceRequests.findIndex((m: any) => m.id === id);
+  const index = db.maintenanceRequests.findIndex((m: any) => m.id === id || m.ticketId === id);
   if (index !== -1) {
-    db.maintenanceRequests[index] = { ...db.maintenanceRequests[index], ...req.body };
+    db.maintenanceRequests[index] = { 
+      ...db.maintenanceRequests[index], 
+      ...req.body,
+      updated_at: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
     const maint = db.maintenanceRequests[index];
 
     logTransaction(db, {
       category: "maintenance",
       action: "update",
-      title: `Maintenance Request ${maint.status.toUpperCase()}`,
-      details: `Updated ticket for Room ${maint.room_number || 'N/A'} (${maint.category}): Status changed to ${maint.status.toUpperCase()}.`,
+      title: `Maintenance Request ${String(maint.status).toUpperCase()}`,
+      details: `Updated ticket ${id} for Room ${maint.room_number || maint.roomNumber || 'N/A'} (${maint.category}): Status changed to ${String(maint.status).toUpperCase()}.`,
       tenant_id: maint.tenant_id,
       tenant_name: maint.tenant_name,
       room_number: maint.room_number
     });
 
     writeDB(db);
+
+    try {
+      await dbService.upsertDoc("maintenanceRequests", id, maint);
+    } catch (fsErr: any) {
+      console.warn("Firestore update warning for maintenance ticket:", fsErr?.message || fsErr);
+    }
+
     res.json(db.maintenanceRequests[index]);
   } else {
     res.status(404).json({ message: "Maintenance request not found" });
   }
 });
 
-app.delete("/api/maintenance/:id", (req, res) => {
+app.delete("/api/maintenance/:id", async (req, res) => {
   const db = readDB();
   const { id } = req.params;
   db.maintenanceRequests = db.maintenanceRequests || [];
-  const index = db.maintenanceRequests.findIndex((m: any) => m.id === id);
+  const index = db.maintenanceRequests.findIndex((m: any) => m.id === id || m.ticketId === id);
   if (index !== -1) {
     const deleted = db.maintenanceRequests.splice(index, 1)[0];
     logTransaction(db, {
       category: "maintenance",
       action: "delete",
       title: `Deleted Maintenance Ticket ${id}`,
-      details: `Deleted ticket ${id} (${deleted.category || 'General'}) for Room ${deleted.room_number || 'N/A'}.`,
+      details: `Deleted ticket ${id} (${deleted.category || 'General'}) for Room ${deleted.room_number || deleted.roomNumber || 'N/A'}.`,
       tenant_id: deleted.tenant_id,
       tenant_name: deleted.tenant_name,
       room_number: deleted.room_number
     });
     writeDB(db);
+
+    try {
+      await dbService.deleteDoc("maintenanceRequests", id);
+    } catch (fsErr: any) {
+      console.warn("Firestore delete warning for maintenance ticket:", fsErr?.message || fsErr);
+    }
+
     res.json({ success: true, deleted });
   } else {
     res.status(404).json({ message: "Maintenance request not found" });

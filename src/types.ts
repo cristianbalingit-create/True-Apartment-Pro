@@ -94,20 +94,35 @@ export interface Inquiry {
 
 export interface MaintenanceRequest {
   id: string;
+  ticketId?: string;
   room_id?: string;
   room_number?: string;
+  roomNumber?: string;
   tenant_id?: string;
+  tenantId?: string;
   tenant_name?: string;
+  tenantName?: string;
   issue_description: string;
+  description?: string;
   category: 'Plumbing' | 'Electrical' | 'Internet' | 'Air Conditioning' | 'Furniture' | 'Cleaning' | 'Other' | (string & {});
   priority: 'Critical' | 'High' | 'Medium' | 'Low' | (string & {});
+  severity?: string;
   photo_url?: string;
+  photoUrl?: string;
+  photo_attached?: boolean;
+  photoAttached?: boolean;
+  photo?: string;
   occurred_at?: string;
+  occurredAt?: string;
+  when?: string;
   location?: string;
+  where?: string;
   messenger_psid?: string;
   status: 'pending' | 'in_progress' | 'completed';
   created_at: string;
+  createdAt?: string;
   updated_at?: string;
+  updatedAt?: string;
 }
 
 export interface Announcement {

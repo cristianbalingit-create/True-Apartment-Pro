@@ -32,6 +32,7 @@ interface MaintenanceReportsProps {
   db: DBState;
   onRefresh: () => void;
   standalone?: boolean;
+  onTicketCreated?: (ticketId: string) => void;
 }
 
 type TimeFilter = "all" | "this_month" | "last_month" | "this_year";
@@ -69,7 +70,7 @@ function getCategoryColor(category: string, index: number): string {
   return COLOR_WHEEL[index % COLOR_WHEEL.length];
 }
 
-export default function MaintenanceReports({ db, onRefresh, standalone = false }: MaintenanceReportsProps) {
+export default function MaintenanceReports({ db, onRefresh, standalone = false, onTicketCreated }: MaintenanceReportsProps) {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -175,19 +176,31 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false }
 
     try {
       setSaving(true);
-      const matchedRoom = (db.rooms || []).find(r => r.room_number === newRoom);
-      const matchedTenant = (db.tenants || []).find(t => t.name.toLowerCase() === newTenantName.toLowerCase() || t.room_id === matchedRoom?.id);
+      const cleanRoom = newRoom.trim() || "101";
+      const matchedRoom = (db.rooms || []).find(r => r.room_number === cleanRoom);
+      const matchedTenant = (db.tenants || []).find(t => 
+        (newTenantName.trim() && t.name.toLowerCase() === newTenantName.toLowerCase().trim()) || 
+        (matchedRoom?.id && t.room_id === matchedRoom.id)
+      );
+      const finalTenantName = newTenantName.trim() || matchedTenant?.name || "Apartment Tenant";
 
-      await api.createMaintenanceRequest({
+      const created = await api.createMaintenanceRequest({
         category: finalCategory,
         issue_description: newDescription.trim(),
+        description: newDescription.trim(),
         priority: newPriority,
-        room_number: newRoom.trim() || "101",
+        severity: newPriority,
+        room_number: cleanRoom,
+        roomNumber: cleanRoom,
         room_id: matchedRoom?.id || "",
-        tenant_name: newTenantName.trim() || matchedTenant?.name || "Apartment Tenant",
+        tenant_name: finalTenantName,
+        tenantName: finalTenantName,
         tenant_id: matchedTenant?.id || "",
         occurred_at: newOccurredAt.trim() || "Today",
-        location: `Room ${newRoom.trim() || "101"}`,
+        occurredAt: newOccurredAt.trim() || "Today",
+        when: newOccurredAt.trim() || "Today",
+        location: `Room ${cleanRoom}`,
+        where: `Room ${cleanRoom}`,
         status: "pending"
       });
 
@@ -195,7 +208,11 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false }
       setCustomTagInput("");
       setNewCategory("Plumbing");
       setIsModalOpen(false);
-      onRefresh();
+      await onRefresh();
+
+      if (onTicketCreated && created?.id) {
+        onTicketCreated(created.id);
+      }
     } catch (err) {
       console.error("Failed to create maintenance report:", err);
       alert("Failed to submit maintenance report.");
@@ -636,9 +653,12 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false }
                   ) : (
                     <Plus className="w-3.5 h-3.5" />
                   )}
-                  Save & Update Chart
+                  Save & Record Ticket
                 </button>
               </div>
+              <p className="text-[11px] text-slate-500 text-right pt-1 font-medium">
+                ✅ Immediately records a new maintenance ticket and refreshes live analytics.
+              </p>
             </form>
           </div>
         </div>

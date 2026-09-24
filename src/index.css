@@ -1,18 +1,262 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-brand-orange: hsl(25 95% 53%);
-  --color-brand-navy: hsl(222 47% 11%);
-  --color-brand-navy-light: hsl(222 47% 18%);
+  /* Color Hunt Palette: #e73f1e #fb6c00 #f9b637 #ffdd9c */
+  --color-brand-primary: #e73f1e;
+  --color-brand-orange: #fb6c00;
+  --color-brand-amber: #f9b637;
+  --color-brand-cream: #ffdd9c;
+  --color-brand-navy: #2d1810;
+  --color-brand-navy-light: #44281d;
+
+  /* White Neumorphic Base Colors */
+  --color-neu-bg: #ffffff;
+  --color-neu-surface: #ffffff;
+  --color-neu-dark: #e2e8f0;
+  --color-neu-light: #ffffff;
 }
 
 @layer base {
+  :root {
+    --neu-bg: #ffffff;
+    --neu-shadow-dark: #e2e8f0;
+    --neu-shadow-light: #ffffff;
+    --neu-accent: #e73f1e;
+    --neu-accent-secondary: #fb6c00;
+    --neu-accent-warm: #f9b637;
+    --neu-accent-cream: #ffdd9c;
+    --neu-accent-glow: rgba(231, 63, 30, 0.25);
+  }
+
   body {
-    @apply font-sans antialiased text-slate-800 bg-slate-50;
+    background-color: #ffffff;
+    color: #1e293b;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
   }
 }
 
+/* Neumorphic Utility Classes with Crisp White Surface Shadows */
+
+/* Standard Extruded / Raised Card on Pure White */
+.neu-flat,
+.neu-card {
+  background: #ffffff;
+  box-shadow: 6px 6px 16px rgba(0, 0, 0, 0.06), -5px -5px 14px rgba(255, 255, 255, 0.9);
+  border: 1px solid #f1f5f9;
+  border-radius: 1rem;
+}
+
+/* Subtler Extrusion */
+.neu-flat-sm,
+.neu-card-sm {
+  background: #ffffff;
+  box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.05), -3px -3px 8px rgba(255, 255, 255, 0.9);
+  border: 1px solid #f1f5f9;
+  border-radius: 0.75rem;
+}
+
+/* Deep / Dramatic Floating Surface */
+.neu-floating {
+  background: #ffffff;
+  box-shadow: 10px 10px 24px rgba(0, 0, 0, 0.08), -8px -8px 20px rgba(255, 255, 255, 0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: 1.25rem;
+}
+
+/* Inset / Pressed / Recessed Well (for inputs, track wells, and depressed containers) */
+.neu-pressed,
+.neu-inset {
+  background: #f8fafc;
+  box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.06), inset -2px -2px 5px rgba(255, 255, 255, 0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+}
+
+/* Deep inset for text inputs and search bars */
+.neu-input {
+  background: #f8fafc;
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.06), inset -2px -2px 5px #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s ease-in-out;
+}
+
+.neu-input:focus {
+  border-color: #fb6c00;
+  background: #ffffff;
+  box-shadow: inset 1.5px 1.5px 4px rgba(0, 0, 0, 0.04), 0 0 0 3px rgba(251, 108, 0, 0.2);
+}
+
+/* Clickable Raised Button with Brand Colors */
+.neu-btn {
+  background: linear-gradient(135deg, #fff7ed, #ffedd5);
+  color: #ea580c;
+  box-shadow: 3px 3px 8px rgba(234, 88, 12, 0.16), -2px -2px 6px #ffffff;
+  border: 1px solid #fdba74;
+  border-radius: 0.75rem;
+  transition: all 0.15s ease;
+  user-select: none;
+  font-weight: 700;
+}
+
+.neu-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #fed7aa, #fdba74);
+  color: #9a3412;
+  box-shadow: 4px 4px 12px rgba(234, 88, 12, 0.28), -2px -2px 6px #ffffff;
+  transform: translateY(-1px);
+}
+
+.neu-btn:active:not(:disabled),
+.neu-btn.active {
+  background: #fed7aa;
+  color: #7c2d12;
+  box-shadow: inset 2px 2px 5px rgba(124, 45, 18, 0.25), inset -2px -2px 5px #ffffff;
+  transform: translateY(0);
+}
+
+.neu-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Primary Accent Button using Palette Gradient (#e73f1e to #fb6c00) */
+.neu-btn-primary {
+  background: linear-gradient(135deg, #e73f1e, #fb6c00);
+  color: #ffffff;
+  box-shadow: 4px 4px 12px rgba(231, 63, 30, 0.35), -2px -2px 6px #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0.75rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.neu-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f04e2f, #fc7917);
+  box-shadow: 5px 5px 15px rgba(231, 63, 30, 0.45), -3px -3px 8px #ffffff;
+  transform: translateY(-1px);
+}
+
+.neu-btn-primary:active:not(:disabled) {
+  background: linear-gradient(135deg, #cb3214, #e73f1e);
+  box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.35), inset -2px -2px 4px rgba(255, 255, 255, 0.2);
+  transform: translateY(0);
+}
+
+/* Warm Secondary Accent Button (#f9b637 to #fb6c00) */
+.neu-btn-warm {
+  background: linear-gradient(135deg, #f9b637, #fb6c00);
+  color: #ffffff;
+  box-shadow: 4px 4px 12px rgba(249, 182, 55, 0.35), -2px -2px 6px #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 0.75rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.neu-btn-warm:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 5px 5px 15px rgba(249, 182, 55, 0.45), -3px -3px 8px #ffffff;
+  transform: translateY(-1px);
+}
+
+.neu-btn-warm:active:not(:disabled) {
+  box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.2);
+  transform: translateY(0);
+}
+
+/* Danger / Destructive Button */
+.neu-btn-danger {
+  background: linear-gradient(135deg, #fef2f2, #fee2e2);
+  color: #dc2626;
+  box-shadow: 3px 3px 8px rgba(220, 38, 38, 0.15), -2px -2px 6px #ffffff;
+  border: 1px solid #fecaca;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.neu-btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #fee2e2, #fca5a5);
+  color: #b91c1c;
+  box-shadow: 4px 4px 12px rgba(220, 38, 38, 0.25), -2px -2px 6px #ffffff;
+}
+
+.neu-btn-danger:active:not(:disabled) {
+  background: #f87171;
+  color: #ffffff;
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.3), inset -2px -2px 5px #ffffff;
+}
+
+/* Warm Dark Neumorphic Bar for Sidebar & Top Nav */
+.neu-dark-panel {
+  background: #23140e;
+  box-shadow: 6px 6px 16px rgba(35, 20, 14, 0.4), -3px -3px 8px rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(249, 182, 55, 0.12);
+}
+
+.neu-dark-inset {
+  background: #170d09;
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.6), inset -2px -2px 5px rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.neu-dark-btn {
+  background: #331f16;
+  color: #ffdd9c;
+  box-shadow: 3px 3px 7px rgba(0, 0, 0, 0.4), -2px -2px 5px rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(249, 182, 55, 0.15);
+  transition: all 0.15s ease;
+}
+
+.neu-dark-btn:hover {
+  background: #472c20;
+  box-shadow: 4px 4px 9px rgba(0, 0, 0, 0.5), -2px -2px 6px rgba(255, 255, 255, 0.08);
+}
+
+.neu-dark-btn:active,
+.neu-dark-btn.active {
+  background: #1e110b;
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.7), inset -1px -1px 3px rgba(255, 255, 255, 0.05);
+}
+
+/* Status Pill Indicators (embossed softly) */
+.neu-badge {
+  background: #ffffff;
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.06), -2px -2px 5px #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+}
+
+.neu-badge-inset {
+  background: #f8fafc;
+  box-shadow: inset 1.5px 1.5px 3px rgba(0, 0, 0, 0.08), inset -1.5px -1.5px 3px #ffffff;
+  border-radius: 9999px;
+}
+
+/* Custom Scrollbar for clean white feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #ffffff;
+  box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.05), inset -1px -1px 3px #ffffff;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.08), -1px -1px 3px #ffffff;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #fb6c00;
+}

@@ -306,19 +306,19 @@ export default function Chatbot() {
             id="chatbot-container"
           >
             {/* Header */}
-            <div className="bg-slate-900 text-white p-4 flex flex-col gap-2 relative">
+            <div className="bg-[#23140e] text-white p-4 flex flex-col gap-2 relative border-b border-[#e73f1e]/30">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <div className="relative">
-                    <div className="w-9 h-9 bg-brand-orange text-white rounded-full flex items-center justify-center font-bold relative">
-                      <Sparkles className="w-4 h-4" />
+                    <div className="w-9 h-9 bg-gradient-to-br from-[#e73f1e] to-[#fb6c00] text-white rounded-full flex items-center justify-center font-bold relative border border-[#ffdd9c]/30">
+                      <Sparkles className="w-4 h-4 text-[#ffdd9c]" />
                     </div>
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-slate-900" />
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#f9b637] rounded-full border-2 border-[#23140e]" />
                   </div>
                   <div>
                     <h2 className="text-sm font-bold tracking-tight">ABC Assistant</h2>
-                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-pulse" />
+                    <span className="text-[10px] text-[#ffdd9c] font-mono flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-[#fb6c00] rounded-full inline-block animate-pulse" />
                       ONLINE • HYBRID INTELLIGENCE
                     </span>
                   </div>
@@ -327,14 +327,14 @@ export default function Chatbot() {
                 <div className="flex items-center gap-1">
                   <button 
                     onClick={() => { loadData(); }} 
-                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                    className="p-1.5 hover:bg-[#331f16] rounded-lg text-[#ecd9c6] hover:text-white transition-colors"
                     title="Refresh data"
                   >
                     <RefreshCw className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                    className="p-1.5 hover:bg-[#331f16] rounded-lg text-[#ecd9c6] hover:text-white transition-colors"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -394,37 +394,37 @@ export default function Chatbot() {
             <div className="bg-slate-50 border-b border-slate-100 py-2.5 px-3 overflow-x-auto flex gap-2 scrollbar-none">
               <button
                 onClick={() => handleQuickAction("💰 Check Rent Balance")}
-                className="flex-shrink-0 bg-white hover:bg-orange-50 border border-slate-200 hover:border-brand-orange text-slate-700 hover:text-brand-orange px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="flex-shrink-0 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
               >
                 💰 Balance
               </button>
               <button
                 onClick={() => handleQuickAction("📅 View Due Date")}
-                className="flex-shrink-0 bg-white hover:bg-orange-50 border border-slate-200 hover:border-brand-orange text-slate-700 hover:text-brand-orange px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="flex-shrink-0 bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
               >
                 📅 Due Date
               </button>
               <button
                 onClick={() => handleQuickAction("🔧 Report Maintenance")}
-                className="flex-shrink-0 bg-white hover:bg-orange-50 border border-slate-200 hover:border-brand-orange text-slate-700 hover:text-brand-orange px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="flex-shrink-0 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
               >
                 🔧 Maintenance
               </button>
               <button
                 onClick={() => handleQuickAction("📢 View Announcements")}
-                className="flex-shrink-0 bg-white hover:bg-orange-50 border border-slate-200 hover:border-brand-orange text-slate-700 hover:text-brand-orange px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="flex-shrink-0 bg-purple-50 hover:bg-purple-100 border border-purple-300 text-purple-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
               >
                 📢 News
               </button>
               <button
                 onClick={() => handleQuickAction("📜 Apartment Rules")}
-                className="flex-shrink-0 bg-white hover:bg-orange-50 border border-slate-200 hover:border-brand-orange text-slate-700 hover:text-brand-orange px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="flex-shrink-0 bg-orange-50 hover:bg-orange-100 border border-orange-300 text-orange-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
               >
                 📜 Rules
               </button>
               <button
                 onClick={() => handleQuickAction("👤 My Profile")}
-                className="flex-shrink-0 bg-white hover:bg-orange-50 border border-slate-200 hover:border-brand-orange text-slate-700 hover:text-brand-orange px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="flex-shrink-0 bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
               >
                 👤 Profile
               </button>
@@ -542,7 +542,7 @@ export default function Chatbot() {
               <button
                 onClick={() => handleSendMessage()}
                 disabled={isLoading}
-                className="p-2 bg-brand-orange hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl transition-colors flex items-center justify-center shadow-md shadow-brand-orange/20"
+                className="p-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:brightness-110 disabled:opacity-50 text-white rounded-xl transition-all flex items-center justify-center shadow-md shadow-[#fb6c00]/30"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -556,7 +556,7 @@ export default function Chatbot() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-brand-orange text-white w-14 h-14 rounded-full flex items-center justify-center shadow-xl hover:shadow-2xl transition-all hover:bg-orange-600 focus:outline-none select-none relative"
+        className="bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] text-white w-14 h-14 rounded-full flex items-center justify-center shadow-xl hover:shadow-2xl transition-all hover:brightness-110 focus:outline-none select-none relative border border-[#ffdd9c]/40"
         title="Open Apartment Assistant Chatbot"
         id="chatbot-launcher"
       >
@@ -581,7 +581,7 @@ export default function Chatbot() {
               className="relative"
             >
               <MessageSquare className="w-6 h-6" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-brand-orange" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#e73f1e] rounded-full border-2 border-white" />
             </motion.div>
           )}
         </AnimatePresence>

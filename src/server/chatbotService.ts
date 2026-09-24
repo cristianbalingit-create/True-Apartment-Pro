@@ -212,8 +212,65 @@ export async function sendFacebookMessage(
 
   // Format message payload and include 1-tap quick action buttons
   let msgObj: any = typeof responsePayload === "string" ? { text: responsePayload } : { ...responsePayload };
-  if (!msgObj.quick_replies && msgObj.text && !msgObj.attachment) {
+  if (!msgObj.quick_replies && msgObj.text && !msgObj.attachment && !msgObj.fileBuffer) {
     msgObj.quick_replies = standardQuickReplies;
+  }
+
+  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
+  const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
+
+  // Direct Binary Multipart Upload (Send image without external hosting dependencies)
+  if (msgObj.fileBuffer) {
+    try {
+      const formData = new FormData();
+      formData.append("recipient", JSON.stringify({ id: senderPsid }));
+      
+      const messagePayload: any = {
+        attachment: {
+          type: "image",
+          payload: { is_reusable: true }
+        }
+      };
+      if (msgObj.quick_replies) {
+        messagePayload.quick_replies = msgObj.quick_replies;
+      }
+      formData.append("message", JSON.stringify(messagePayload));
+      
+      const fileName = msgObj.fileName || "bill.png";
+      const mimeType = fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") ? "image/jpeg" : "image/png";
+      const blob = new Blob([msgObj.fileBuffer], { type: mimeType });
+      formData.append("filedata", blob, fileName);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
+        },
+        body: formData
+      });
+
+      const resText = await res.text();
+      let resData: any;
+      try {
+        resData = JSON.parse(resText);
+      } catch {
+        resData = resText;
+      }
+
+      if (!res.ok) {
+        console.error("===== FACEBOOK MULTIPART SEND ERROR =====");
+        console.error(`Status: ${res.status} ${res.statusText}`);
+        console.error(typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
+        const safeErrorMsg = resData?.error?.message || `Facebook Graph API responded with status ${res.status}`;
+        return { success: false, error: safeErrorMsg };
+      } else {
+        console.log(`Successfully sent multipart media to Facebook Messenger user: ${senderPsid}`);
+        return { success: true, message_id: resData?.message_id };
+      }
+    } catch (err: any) {
+      console.error("Error in sendFacebookMessage multipart upload:", err);
+      return { success: false, error: err?.message || "Error dispatching multipart message to Facebook" };
+    }
   }
 
   // Only pass supported Messenger Send API fields to Facebook
@@ -229,9 +286,6 @@ export async function sendFacebookMessage(
     },
     message: validMessagePayload
   };
-
-  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
-  const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
 
   try {
     const res = await fetch(url, {

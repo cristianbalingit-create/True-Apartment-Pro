@@ -66,9 +66,11 @@ function AdminPortal() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-slate-400">
-        <div className="w-12 h-12 border-4 border-brand-orange border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="font-mono text-xs tracking-widest uppercase font-bold text-slate-300">Initializing ApartmentPro Suite...</p>
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center text-slate-700">
+        <div className="w-16 h-16 neu-pressed rounded-full flex items-center justify-center mb-4">
+          <div className="w-8 h-8 border-3 border-[#fb6c00] border-t-transparent rounded-full animate-spin" />
+        </div>
+        <p className="font-mono text-xs tracking-widest uppercase font-bold text-[#e73f1e]">Loading ApartmentPro Suite...</p>
       </div>
     );
   }
@@ -80,12 +82,21 @@ function AdminPortal() {
     badge?: string;
   }
 
+  const pendingMaintenanceCount = (db?.maintenanceRequests || []).filter(
+    (t) => t.status === "pending"
+  ).length;
+
   const sidebarItems: SidebarNav[] = [
     { id: "dashboard", label: "Operations Panel", icon: LayoutDashboard },
     { id: "apartments", label: "Buildings & Rooms", icon: Building },
     { id: "tenants", label: "Tenant Directory", icon: Users },
     { id: "billing", label: "Financial Ledgers", icon: FileText },
-    { id: "maintenance", label: "Service & Rules", icon: Wrench },
+    { 
+      id: "maintenance", 
+      label: "Maintenance", 
+      icon: Wrench,
+      badge: pendingMaintenanceCount > 0 ? String(pendingMaintenanceCount) : undefined
+    },
     { id: "logs", label: "Transaction Logs", icon: Activity },
   ];
 
@@ -95,7 +106,7 @@ function AdminPortal() {
     if (!db) return null;
     switch (activeTab) {
       case "dashboard":
-        return <Dashboard db={db} onRefresh={fetchDB} />;
+        return <Dashboard db={db} onRefresh={fetchDB} onNavigateToMaintenance={() => setActiveTab("maintenance")} />;
       case "apartments":
         return <Apartments db={db} onRefresh={fetchDB} />;
       case "tenants":
@@ -110,18 +121,24 @@ function AdminPortal() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 flex">
+    <div className="h-screen overflow-hidden bg-white flex text-slate-900">
       
-      {/* Desktop Sidebar (Fixed Dark Navy) */}
-      <aside className="hidden lg:flex flex-col w-64 bg-slate-900 text-slate-300 shrink-0 border-r border-slate-850 relative z-30">
+      {/* Desktop Sidebar (White Neumorphic) */}
+      <aside className="hidden lg:flex flex-col w-64 bg-white text-slate-900 shrink-0 border-r border-slate-200/80 shadow-[4px_0_16px_rgba(0,0,0,0.03)] relative z-30">
         {/* Brand Header */}
-        <div className="flex items-center gap-3 p-6 text-brand-orange font-bold text-xl border-b border-slate-850">
-          <Building className="w-8 h-8" />
-          <span className="text-white">Apartment<span className="text-brand-orange">Pro</span></span>
+        <div className="p-6 border-b border-slate-200/80">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 neu-flat flex items-center justify-center text-[#e73f1e] rounded-xl">
+              <Building className="w-5 h-5 text-[#e73f1e]" />
+            </div>
+            <span className="text-lg font-black tracking-tight text-slate-900">
+              Apartment<span className="text-[#fb6c00]">Pro</span>
+            </span>
+          </div>
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 px-4 py-6 space-y-1.5">
+        <nav className="flex-1 px-4 py-6 space-y-2.5 overflow-y-auto">
           {sidebarItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -129,19 +146,19 @@ function AdminPortal() {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition-all duration-150 relative group ${
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-bold rounded-xl transition-all duration-150 ${
                   isActive
-                    ? "bg-brand-orange text-white shadow-md shadow-orange-950/20"
-                    : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                    ? "neu-pressed text-[#e73f1e] font-extrabold border border-[#e73f1e]/30 bg-[#fff5f2]"
+                    : "neu-btn text-slate-700 hover:text-[#fb6c00]"
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`w-5 h-5 ${isActive ? "text-white" : "text-slate-400 group-hover:text-white"}`} />
-                  <span className={isActive ? "text-white font-bold" : ""}>{item.label}</span>
+                  <Icon className={`w-4 h-4 ${isActive ? "text-[#e73f1e]" : "text-[#fb6c00]"}`} />
+                  <span>{item.label}</span>
                 </div>
                 {item.badge && (
-                  <span className={`px-1.5 py-0.5 text-[9px] font-black rounded tracking-widest uppercase ${
-                    isActive ? "bg-white/25 text-white" : "bg-brand-orange/20 text-brand-orange"
+                  <span className={`min-w-5 h-5 px-1.5 flex items-center justify-center text-[10px] font-black rounded-full ${
+                    isActive ? "bg-[#e73f1e] text-white" : "bg-[#fb6c00] text-white"
                   }`}>
                     {item.badge}
                   </span>
@@ -152,24 +169,24 @@ function AdminPortal() {
         </nav>
 
         {/* Manager Account Profile Foot */}
-        <div className="mt-auto p-6 border-t border-slate-850">
-          <div className="bg-slate-800 rounded-xl p-4 mb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-brand-orange flex items-center justify-center font-bold text-xs text-white">
+        <div className="mt-auto p-4 border-t border-slate-200/80">
+          <div className="neu-pressed rounded-xl p-3 mb-3 bg-slate-50">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 neu-flat rounded-full flex items-center justify-center font-bold text-xs text-[#e73f1e]">
                 AU
               </div>
-              <div className="text-xs">
-                <div className="font-semibold text-white">Admin User</div>
-                <div className="opacity-50 text-slate-400">Property Manager</div>
+              <div className="text-xs truncate">
+                <div className="font-bold text-slate-900 truncate">Admin User</div>
+                <div className="text-[11px] text-slate-500 truncate">Property Manager</div>
               </div>
             </div>
           </div>
           
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-950 hover:bg-slate-850 hover:text-white text-slate-400 font-medium text-xs rounded-xl border border-slate-800 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2 neu-btn-danger text-xs font-bold rounded-xl"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
             <span>Logout Portal</span>
           </button>
         </div>
@@ -184,31 +201,31 @@ function AdminPortal() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMobileSidebarOpen(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
             />
             <motion.aside
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="relative flex flex-col w-72 max-w-xs bg-brand-navy text-slate-300 h-full relative z-10"
+              className="relative flex flex-col w-72 max-w-xs bg-white text-slate-900 h-full z-10 shadow-2xl"
             >
-              <div className="p-5 border-b border-slate-800 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-brand-orange text-white rounded-lg">
-                    <Building className="w-5 h-5" />
+              <div className="p-5 border-b border-slate-200/80 flex justify-between items-center">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 neu-flat rounded-xl flex items-center justify-center text-[#e73f1e]">
+                    <Building className="w-4 h-4" />
                   </div>
-                  <span className="font-extrabold text-white text-lg">ApartmentPro</span>
+                  <span className="font-extrabold text-slate-900 text-base">Apartment<span className="text-[#fb6c00]">Pro</span></span>
                 </div>
                 <button
                   onClick={() => setIsMobileSidebarOpen(false)}
-                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
+                  className="w-8 h-8 neu-btn flex items-center justify-center rounded-lg text-slate-600"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <nav className="flex-1 px-4 py-4 space-y-1.5">
+              <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
                 {sidebarItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
@@ -219,19 +236,19 @@ function AdminPortal() {
                         setActiveTab(item.id);
                         setIsMobileSidebarOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${
                         isActive
-                          ? "bg-brand-orange text-white font-bold shadow-md"
-                          : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                          ? "neu-pressed text-[#e73f1e] font-extrabold border border-[#e73f1e]/30 bg-[#fff5f2]"
+                          : "neu-btn text-slate-700 hover:text-[#fb6c00]"
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-slate-400"}`} />
-                        <span className={isActive ? "text-white font-bold" : ""}>{item.label}</span>
+                      <div className="flex items-center gap-2.5">
+                        <Icon className={`w-4 h-4 ${isActive ? "text-[#e73f1e]" : "text-[#fb6c00]"}`} />
+                        <span>{item.label}</span>
                       </div>
                       {item.badge && (
-                        <span className={`px-1.5 py-0.5 text-[8px] font-black rounded uppercase ${
-                          isActive ? "bg-white/25 text-white" : "bg-brand-orange/20 text-brand-orange"
+                        <span className={`min-w-4 h-4 px-1 flex items-center justify-center text-[9px] font-black rounded-full ${
+                          isActive ? "bg-[#e73f1e] text-white" : "bg-[#fb6c00] text-white"
                         }`}>
                           {item.badge}
                         </span>
@@ -241,12 +258,12 @@ function AdminPortal() {
                 })}
               </nav>
 
-              <div className="p-4 border-t border-slate-800 bg-slate-950/35 space-y-2">
+              <div className="p-4 border-t border-slate-200/80">
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center justify-center gap-2 py-2 bg-slate-900 hover:bg-rose-950 hover:text-rose-200 text-slate-400 font-bold text-xs rounded-xl border border-slate-800 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 py-2 neu-btn-danger text-xs font-bold rounded-xl"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                   <span>Logout Portal</span>
                 </button>
               </div>
@@ -256,39 +273,39 @@ function AdminPortal() {
       </AnimatePresence>
 
       {/* Main Workspace Frame container */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-white">
         {/* Top Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 sticky top-0 z-20">
+        <header className="h-16 bg-white border-b border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex items-center justify-between px-6 sm:px-8 shrink-0 sticky top-0 z-20">
           <div className="flex items-center gap-3">
             {/* Hamburger for mobile screens */}
             <button
               onClick={() => setIsMobileSidebarOpen(true)}
-              className="p-2 -ml-2 text-slate-600 hover:text-slate-950 lg:hidden rounded-lg hover:bg-slate-50"
+              className="p-2 -ml-2 text-slate-600 hover:text-slate-950 lg:hidden rounded-lg neu-btn"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-4 h-4" />
             </button>
             
-            <h1 className="text-lg font-semibold text-slate-800">{currentTabLabel}</h1>
+            <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">{currentTabLabel}</h1>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 sm:gap-5">
             {/* Manual Database Refresh */}
             <button
               onClick={fetchDB}
               disabled={refreshing}
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all relative"
+              className="w-9 h-9 neu-btn rounded-xl flex items-center justify-center text-[#fb6c00] hover:text-[#e73f1e] transition-all"
               title="Synchronize Database ledger"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-brand-orange" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#e73f1e]" : ""}`} />
             </button>
 
             {/* Notification indicators */}
             <div className="relative">
-              <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
-                <Bell className="w-5 h-5" />
+              <button className="w-9 h-9 neu-btn rounded-xl flex items-center justify-center text-[#fb6c00] hover:text-[#e73f1e] transition-all">
+                <Bell className="w-4 h-4" />
               </button>
               {db && db.notifications.length > 0 && (
-                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 border-2 border-white rounded-full" />
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#e73f1e] rounded-full shadow-[0_0_6px_rgba(231,63,30,0.6)]" />
               )}
             </div>
 
@@ -296,22 +313,23 @@ function AdminPortal() {
 
             <Link
               to="/"
-              className="text-sm font-medium text-brand-orange border border-brand-orange px-4 py-1.5 rounded-lg hover:bg-brand-orange hover:text-white transition-all"
+              className="text-xs font-bold text-[#fb6c00] neu-btn px-3 py-1.5 rounded-xl hover:text-[#e73f1e] transition-all flex items-center gap-1.5"
             >
-              View Public Site
+              <Globe className="w-3.5 h-3.5 text-[#fb6c00]" />
+              <span>Public Site</span>
             </Link>
           </div>
         </header>
 
         {/* Content body layout with layout-shift support */}
-        <main className="flex-1 overflow-y-auto p-6 sm:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto bg-white">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.18 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.15 }}
             >
               {renderActiveTabContent()}
             </motion.div>

@@ -405,9 +405,9 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
         </div>
         <button
           onClick={handleOpenAdd}
-          className="flex items-center gap-2 px-5 py-2.5 bg-brand-orange text-white font-bold text-sm rounded-xl shadow-md hover:bg-orange-600 transition-all active:scale-95"
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-sm rounded-xl shadow-md shadow-[#e73f1e]/25 transition-all active:scale-95"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-4 h-4 text-white" />
           <span>Add New Tenant</span>
         </button>
       </div>
@@ -510,14 +510,14 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                             setLedgerType("deposit_deduction");
                             setShowLedgerDialog(true);
                           }}
-                          className="p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-all"
+                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
                           title="Manage Advance & Security Deposit Ledger"
                         >
                           <DollarSign className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleOpenEdit(tenant)}
-                          className="p-2 text-slate-500 hover:text-brand-orange hover:bg-slate-100 rounded-xl transition-all"
+                          className="p-2 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
                           title="Edit Tenant"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -528,7 +528,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                               setUseAdvanceForSettlement(true);
                               setCheckoutReceiptTenant(tenant);
                             }}
-                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                            className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
                             title="Register Move-Out"
                           >
                             <LogOut className="w-4 h-4" />

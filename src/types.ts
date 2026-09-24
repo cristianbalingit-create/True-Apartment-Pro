@@ -52,11 +52,17 @@ export interface BillingRecord {
   electricity_usage: number; // in kWh
   water_amount?: number;
   water_usage?: number; // in cubic meters (m³)
+  other_charges?: number;
+  other_charges_description?: string;
   total_amount: number;
   billing_month: string; // e.g., "June 2026"
   due_date: string;
   payment_status: 'unpaid' | 'paid' | 'overdue' | 'partial';
   bill_image_url?: string;
+  invoice_number?: string;
+  notification_sent?: boolean;
+  notification_sent_at?: string;
+  notification_channel?: string;
   notes: string;
 }
 
@@ -93,8 +99,8 @@ export interface MaintenanceRequest {
   tenant_id?: string;
   tenant_name?: string;
   issue_description: string;
-  category: 'Plumbing' | 'Electrical' | 'Internet' | 'Air Conditioning' | 'Furniture' | 'Cleaning' | 'Other';
-  priority: 'Critical' | 'High' | 'Medium' | 'Low';
+  category: 'Plumbing' | 'Electrical' | 'Internet' | 'Air Conditioning' | 'Furniture' | 'Cleaning' | 'Other' | (string & {});
+  priority: 'Critical' | 'High' | 'Medium' | 'Low' | (string & {});
   photo_url?: string;
   occurred_at?: string;
   location?: string;

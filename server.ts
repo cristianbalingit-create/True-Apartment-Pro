@@ -7,6 +7,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { dbService } from "./src/server/dbService";
 import { handleMessengerWebhookEvent, queryChatbotWithResult, sendFacebookMessage } from "./src/server/chatbotService";
+import { generateBillPng, generateBillSvg, sendVisualBillToMessenger, getPublicBaseUrl } from "./src/server/visualBillService";
 
 dotenv.config();
 
@@ -1849,6 +1850,29 @@ app.put("/api/maintenance/:id", (req, res) => {
 
     writeDB(db);
     res.json(db.maintenanceRequests[index]);
+  } else {
+    res.status(404).json({ message: "Maintenance request not found" });
+  }
+});
+
+app.delete("/api/maintenance/:id", (req, res) => {
+  const db = readDB();
+  const { id } = req.params;
+  db.maintenanceRequests = db.maintenanceRequests || [];
+  const index = db.maintenanceRequests.findIndex((m: any) => m.id === id);
+  if (index !== -1) {
+    const deleted = db.maintenanceRequests.splice(index, 1)[0];
+    logTransaction(db, {
+      category: "maintenance",
+      action: "delete",
+      title: `Deleted Maintenance Ticket ${id}`,
+      details: `Deleted ticket ${id} (${deleted.category || 'General'}) for Room ${deleted.room_number || 'N/A'}.`,
+      tenant_id: deleted.tenant_id,
+      tenant_name: deleted.tenant_name,
+      room_number: deleted.room_number
+    });
+    writeDB(db);
+    res.json({ success: true, deleted });
   } else {
     res.status(404).json({ message: "Maintenance request not found" });
   }

@@ -234,12 +234,12 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
       {/* Header section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Apartment Buildings</h1>
-          <p className="text-slate-500 mt-0.5 text-sm">Review real estate structures, room assets, and print QR tracking markers.</p>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Apartment Buildings</h1>
+          <p className="text-slate-500 mt-0.5 text-xs sm:text-sm">Review real estate structures, room assets, and print QR tracking markers.</p>
         </div>
         <button
           onClick={handleOpenAddApt}
-          className="flex items-center gap-2 px-5 py-2.5 bg-brand-orange text-white font-bold text-sm rounded-xl shadow-md hover:bg-orange-600 transition-all active:scale-95"
+          className="neu-btn-primary flex items-center gap-2 px-4 py-2 font-bold text-xs rounded-xl shadow-md transition-all active:scale-95"
         >
           <Plus className="w-4 h-4" />
           <span>Add New Building</span>
@@ -247,7 +247,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
       </div>
 
       {/* Buildings Tab Selector Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {db.apartments.map((apt) => {
           const aptStats = getBuildingStats(apt.id);
           const isActive = apt.id === selectedAptId;
@@ -256,55 +256,53 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
             <div
               key={apt.id}
               onClick={() => setSelectedAptId(apt.id)}
-              className={`p-6 rounded-2xl cursor-pointer border transition-all flex flex-col justify-between ${
+              className={`p-5 rounded-2xl cursor-pointer transition-all flex flex-col justify-between ${
                 isActive
-                  ? "bg-slate-900 border-slate-900 text-white shadow-xl scale-[1.01]"
-                  : "bg-white border-slate-100 hover:border-slate-300 text-slate-800 shadow-sm"
+                  ? "neu-pressed border-2 border-[#fb6c00]/60 text-slate-900"
+                  : "neu-card hover:translate-y-[-2px] text-slate-800"
               }`}
             >
               <div>
-                <div className="flex justify-between items-start gap-2 mb-4">
-                  <div className={`p-2.5 rounded-xl ${isActive ? "bg-brand-orange text-white" : "bg-slate-100 text-slate-600"}`}>
+                <div className="flex justify-between items-start gap-2 mb-3">
+                  <div className={`p-2.5 rounded-xl ${isActive ? "neu-btn-primary text-white" : "neu-pressed text-[#fb6c00]"}`}>
                     <Building className="w-5 h-5" />
                   </div>
-                  <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest rounded uppercase ${
-                    apt.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                  <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-md uppercase neu-pressed ${
+                    apt.status === "active" ? "text-emerald-700" : "text-rose-700"
                   }`}>
                     {apt.status}
                   </span>
                 </div>
-                <h3 className="font-extrabold text-base line-clamp-1">{apt.name}</h3>
-                <p className={`text-xs mt-1 leading-normal line-clamp-2 font-light ${isActive ? "text-slate-300" : "text-slate-500"}`}>
+                <h3 className="font-extrabold text-sm line-clamp-1">{apt.name}</h3>
+                <p className="text-xs mt-1 leading-normal line-clamp-2 text-slate-500">
                   {apt.address}
                 </p>
               </div>
 
               {/* Counts Foot */}
-              <div className="mt-6 border-t border-slate-100/10 pt-4 grid grid-cols-3 text-center text-xs font-bold gap-2">
-                <div>
-                  <span className={`block text-lg font-black ${isActive ? "text-slate-100" : "text-slate-900"}`}>{aptStats.total}</span>
-                  <span className={isActive ? "text-slate-400 text-[10px]" : "text-slate-400 text-[10px]"}>Rooms</span>
+              <div className="mt-4 border-t border-slate-300/40 pt-3 grid grid-cols-3 text-center text-xs font-bold gap-2">
+                <div className="neu-pressed p-1.5 rounded-lg">
+                  <span className="block text-base font-black text-slate-900">{aptStats.total}</span>
+                  <span className="text-slate-500 text-[10px]">Rooms</span>
                 </div>
-                <div>
-                  <span className="block text-lg font-black text-emerald-500">{aptStats.vacant}</span>
-                  <span className="text-slate-400 text-[10px]">Vacant</span>
+                <div className="neu-pressed p-1.5 rounded-lg">
+                  <span className="block text-base font-black text-emerald-600">{aptStats.vacant}</span>
+                  <span className="text-slate-500 text-[10px]">Vacant</span>
                 </div>
-                <div>
-                  <span className={`block text-lg font-black ${isActive ? "text-brand-orange" : "text-slate-600"}`}>{aptStats.occupied}</span>
-                  <span className="text-slate-400 text-[10px]">Occupied</span>
+                <div className="neu-pressed p-1.5 rounded-lg">
+                  <span className="block text-base font-black text-[#fb6c00]">{aptStats.occupied}</span>
+                  <span className="text-slate-500 text-[10px]">Occupied</span>
                 </div>
               </div>
 
               {/* Edit Building button */}
-              <div className="flex justify-end mt-4 pt-2">
+              <div className="flex justify-end mt-3 pt-1">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     handleOpenEditApt(apt);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg font-bold transition-colors ${
-                    isActive ? "bg-slate-800 hover:bg-slate-700 text-slate-200" : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                  }`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-bold neu-btn text-slate-700 hover:text-slate-900 transition-colors"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
                   <span>Config</span>
@@ -317,13 +315,20 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
 
       {/* Building Room View */}
       {currentApt && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="neu-card p-5 sm:p-7 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-5 gap-4">
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-brand-orange">Building Selected</span>
               <h2 className="text-xl font-black text-slate-900 mt-1">{currentApt.name}</h2>
               <p className="text-slate-500 text-xs mt-0.5 leading-relaxed font-light">{currentApt.description}</p>
             </div>
+            <button
+              onClick={handleOpenAddRoom}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0 self-start sm:self-auto"
+            >
+              <Plus className="w-4 h-4 text-white" />
+              <span>Add New Room</span>
+            </button>
           </div>
 
           {/* Rooms List Grid */}
@@ -405,14 +410,14 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                     <div className="p-5 border-t border-slate-100 bg-white flex gap-2">
                       <button
                         onClick={() => handleOpenEditRoom(room)}
-                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5"
+                        className="w-full py-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3.5 h-3.5 text-white" />
                         <span>Edit Room</span>
                       </button>
                       <button
                         onClick={() => setQrRoom(room)}
-                        className="p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-all"
+                        className="p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-all shadow-sm active:scale-95"
                         title="Display QR Tracking Code"
                       >
                         <QrCode className="w-4 h-4" />

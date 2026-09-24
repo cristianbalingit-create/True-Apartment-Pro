@@ -220,16 +220,16 @@ export const TransactionLogs: React.FC<TransactionLogsProps> = ({ logs = [], onR
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={onRefresh}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-sm"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition shadow-xs active:scale-95"
           >
-            <RefreshCw className="w-4 h-4 text-slate-500" />
+            <RefreshCw className="w-4 h-4 text-blue-600" />
             <span>Refresh</span>
           </button>
 
           <button
             onClick={handleExportCSV}
             disabled={filteredLogs.length === 0}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition shadow-sm"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl disabled:opacity-50 transition shadow-xs active:scale-95"
           >
             <Download className="w-4 h-4 text-emerald-600" />
             <span>Export CSV</span>
@@ -237,16 +237,16 @@ export const TransactionLogs: React.FC<TransactionLogsProps> = ({ logs = [], onR
 
           <button
             onClick={handlePrint}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-sm"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition shadow-xs active:scale-95"
           >
-            <Printer className="w-4 h-4 text-slate-600" />
+            <Printer className="w-4 h-4 text-purple-600" />
             <span>Print Report</span>
           </button>
 
           {onClearLogs && (
             <button
               onClick={() => setShowClearModal(true)}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-xl hover:bg-rose-100 transition"
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-sm font-bold text-rose-700 bg-rose-50 border border-rose-300 hover:bg-rose-100 rounded-xl transition shadow-xs active:scale-95"
             >
               <Trash2 className="w-4 h-4 text-rose-600" />
               <span>Clear Logs</span>

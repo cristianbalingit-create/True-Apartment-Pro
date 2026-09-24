@@ -11,6 +11,7 @@ import {
   DepositLedgerEntry,
   TransactionLog
 } from "../types";
+export type { MaintenanceRequest };
 import {
   fetchDirectFromFirestore,
   directUpsertDoc,
@@ -454,6 +455,20 @@ export const api = {
     await directUpsertDoc("maintenanceRequests", id, data);
     await directLogTransaction("maintenance", "Updated Maintenance Ticket", `Ticket ${id} status updated`, "update");
     return { id, ...data } as MaintenanceRequest;
+  },
+
+  async deleteMaintenanceRequest(id: string): Promise<any> {
+    try {
+      const res = await fetch(`/api/maintenance/${id}`, {
+        method: "DELETE"
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      // ignore
+    }
+    await directDeleteDoc("maintenanceRequests", id);
+    await directLogTransaction("maintenance", "Deleted Maintenance Ticket", `Ticket ${id} deleted`, "delete");
+    return { success: true };
   },
 
   // Announcements CRUD

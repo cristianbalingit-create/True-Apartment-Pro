@@ -213,30 +213,30 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-10 sm:px-6 lg:px-8 relative overflow-hidden">
+    <div className="min-h-screen bg-white flex flex-col justify-center py-10 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Background Graphic Accents */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-brand-orange/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
+      <div className="absolute top-0 left-0 w-96 h-96 bg-[#e73f1e]/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#fb6c00]/5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="flex justify-center items-center gap-3">
-          <div className="p-3 bg-brand-orange text-white rounded-2xl shadow-lg">
+          <div className="p-3 bg-gradient-to-br from-[#e73f1e] to-[#fb6c00] text-white rounded-2xl shadow-lg border border-[#ffdd9c]/30">
             <Building className="w-8 h-8" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tight text-white">
-              Apartment<span className="text-brand-orange">Pro</span>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">
+              Apartment<span className="text-[#fb6c00]">Pro</span>
             </h1>
-            <span className="block text-[10px] text-slate-400 font-mono tracking-widest uppercase font-bold">Property Administration</span>
+            <span className="block text-[10px] text-[#fb6c00] font-mono tracking-widest uppercase font-bold">Property Administration</span>
           </div>
         </div>
-        <h2 className="mt-6 text-center text-xl font-bold text-slate-200">
+        <h2 className="mt-6 text-center text-xl font-bold text-slate-700">
           Sign in to your manager portal
         </h2>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md relative z-10">
-        <div className="bg-slate-800 py-7 px-5 shadow-2xl rounded-2xl sm:px-8 border border-slate-700/50 space-y-5">
+        <div className="neu-card bg-white py-7 px-5 rounded-2xl sm:px-8 border border-slate-200/80 space-y-5">
           
           {/* Active Lockout Banner */}
           <AnimatePresence>
@@ -318,11 +318,11 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           {/* Login Form */}
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
-              <label htmlFor="username" className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+              <label htmlFor="username" className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 Admin Username
               </label>
               <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <User className="h-4.5 w-4.5" />
                 </div>
                 <input
@@ -336,17 +336,17 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                   onChange={handleUsernameChange}
                   autoComplete="username"
                   maxLength={50}
-                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-orange focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#fb6c00] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed neu-input"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+              <label htmlFor="password" className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 Password
               </label>
               <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <Key className="h-4.5 w-4.5" />
                 </div>
                 <input
@@ -360,7 +360,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                   onChange={handlePasswordChange}
                   autoComplete="current-password"
                   maxLength={100}
-                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-orange focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#fb6c00] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed neu-input"
                 />
               </div>
             </div>
@@ -369,7 +369,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
               <button
                 type="submit"
                 disabled={loading || isLockedOut}
-                className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-brand-orange hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-orange active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-brand-orange"
+                className="w-full flex justify-center items-center gap-2 py-3 px-4 rounded-xl shadow-lg shadow-[#e73f1e]/25 text-sm font-bold text-white bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#fb6c00] active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <>

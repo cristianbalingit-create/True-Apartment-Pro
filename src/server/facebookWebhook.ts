@@ -8,7 +8,8 @@ import {
   clearMaintenanceSession,
   saveMaintenanceSession,
   standardQuickReplies,
-  sendFacebookMessage
+  sendFacebookMessage,
+  splitMessageIntoChunks
 } from "./chatbotService";
 
 export {
@@ -19,7 +20,8 @@ export {
   clearMaintenanceSession,
   saveMaintenanceSession,
   standardQuickReplies,
-  sendFacebookMessage
+  sendFacebookMessage,
+  splitMessageIntoChunks
 };
 
 // Helper to robustly parse body in various Vercel / serverless runtimes

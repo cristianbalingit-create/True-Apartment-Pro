@@ -8,8 +8,11 @@ import {
   processChatbotMessage,
   getMaintenanceSession,
   clearMaintenanceSession,
-  standardQuickReplies
-} from "../../dist/chatbotService.js";
+  saveMaintenanceSession,
+  standardQuickReplies,
+  sendFacebookMessage,
+  splitMessageIntoChunks
+} from "../../src/server/chatbotService";
 
 export {
   handleMessengerWebhookEvent,
@@ -17,7 +20,10 @@ export {
   processChatbotMessage,
   getMaintenanceSession,
   clearMaintenanceSession,
-  standardQuickReplies
+  saveMaintenanceSession,
+  standardQuickReplies,
+  sendFacebookMessage,
+  splitMessageIntoChunks
 };
 
 // Helper to robustly parse body in various Vercel / serverless runtimes

@@ -92,7 +92,8 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
   match?: boolean;
 }> {
   const token = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
-  if (!token) {
+  const cleanToken = token.replace(/^["']|["']$/g, "").trim();
+  if (!cleanToken) {
     console.error("===== FACEBOOK TOKEN IDENTITY =====");
     console.error("Token configured: NO (Neither PAGE_ACCESS_TOKEN nor FACEBOOK_PAGE_ACCESS_TOKEN found)");
     return {
@@ -112,8 +113,8 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
   let isPageToken = false;
 
   try {
-    const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name`, {
-      headers: { Authorization: `Bearer ${token}` }
+    const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name&access_token=${encodeURIComponent(cleanToken)}`, {
+      headers: { Authorization: `Bearer ${cleanToken}` }
     });
     const meData = await meRes.json();
     if (meRes.ok && meData.id) {
@@ -125,8 +126,8 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
 
   if (!tokenPageId) {
     try {
-      const convRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/conversations?fields=link,senders,participants&limit=1`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const convRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/conversations?fields=link,senders,participants&limit=1&access_token=${encodeURIComponent(cleanToken)}`, {
+        headers: { Authorization: `Bearer ${cleanToken}` }
       });
       const convData = await convRes.json();
       if (convRes.ok && convData.data && convData.data.length > 0) {
@@ -147,8 +148,8 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
 
   if (!isPageToken) {
     try {
-      const profRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/messenger_profile?fields=get_started`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const profRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/messenger_profile?fields=get_started&access_token=${encodeURIComponent(cleanToken)}`, {
+        headers: { Authorization: `Bearer ${cleanToken}` }
       });
       if (profRes.ok) {
         isPageToken = true;
@@ -199,44 +200,123 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
   };
 }
 
-// Send Message via Facebook Graph API
+// Helper to safely split messages exceeding Meta's 2000 character limit
+export function splitMessageIntoChunks(text: string, maxLength: number = 1900): string[] {
+  if (!text || text.length <= maxLength) return [text || ""];
+  const chunks: string[] = [];
+  let remaining = text.trim();
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitIdx = remaining.lastIndexOf("\n\n", maxLength);
+    if (splitIdx === -1 || splitIdx < maxLength / 2) {
+      splitIdx = remaining.lastIndexOf("\n", maxLength);
+    }
+    if (splitIdx === -1 || splitIdx < maxLength / 2) {
+      splitIdx = remaining.lastIndexOf(" ", maxLength);
+    }
+    if (splitIdx === -1 || splitIdx < maxLength / 2) {
+      splitIdx = maxLength;
+    }
+    const chunk = remaining.substring(0, splitIdx).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.substring(splitIdx).trim();
+  }
+  return chunks.length > 0 ? chunks : [text.substring(0, maxLength)];
+}
+
+// Send Message via Facebook Graph API with robust formatting, auth, and error diagnostics
 export async function sendFacebookMessage(
   senderPsid: string,
   responsePayload: any
 ): Promise<{ success: boolean; error?: string; message_id?: string }> {
-  const PAGE_ACCESS_TOKEN = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
+  const rawToken = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
+  const PAGE_ACCESS_TOKEN = rawToken.replace(/^["']|["']$/g, "").trim();
+
   if (!PAGE_ACCESS_TOKEN) {
     console.warn("FACEBOOK_PAGE_ACCESS_TOKEN or PAGE_ACCESS_TOKEN is not configured. Cannot send reply to Messenger user.");
     return { success: false, error: "Facebook Page Access Token is not configured on the server." };
   }
 
-  // Format message payload and include 1-tap quick action buttons
+  if (!senderPsid || typeof senderPsid !== "string" || !senderPsid.trim()) {
+    console.warn("sendFacebookMessage called with missing or invalid senderPsid:", senderPsid);
+    return { success: false, error: "Invalid recipient PSID." };
+  }
+  const cleanPsid = senderPsid.trim();
+
   let msgObj: any = typeof responsePayload === "string" ? { text: responsePayload } : { ...responsePayload };
+
+  // Convert inline base64 data URLs to binary fileBuffer so Meta doesn't reject data: URLs
+  if (msgObj.attachment?.payload?.url && typeof msgObj.attachment.payload.url === "string") {
+    const rawUrl = msgObj.attachment.payload.url.trim();
+    if (rawUrl.startsWith("data:image/")) {
+      const match = rawUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (match) {
+        const mimeType = match[1];
+        msgObj.fileBuffer = Buffer.from(match[2], "base64");
+        msgObj.fileName = `attachment_${Date.now()}.${mimeType.includes("png") ? "png" : "jpg"}`;
+        delete msgObj.attachment;
+      }
+    } else if (rawUrl.startsWith("/")) {
+      const baseUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+      if (baseUrl) {
+        msgObj.attachment.payload.url = `${baseUrl.replace(/\/$/, "")}${rawUrl}`;
+      }
+    }
+  }
+
+  // Format message payload and include 1-tap quick action buttons if none provided
   if (!msgObj.quick_replies && msgObj.text && !msgObj.attachment && !msgObj.fileBuffer) {
     msgObj.quick_replies = standardQuickReplies;
   }
 
-  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
-  const url = `https://graph.facebook.com/${graphVersion}/me/messages`;
+  // Sanitize quick replies strictly per Meta specifications:
+  // - Maximum 13 items
+  // - title: 1-20 characters
+  // - payload: 1-1000 characters
+  // - content_type: "text"
+  // - Must NOT be empty array
+  let sanitizedQuickReplies: any[] | undefined = undefined;
+  if (Array.isArray(msgObj.quick_replies) && msgObj.quick_replies.length > 0) {
+    const validReplies = msgObj.quick_replies
+      .filter((q: any) => q && (q.title || q.payload))
+      .slice(0, 13)
+      .map((q: any) => ({
+        content_type: "text",
+        title: String(q.title || q.payload || "Option").trim().substring(0, 20),
+        payload: String(q.payload || q.title || "OPTION").trim().substring(0, 1000)
+      }))
+      .filter((q: any) => q.title.length > 0);
+    if (validReplies.length > 0) {
+      sanitizedQuickReplies = validReplies;
+    }
+  }
 
-  // Direct Binary Multipart Upload (Send image without external hosting dependencies)
+  const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
+  // Deliver token via query parameter and header for universal compatibility across Graph API versions
+  const url = `https://graph.facebook.com/${graphVersion}/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`;
+
+  // Direct Binary Multipart Upload (Send generated receipts/images directly)
   if (msgObj.fileBuffer) {
     try {
       const formData = new FormData();
-      formData.append("recipient", JSON.stringify({ id: senderPsid }));
-      
+      formData.append("messaging_type", "RESPONSE");
+      formData.append("recipient", JSON.stringify({ id: cleanPsid }));
+
       const messagePayload: any = {
         attachment: {
           type: "image",
           payload: { is_reusable: true }
         }
       };
-      if (msgObj.quick_replies) {
-        messagePayload.quick_replies = msgObj.quick_replies;
+      if (sanitizedQuickReplies) {
+        messagePayload.quick_replies = sanitizedQuickReplies;
       }
       formData.append("message", JSON.stringify(messagePayload));
-      
-      const fileName = msgObj.fileName || "bill.png";
+
+      const fileName = msgObj.fileName || "attachment.png";
       const mimeType = fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") ? "image/jpeg" : "image/png";
       const blob = new Blob([msgObj.fileBuffer], { type: mimeType });
       formData.append("filedata", blob, fileName);
@@ -258,13 +338,24 @@ export async function sendFacebookMessage(
       }
 
       if (!res.ok) {
-        console.error("===== FACEBOOK MULTIPART SEND ERROR =====");
-        console.error(`Status: ${res.status} ${res.statusText}`);
-        console.error(typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
-        const safeErrorMsg = resData?.error?.message || `Facebook Graph API responded with status ${res.status}`;
+        const rawErr = resData?.error || resData || {};
+        const errorBody: any = typeof rawErr === "object" ? { ...rawErr } : { message: String(rawErr) };
+        delete errorBody.access_token;
+        delete errorBody.token;
+        delete errorBody.secret;
+
+        console.error("===== FACEBOOK SEND RESPONSE ERROR =====");
+        console.error("HTTP STATUS:", res.status);
+        console.error("META ERROR:", JSON.stringify(errorBody, null, 2));
+        console.error("Facebook API Error Code:", errorBody.code || res.status);
+        console.error("Facebook API Error Subcode:", errorBody.error_subcode);
+        console.error("Facebook API Error Message:", errorBody.message || "Unknown error");
+        console.error("Facebook API Error Type:", errorBody.type);
+        console.error("Facebook Trace ID:", errorBody.fbtrace_id);
+        const safeErrorMsg = errorBody.message || `Facebook Graph API responded with status ${res.status}`;
         return { success: false, error: safeErrorMsg };
       } else {
-        console.log(`Successfully sent multipart media to Facebook Messenger user: ${senderPsid}`);
+        console.log(`Successfully sent multipart media to Facebook Messenger user: ${cleanPsid}`);
         return { success: true, message_id: resData?.message_id };
       }
     } catch (err: any) {
@@ -273,22 +364,66 @@ export async function sendFacebookMessage(
     }
   }
 
-  // Only pass supported Messenger Send API fields to Facebook
-  const validMessagePayload: any = {};
-  if (msgObj.text) validMessagePayload.text = msgObj.text;
-  if (msgObj.quick_replies) validMessagePayload.quick_replies = msgObj.quick_replies;
-  if (msgObj.attachment) validMessagePayload.attachment = msgObj.attachment;
-  if (msgObj.metadata) validMessagePayload.metadata = msgObj.metadata;
+  // Handle text messages with automatic chunking if > 2000 characters
+  let textContent = typeof msgObj.text === "string" ? msgObj.text.trim() : "";
+  if (!textContent && !msgObj.attachment) {
+    textContent = "Hello! How can I assist you with your apartment today?";
+  }
 
-  const requestBody = {
+  const textChunks = splitMessageIntoChunks(textContent, 1900);
+
+  // If multiple chunks, deliver intermediate chunks first
+  for (let i = 0; i < textChunks.length - 1; i++) {
+    const chunkBody = {
+      messaging_type: "RESPONSE",
+      recipient: { id: cleanPsid },
+      message: { text: textChunks[i] }
+    };
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
+        },
+        body: JSON.stringify(chunkBody)
+      });
+    } catch (chunkErr) {
+      console.warn("Failed sending intermediate chunk:", chunkErr);
+    }
+  }
+
+  // Prepare final message payload strictly per Meta rules:
+  // Meta Send API does NOT allow message[text] and message[attachment] in the same payload
+  const finalChunkText = textChunks[textChunks.length - 1] || textContent;
+  const validMessagePayload: any = {};
+  if (msgObj.attachment) {
+    validMessagePayload.attachment = msgObj.attachment;
+    if (sanitizedQuickReplies) {
+      validMessagePayload.quick_replies = sanitizedQuickReplies;
+    }
+  } else {
+    if (finalChunkText) {
+      validMessagePayload.text = finalChunkText;
+    }
+    if (sanitizedQuickReplies) {
+      validMessagePayload.quick_replies = sanitizedQuickReplies;
+    }
+  }
+  if (msgObj.metadata) {
+    validMessagePayload.metadata = msgObj.metadata;
+  }
+
+  const requestBody: any = {
+    messaging_type: "RESPONSE",
     recipient: {
-      id: senderPsid
+      id: cleanPsid
     },
     message: validMessagePayload
   };
 
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -297,7 +432,7 @@ export async function sendFacebookMessage(
       body: JSON.stringify(requestBody)
     });
 
-    const resText = await res.text();
+    let resText = await res.text();
     let resData: any;
     try {
       resData = JSON.parse(resText);
@@ -305,14 +440,57 @@ export async function sendFacebookMessage(
       resData = resText;
     }
 
+    // Fallback: If outside 24-hour standard window (Meta Error #10), retry with MESSAGE_TAG
+    if (!res.ok && (resData?.error?.code === 10 || String(resData?.error?.message).toLowerCase().includes("outside of allowed window"))) {
+      console.warn("Messenger 24-hour window expired; retrying with MESSAGE_TAG CONFIRMED_EVENT_UPDATE...");
+      const taggedRequestBody = {
+        messaging_type: "MESSAGE_TAG",
+        tag: "CONFIRMED_EVENT_UPDATE",
+        recipient: { id: cleanPsid },
+        message: validMessagePayload
+      };
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
+        },
+        body: JSON.stringify(taggedRequestBody)
+      });
+      resText = await res.text();
+      try {
+        resData = JSON.parse(resText);
+      } catch {
+        resData = resText;
+      }
+    }
+
     if (!res.ok) {
+      const rawErr = resData?.error || resData || {};
+      const errorBody: any = typeof rawErr === "object" ? { ...rawErr } : { message: String(rawErr) };
+      delete errorBody.access_token;
+      delete errorBody.token;
+      delete errorBody.secret;
+
       console.error("===== FACEBOOK SEND RESPONSE ERROR =====");
-      console.error(`Status: ${res.status} ${res.statusText}`);
-      console.error(typeof resData === "object" ? JSON.stringify(resData, null, 2) : resData);
-      const safeErrorMsg = resData?.error?.message || `Facebook Graph API responded with status ${res.status}`;
+      console.error("HTTP STATUS:", res.status);
+      console.error("META ERROR:", JSON.stringify(errorBody, null, 2));
+      console.error("Facebook API Error Code:", errorBody.code || res.status);
+      console.error("Facebook API Error Subcode:", errorBody.error_subcode);
+      console.error("Facebook API Error Message:", errorBody.message || "Unknown error");
+      console.error("Facebook API Error Type:", errorBody.type);
+      console.error("Facebook Trace ID:", errorBody.fbtrace_id);
+      console.error("Attempted Recipient PSID:", cleanPsid);
+      console.error("Payload Summary:", JSON.stringify({
+        hasText: Boolean(validMessagePayload.text),
+        textLength: validMessagePayload.text?.length,
+        hasAttachment: Boolean(validMessagePayload.attachment),
+        quickRepliesCount: validMessagePayload.quick_replies?.length
+      }));
+      const safeErrorMsg = errorBody.message || `Facebook Graph API responded with status ${res.status}`;
       return { success: false, error: safeErrorMsg };
     } else {
-      console.log(`Successfully sent message to Facebook Messenger user: ${senderPsid}`);
+      console.log(`Successfully sent message to Facebook Messenger user: ${cleanPsid}`);
       return { success: true, message_id: resData?.message_id };
     }
   } catch (error: any) {
@@ -661,16 +839,13 @@ export const editSelectQuickReplies = [
 // Conversation session management for Messenger multi-step workflows
 const memorySessionStore = new Map<string, MaintenanceSession>();
 
-export function getMaintenanceSession(psid: string): MaintenanceSession | null {
+export async function getMaintenanceSession(psid: string): Promise<MaintenanceSession | null> {
   // Check memory store first for zero-latency lookups
   let session = memorySessionStore.get(psid);
   if (!session) {
-    const db = readDB();
-    if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
-      session = db.maintenanceSessions[psid];
-      if (session) {
-        memorySessionStore.set(psid, session);
-      }
+    session = await dbService.getMaintenanceSession(psid);
+    if (session) {
+      memorySessionStore.set(psid, session);
     }
   }
 
@@ -678,33 +853,21 @@ export function getMaintenanceSession(psid: string): MaintenanceSession | null {
 
   // Expire session after 2 hours of inactivity
   if (Date.now() - (session.updatedAt || 0) > 2 * 60 * 60 * 1000) {
-    memorySessionStore.delete(psid);
-    const db = readDB();
-    if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
-      delete db.maintenanceSessions[psid];
-      writeDB(db);
-    }
+    await clearMaintenanceSession(psid);
     return null;
   }
   return session;
 }
 
-export function saveMaintenanceSession(session: MaintenanceSession): void {
+export async function saveMaintenanceSession(session: MaintenanceSession): Promise<void> {
   session.updatedAt = Date.now();
   memorySessionStore.set(session.psid, { ...session });
-  const db = readDB();
-  db.maintenanceSessions = db.maintenanceSessions || {};
-  db.maintenanceSessions[session.psid] = { ...session };
-  writeDB(db);
+  await dbService.saveMaintenanceSession(session.psid, { ...session });
 }
 
-export function clearMaintenanceSession(psid: string): void {
+export async function clearMaintenanceSession(psid: string): Promise<void> {
   memorySessionStore.delete(psid);
-  const db = readDB();
-  if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
-    delete db.maintenanceSessions[psid];
-    writeDB(db);
-  }
+  await dbService.clearMaintenanceSession(psid);
 }
 
 // Intelligent extractor to preserve pre-stated info (e.g. "My aircon started leaking this morning in my bedroom")
@@ -789,8 +952,13 @@ export async function persistMessengerAttachmentUrl(attachmentUrl: string): Prom
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch(trimmed, { signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(trimmed, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      });
       clearTimeout(timeout);
 
       if (res.ok) {
@@ -802,7 +970,7 @@ export async function persistMessengerAttachmentUrl(attachmentUrl: string): Prom
           const base64Data = `data:${contentType};base64,${buffer.toString("base64")}`;
           const uploadRes = await dbService.uploadFile(fileName, base64Data);
           if (uploadRes && uploadRes.url) {
-            console.log(`✅ Successfully persisted Messenger image to ${uploadRes.storage}: ${uploadRes.url}`);
+            console.log(`✅ Successfully persisted Messenger image to ${uploadRes.storage}`);
             return uploadRes.url;
           }
         }
@@ -824,7 +992,7 @@ export function formatReviewSummary(session: MaintenanceSession, justAttachedPho
   const photoStr = hasPhoto ? "✅ Attached" : "No photo attached";
 
   const prefix = justAttachedPhoto
-    ? "📷 Photo received successfully!\n\nHere is your maintenance report:\n\n"
+    ? "📷 Photo received successfully.\n\nYour photo has been attached to the maintenance report.\n\n"
     : "Here is your maintenance report:\n\n";
 
   const summaryText = `${prefix}🔧 MAINTENANCE REPORT\n\n` +
@@ -1031,7 +1199,7 @@ Tenant Profile:
   // =========================================================================
   // PRIORITY 0: ACTIVE MULTI-STEP MAINTENANCE SESSION STATE MACHINE
   // =========================================================================
-  const activeSession = getMaintenanceSession(senderPsid);
+  const activeSession = await getMaintenanceSession(senderPsid);
   if (activeSession) {
     // 0A. Handle Cancel Request (Can cancel anytime)
     const isCancel = textLower === "cancel" ||
@@ -1046,7 +1214,7 @@ Tenant Profile:
       textTrimmed === "❌ Cancel";
 
     if (isCancel) {
-      clearMaintenanceSession(senderPsid);
+      await clearMaintenanceSession(senderPsid);
       return {
         text: "Maintenance report cancelled. No ticket was created.",
         quick_replies: standardQuickReplies,
@@ -1056,17 +1224,17 @@ Tenant Profile:
 
     // 0B. Step: WHEN
     if (activeSession.step === "WHEN") {
-      activeSession.occurredAt = textTrimmed;
+      activeSession.occurredAt = textTrimmed || activeSession.occurredAt || "Recently";
 
       if (activeSession.editingField === "WHEN") {
         activeSession.editingField = null;
         activeSession.step = "REVIEW";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return formatReviewSummary(activeSession);
       }
 
       activeSession.step = "WHERE";
-      saveMaintenanceSession(activeSession);
+      await saveMaintenanceSession(activeSession);
       return {
         text: "📍 **Where is the problem located?**",
         quick_replies: whereQuickReplies,
@@ -1080,18 +1248,18 @@ Tenant Profile:
       if (textLower === "my room" || textLower === "in my room" || textLower === "my unit" || textLower === "room") {
         activeSession.location = roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Tenant Room";
       } else {
-        activeSession.location = textTrimmed;
+        activeSession.location = textTrimmed || activeSession.location || "Room";
       }
 
       if (activeSession.editingField === "WHERE") {
         activeSession.editingField = null;
         activeSession.step = "REVIEW";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return formatReviewSummary(activeSession);
       }
 
       activeSession.step = "DESCRIPTION";
-      saveMaintenanceSession(activeSession);
+      await saveMaintenanceSession(activeSession);
       const descPrompt = activeSession.description
         ? `📝 **Please describe the problem in detail:**\n_(You mentioned: "${activeSession.description}")_`
         : "📝 **Please describe the problem.**";
@@ -1105,23 +1273,24 @@ Tenant Profile:
 
     // 0D. Step: DESCRIPTION
     if (activeSession.step === "DESCRIPTION") {
-      if (textLower !== "same" && textLower !== "same as above" && textLower !== "keep" && textLower !== "continue") {
+      if (textLower !== "same" && textLower !== "same as above" && textLower !== "keep" && textLower !== "continue" && textTrimmed) {
         activeSession.description = textTrimmed;
       }
       if (attachmentUrl) {
-        activeSession.photoUrl = attachmentUrl;
+        const persistedUrl = await persistMessengerAttachmentUrl(attachmentUrl);
+        activeSession.photoUrl = persistedUrl || attachmentUrl;
         activeSession.photoAttached = true;
       }
 
       if (activeSession.editingField === "DESCRIPTION") {
         activeSession.editingField = null;
         activeSession.step = "REVIEW";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return formatReviewSummary(activeSession);
       }
 
       activeSession.step = "PHOTO";
-      saveMaintenanceSession(activeSession);
+      await saveMaintenanceSession(activeSession);
       return {
         text: "📷 Would you like to attach a photo?",
         quick_replies: photoQuickReplies,
@@ -1132,26 +1301,16 @@ Tenant Profile:
 
     // 0E. Step: PHOTO
     if (activeSession.step === "PHOTO") {
-      // 1. Check for unsupported attachment (Requirement 8 / Test Case 4)
+      // 1. Check for unsupported attachment
       if (hasUnsupportedAttachment) {
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: "📷 Please send an image/photo of the maintenance problem, or choose Skip Photo.",
-          quick_replies: [
-            { content_type: "text", title: "Skip Photo", payload: "SKIP_PHOTO" },
-            { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
-          ],
+          quick_replies: photoQuickReplies,
           session_step: "PHOTO",
           is_maintenance_form: true
         };
       }
-
-      const isPhotoAttachment = Boolean(
-        attachmentUrl ||
-        textLower.startsWith("http://") ||
-        textLower.startsWith("https://") ||
-        textLower.startsWith("data:image")
-      );
 
       const isSkip = textLower === "skip" ||
         textLower === "skip photo" ||
@@ -1171,40 +1330,38 @@ Tenant Profile:
         textTrimmed === "📷 Attach Photo" ||
         textLower === "photo";
 
-      if (isPhotoAttachment) {
-        const rawPhotoUrl = attachmentUrl || textTrimmed;
-        const finalPhotoUrl = await persistMessengerAttachmentUrl(rawPhotoUrl);
-        activeSession.photoUrl = finalPhotoUrl || rawPhotoUrl;
+      // Tenant sends photo: extract, validate exists, persist image, store in session, advance to REVIEW
+      if (attachmentUrl) {
+        const finalPhotoUrl = await persistMessengerAttachmentUrl(attachmentUrl);
+        activeSession.photoUrl = finalPhotoUrl || attachmentUrl;
         activeSession.photoAttached = true;
         activeSession.step = "REVIEW";
         activeSession.editingField = null;
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return formatReviewSummary(activeSession, true);
       } else if (isSkip) {
+        // Tenant chooses Skip Photo: continue normally to REVIEW without photo
         activeSession.photoUrl = undefined;
         activeSession.photoAttached = false;
         activeSession.step = "REVIEW";
         activeSession.editingField = null;
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return formatReviewSummary(activeSession, false);
       } else if (isAttachPrompt) {
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: "📷 Please send the photo of the problem here.",
-          quick_replies: [
-            { content_type: "text", title: "Skip Photo", payload: "SKIP_PHOTO" },
-            { content_type: "text", title: "❌ Cancel", payload: "CANCEL_FORM" }
-          ],
+          quick_replies: photoQuickReplies,
           session_step: "PHOTO",
           is_maintenance_form: true
         };
       } else {
-        // Any other text input provided at photo step - treat as skip photo and proceed to REVIEW
+        // Any other text input without image: proceed to REVIEW as skip
         activeSession.photoUrl = undefined;
         activeSession.photoAttached = false;
         activeSession.step = "REVIEW";
         activeSession.editingField = null;
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return formatReviewSummary(activeSession, false);
       }
     }
@@ -1239,7 +1396,7 @@ Tenant Profile:
         const finalDesc = (activeSession.description || "").trim();
         if (!finalDesc || finalDesc.length < 3) {
           activeSession.step = "DESCRIPTION";
-          saveMaintenanceSession(activeSession);
+          await saveMaintenanceSession(activeSession);
           return {
             text: "⚠️ Please provide a clear description of the maintenance issue so our technicians know what to fix.\n\n📝 **Please describe the problem:**",
             quick_replies: descriptionQuickReplies,
@@ -1254,7 +1411,7 @@ Tenant Profile:
         // 3. Duplicate Ticket Check (Step 9)
         const openDuplicate = findOpenDuplicateTicket(db, tenantId, roomNum, category, finalDesc);
         if (openDuplicate) {
-          clearMaintenanceSession(senderPsid);
+          await clearMaintenanceSession(senderPsid);
 
           logTransaction(db, {
             category: "maintenance",
@@ -1316,7 +1473,7 @@ Tenant Profile:
           activeSession.photoUrl
         );
 
-        clearMaintenanceSession(senderPsid);
+        await clearMaintenanceSession(senderPsid);
 
         return {
           text: ticketResult.reply,
@@ -1337,7 +1494,7 @@ Tenant Profile:
 
       if (isEdit) {
         activeSession.step = "EDIT_SELECT";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: "✏️ **What would you like to edit?**\n\nPlease choose which information to change:",
           quick_replies: editSelectQuickReplies,
@@ -1355,7 +1512,7 @@ Tenant Profile:
       if (textTrimmed === "EDIT_WHEN" || textTrimmed === "📅 When" || textLower === "when" || textLower.includes("when") || textLower.includes("time") || textLower.includes("date")) {
         activeSession.step = "WHEN";
         activeSession.editingField = "WHEN";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: `📅 When did the problem happen?\n\n(Current: "${activeSession.occurredAt || "Not specified"}")`,
           quick_replies: whenQuickReplies,
@@ -1365,7 +1522,7 @@ Tenant Profile:
       } else if (textTrimmed === "EDIT_LOCATION" || textTrimmed === "📍 Location" || textLower === "where" || textLower === "location" || textLower.includes("where") || textLower.includes("location")) {
         activeSession.step = "WHERE";
         activeSession.editingField = "WHERE";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: `📍 **Where is the problem located?**\n\n(Current: "${activeSession.location || "Not specified"}")`,
           quick_replies: whereQuickReplies,
@@ -1375,7 +1532,7 @@ Tenant Profile:
       } else if (textTrimmed === "EDIT_DESCRIPTION" || textTrimmed === "📝 Description" || textLower === "description" || textLower.includes("description") || textLower.includes("problem") || textLower.includes("issue")) {
         activeSession.step = "DESCRIPTION";
         activeSession.editingField = "DESCRIPTION";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: `📝 **Please describe the problem.**\n\n(Current: "${activeSession.description || "Not specified"}")`,
           quick_replies: descriptionQuickReplies,
@@ -1385,7 +1542,7 @@ Tenant Profile:
       } else if (textTrimmed === "EDIT_PHOTO" || textTrimmed === "📷 Photo" || textLower === "photo" || textLower.includes("photo") || textLower.includes("image") || textLower.includes("picture")) {
         activeSession.step = "PHOTO";
         activeSession.editingField = "PHOTO";
-        saveMaintenanceSession(activeSession);
+        await saveMaintenanceSession(activeSession);
         return {
           text: `📷 **Would you like to attach a photo?**\n\n(Current: ${activeSession.photoAttached ? "Photo attached" : "No photo"})`,
           quick_replies: photoQuickReplies,
@@ -1426,7 +1583,7 @@ Tenant Profile:
       step: "WHEN",
       updatedAt: Date.now()
     };
-    saveMaintenanceSession(session);
+    await saveMaintenanceSession(session);
 
     return {
       text: `🔧 **Maintenance Report**\n\nI can help you submit a maintenance request.\n\nPlease provide the following information:\n\n📅 When did the problem happen?`,
@@ -1452,7 +1609,7 @@ Tenant Profile:
 
     if (!session.occurredAt) {
       session.step = "WHEN";
-      saveMaintenanceSession(session);
+      await saveMaintenanceSession(session);
       return {
         text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When did the problem start?`,
         quick_replies: whenQuickReplies,
@@ -1461,7 +1618,7 @@ Tenant Profile:
       };
     } else if (!session.location) {
       session.step = "WHERE";
-      saveMaintenanceSession(session);
+      await saveMaintenanceSession(session);
       return {
         text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n\n📍 **Where is the problem located?**`,
         quick_replies: whereQuickReplies,
@@ -1470,7 +1627,7 @@ Tenant Profile:
       };
     } else {
       session.step = "PHOTO";
-      saveMaintenanceSession(session);
+      await saveMaintenanceSession(session);
       return {
         text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n📍 Where: ${session.location}\n📝 Problem: ${session.description}\n\n📷 **Would you like to attach a photo?**`,
         quick_replies: photoQuickReplies,
@@ -1779,7 +1936,7 @@ CRITICAL DIRECTIVES:
 
       if (!session.occurredAt) {
         session.step = "WHEN";
-        saveMaintenanceSession(session);
+        await saveMaintenanceSession(session);
         return {
           text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When did the problem start?`,
           quick_replies: whenQuickReplies,
@@ -1788,7 +1945,7 @@ CRITICAL DIRECTIVES:
         };
       } else if (!session.location) {
         session.step = "WHERE";
-        saveMaintenanceSession(session);
+        await saveMaintenanceSession(session);
         return {
           text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n\n📍 **Where is the problem located?**`,
           quick_replies: whereQuickReplies,
@@ -1797,7 +1954,7 @@ CRITICAL DIRECTIVES:
         };
       } else {
         session.step = "PHOTO";
-        saveMaintenanceSession(session);
+        await saveMaintenanceSession(session);
         return {
           text: `🔧 **Maintenance Report**\n\nI detected a maintenance issue.\n\n📅 When: ${session.occurredAt}\n📍 Where: ${session.location}\n📝 Problem: ${session.description}\n\n📷 **Would you like to attach a photo?**`,
           quick_replies: photoQuickReplies,
@@ -1888,7 +2045,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   );
   const hasUnsupportedAttachment = Boolean(unsupportedAttachment && !imageAttachment);
 
-  let attachmentUrl: string | undefined = imageAttachment?.payload?.url;
+  const attachmentUrl: string | undefined = imageAttachment?.payload?.url;
   let messageText = "";
 
   if (webhook_event.message?.text) {
@@ -1897,9 +2054,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     messageText = webhook_event.message.quick_reply.payload;
   } else if (webhook_event.postback?.payload) {
     messageText = webhook_event.postback.payload;
-  } else if (attachmentUrl) {
-    messageText = attachmentUrl;
-  } else if (attachments.length > 0) {
+  } else if (attachments.length > 0 && !imageAttachment) {
     messageText = "[Unsupported Attachment]";
   }
 
@@ -1910,8 +2065,8 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
 
   console.log("===== MESSENGER MESSAGE RECEIVED =====");
   console.log(`Sender ID: ${senderPsid}`);
-  console.log(`Message: ${messageText}`);
-  if (attachmentUrl) console.log(`Attachment: ${attachmentUrl}`);
+  console.log(`Message: ${messageText || "[No Text]"}`);
+  if (attachmentUrl) console.log(`Attachment: [Image attachment received]`);
   if (hasUnsupportedAttachment) console.log(`Unsupported Attachment detected: ${attachments[0]?.type}`);
 
   // Safe Token Identity Diagnostic

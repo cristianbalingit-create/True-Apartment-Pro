@@ -9,6 +9,7 @@ import {
   getFirestore as getClientFirestore,
   collection as clientCollection,
   getDocs as getClientDocs,
+  getDoc as clientGetDoc,
   doc as clientDoc,
   setDoc as clientSetDoc,
   deleteDoc as clientDeleteDoc,
@@ -519,9 +520,11 @@ class DatabaseService {
   public async deleteDoc(colName: keyof DBState, docId: string): Promise<void> {
     const db = this.getDB();
     const list = db[colName] as any[];
-    const idx = list.findIndex(item => item.id === docId);
-    if (idx !== -1) {
-      list.splice(idx, 1);
+    if (Array.isArray(list)) {
+      const idx = list.findIndex(item => item.id === docId);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+      }
     }
     this.saveFallbackFile(db);
 
@@ -534,6 +537,86 @@ class DatabaseService {
         }
       } catch (err: any) {
         console.warn(`Error deleting ${colName}/${docId} from Firestore:`, err.message);
+      }
+    }
+  }
+
+  // Persistent Maintenance Session Management for Vercel Serverless Functions
+  public async getMaintenanceSession(psid: string): Promise<any | null> {
+    // 1. Check in-memory state
+    if (this.inMemoryCache?.maintenanceSessions && this.inMemoryCache.maintenanceSessions[psid]) {
+      return this.inMemoryCache.maintenanceSessions[psid];
+    }
+
+    // 2. Check fallback file
+    const db = this.getDB();
+    if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
+      return db.maintenanceSessions[psid];
+    }
+
+    // 3. Check Firestore for cross-lambda session persistence
+    if (this.isConnectedToFirestore) {
+      try {
+        if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+          const docSnap = await this.adminFirestore.collection("maintenanceSessions").doc(psid).get();
+          if (docSnap.exists) {
+            const data = docSnap.data();
+            db.maintenanceSessions = db.maintenanceSessions || {};
+            db.maintenanceSessions[psid] = data;
+            return data;
+          }
+        } else if (this.clientFirestore) {
+          const docSnap = await clientGetDoc(clientDoc(this.clientFirestore, "maintenanceSessions", psid));
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            db.maintenanceSessions = db.maintenanceSessions || {};
+            db.maintenanceSessions[psid] = data;
+            return data;
+          }
+        }
+      } catch (err: any) {
+        console.warn("Failed to retrieve maintenance session from Firestore:", err?.message || err);
+      }
+    }
+
+    return null;
+  }
+
+  public async saveMaintenanceSession(psid: string, session: any): Promise<void> {
+    const db = this.getDB();
+    db.maintenanceSessions = db.maintenanceSessions || {};
+    db.maintenanceSessions[psid] = { ...session };
+    this.saveFallbackFile(db);
+
+    if (this.isConnectedToFirestore) {
+      try {
+        if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+          await this.adminFirestore.collection("maintenanceSessions").doc(psid).set(session, { merge: true });
+        } else if (this.clientFirestore) {
+          await clientSetDoc(clientDoc(this.clientFirestore, "maintenanceSessions", psid), session, { merge: true });
+        }
+      } catch (err: any) {
+        console.warn("Failed to persist maintenance session to Firestore:", err?.message || err);
+      }
+    }
+  }
+
+  public async clearMaintenanceSession(psid: string): Promise<void> {
+    const db = this.getDB();
+    if (db.maintenanceSessions && db.maintenanceSessions[psid]) {
+      delete db.maintenanceSessions[psid];
+      this.saveFallbackFile(db);
+    }
+
+    if (this.isConnectedToFirestore) {
+      try {
+        if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+          await this.adminFirestore.collection("maintenanceSessions").doc(psid).delete();
+        } else if (this.clientFirestore) {
+          await clientDeleteDoc(clientDoc(this.clientFirestore, "maintenanceSessions", psid));
+        }
+      } catch (err: any) {
+        console.warn("Failed to clear maintenance session from Firestore:", err?.message || err);
       }
     }
   }
@@ -646,6 +729,9 @@ class DatabaseService {
       }
       const localFilePath = path.join(uploadsDir, uniqueName);
       fs.writeFileSync(localFilePath, buffer);
+      if (isVercel && rawBase64.length < 850000) {
+        return { url: `data:${mimeType};base64,${rawBase64}`, storage: "data_url" };
+      }
       return { url: `/uploads/${uniqueName}`, storage: isVercel ? "tmp_filesystem" : "local_filesystem" };
     } catch (fsErr: any) {
       // 3. Guaranteed inline fallback for serverless environments

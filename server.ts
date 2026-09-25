@@ -18,9 +18,16 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Official Facebook Page for ApartmentPro
-const OFFICIAL_PAGE_ID = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "3246715018859879").trim();
+// Meta App ID & Official Facebook Page for ApartmentPro
+// Note: 1298546226679849 is the verified Facebook Page ID for ApartmentPro.
+// 3246715018859879 is the Meta Application ID (App ID).
+const OFFICIAL_APP_ID = "3246715018859879";
 const OFFICIAL_PAGE_NAME = "ApartmentPro";
+const OFFICIAL_PAGE_ID = (() => {
+  const envId = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "").trim();
+  if (envId && envId !== OFFICIAL_APP_ID) return envId;
+  return "1298546226679849";
+})();
 const RETIRED_OLD_PAGE_ID = "1049465111594454";
 const RETIRED_OLD_PAGE_NAME = "FullReddit";
 
@@ -56,20 +63,39 @@ async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
   let tokenPageName: string | null = null;
   let isPageToken = false;
 
-  // 1. Check if token is a Page Access Token via /me?fields=id,name
+  // 1. Primary check via debug_token endpoint
   try {
-    const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const meData = await meRes.json();
-    if (meRes.ok && meData.id) {
-      tokenPageId = String(meData.id);
-      tokenPageName = meData.name || null;
-      isPageToken = true;
+    const debugRes = await fetch(`https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`);
+    const debugData = await debugRes.json();
+    if (debugRes.ok && debugData?.data) {
+      if (debugData.data.type === "PAGE") {
+        isPageToken = true;
+      }
+      if (debugData.data.profile_id) {
+        tokenPageId = String(debugData.data.profile_id);
+      }
+      if (debugData.data.application) {
+        tokenPageName = debugData.data.application;
+      }
     }
   } catch {}
 
-  // 2. If /me requires pages_read_engagement, extract identity from /me/conversations
+  // 2. Fallback check via /me?fields=id,name
+  if (!tokenPageId) {
+    try {
+      const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const meData = await meRes.json();
+      if (meRes.ok && meData.id) {
+        tokenPageId = String(meData.id);
+        tokenPageName = meData.name || null;
+        isPageToken = true;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback check via /me/conversations
   if (!tokenPageId) {
     try {
       const convRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/conversations?fields=link,senders,participants&limit=1`, {
@@ -92,7 +118,7 @@ async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
     } catch {}
   }
 
-  // 3. Fallback check on /me/messenger_profile to verify token validity on a Page
+  // 4. Fallback check on /me/messenger_profile
   if (!isPageToken) {
     try {
       const profRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/messenger_profile?fields=get_started`, {
@@ -110,6 +136,7 @@ async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
 
   console.log("===== FACEBOOK TOKEN IDENTITY =====");
   console.log(`Target Official Page: ${OFFICIAL_PAGE_NAME} (ID: ${OFFICIAL_PAGE_ID})`);
+  console.log(`Meta Application ID: ${OFFICIAL_APP_ID}`);
   console.log(`Token Type: ${isPageToken ? "Page Access Token" : "Unknown / User Access Token"}`);
   console.log(`Configured Token Page ID: ${tokenPageId || "Could not resolve"}`);
   console.log(`Configured Token Page Name: ${tokenPageName || "Could not resolve"}`);
@@ -128,7 +155,7 @@ async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
       console.log(`✅ Webhook event verified from official "${OFFICIAL_PAGE_NAME}" Page.`);
     }
 
-    console.log(`Page IDs Match: ${matches ? "YES (IDs MATCH)" : "NO (MISMATCH DETECTED)"}`);
+    console.log(`Page IDs Match: ${matches ? "YES (IDs MATCH)" : (isOfficialPage ? "YES (Matches Official Page)" : "NO (MISMATCH DETECTED)")}`);
     if (!matches && tokenPageId) {
       console.warn(`⚠️ TOKEN PAGE MISMATCH: The configured token belongs to Page ID ${tokenPageId} ("${tokenPageName || "Unknown"}"), but this webhook was received by Facebook Page ID ${webhookPageId}. A Page Access Token cannot reply to users of a different Facebook Page.`);
     }

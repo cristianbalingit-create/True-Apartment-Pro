@@ -3,9 +3,16 @@ dotenv.config();
 import { GoogleGenAI } from "@google/genai";
 import { dbService } from "./dbService";
 
-// Official Facebook Page for ApartmentPro
-export const OFFICIAL_PAGE_ID = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "3246715018859879").trim();
+// Meta App ID & Official Facebook Page for ApartmentPro
+// Note: 1298546226679849 is the verified Facebook Page ID for ApartmentPro.
+// 3246715018859879 is the Meta Application ID (App ID).
+export const OFFICIAL_APP_ID = "3246715018859879";
 export const OFFICIAL_PAGE_NAME = "ApartmentPro";
+export const OFFICIAL_PAGE_ID = (() => {
+  const envId = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "").trim();
+  if (envId && envId !== OFFICIAL_APP_ID) return envId;
+  return "1298546226679849";
+})();
 export const RETIRED_OLD_PAGE_ID = "1049465111594454";
 export const RETIRED_OLD_PAGE_NAME = "FullReddit";
 
@@ -112,18 +119,39 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
   let tokenPageName: string | null = null;
   let isPageToken = false;
 
+  // 1. Primary check via debug_token endpoint
   try {
-    const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name&access_token=${encodeURIComponent(cleanToken)}`, {
-      headers: { Authorization: `Bearer ${cleanToken}` }
-    });
-    const meData = await meRes.json();
-    if (meRes.ok && meData.id) {
-      tokenPageId = String(meData.id);
-      tokenPageName = meData.name || null;
-      isPageToken = true;
+    const debugRes = await fetch(`https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(cleanToken)}&access_token=${encodeURIComponent(cleanToken)}`);
+    const debugData = await debugRes.json();
+    if (debugRes.ok && debugData?.data) {
+      if (debugData.data.type === "PAGE") {
+        isPageToken = true;
+      }
+      if (debugData.data.profile_id) {
+        tokenPageId = String(debugData.data.profile_id);
+      }
+      if (debugData.data.application) {
+        tokenPageName = debugData.data.application;
+      }
     }
   } catch {}
 
+  // 2. Fallback check via /me?fields=id,name
+  if (!tokenPageId) {
+    try {
+      const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name&access_token=${encodeURIComponent(cleanToken)}`, {
+        headers: { Authorization: `Bearer ${cleanToken}` }
+      });
+      const meData = await meRes.json();
+      if (meRes.ok && meData.id) {
+        tokenPageId = String(meData.id);
+        tokenPageName = meData.name || null;
+        isPageToken = true;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback check via /me/conversations
   if (!tokenPageId) {
     try {
       const convRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/conversations?fields=link,senders,participants&limit=1&access_token=${encodeURIComponent(cleanToken)}`, {
@@ -146,6 +174,7 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
     } catch {}
   }
 
+  // 4. Fallback check via /me/messenger_profile
   if (!isPageToken) {
     try {
       const profRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/messenger_profile?fields=get_started&access_token=${encodeURIComponent(cleanToken)}`, {
@@ -163,6 +192,7 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
 
   console.log("===== FACEBOOK TOKEN IDENTITY =====");
   console.log(`Target Official Page: ${OFFICIAL_PAGE_NAME} (ID: ${OFFICIAL_PAGE_ID})`);
+  console.log(`Meta Application ID: ${OFFICIAL_APP_ID}`);
   console.log(`Token Type: ${isPageToken ? "Page Access Token" : "Unknown / User Access Token"}`);
   console.log(`Configured Token Page ID: ${tokenPageId || "Could not resolve"}`);
   console.log(`Configured Token Page Name: ${tokenPageName || "Could not resolve"}`);
@@ -181,7 +211,7 @@ export async function runSafeTokenDiagnostic(webhookPageId?: string): Promise<{
       console.log(`✅ Webhook event verified from official "${OFFICIAL_PAGE_NAME}" Page.`);
     }
 
-    console.log(`Page IDs Match: ${matches ? "YES (IDs MATCH)" : "NO (MISMATCH DETECTED)"}`);
+    console.log(`Page IDs Match: ${matches ? "YES (IDs MATCH)" : (isOfficialPage ? "YES (Matches Official Page)" : "NO (MISMATCH DETECTED)")}`);
     if (!matches && tokenPageId) {
       console.warn(`⚠️ TOKEN PAGE MISMATCH: The configured token belongs to Page ID ${tokenPageId} ("${tokenPageName || "Unknown"}"), but this webhook was received by Facebook Page ID ${webhookPageId}. A Page Access Token cannot reply to users of a different Facebook Page.`);
     }
@@ -230,7 +260,8 @@ export function splitMessageIntoChunks(text: string, maxLength: number = 1900): 
 // Send Message via Facebook Graph API with robust formatting, auth, and error diagnostics
 export async function sendFacebookMessage(
   senderPsid: string,
-  responsePayload: any
+  responsePayload: any,
+  targetPageId?: string
 ): Promise<{ success: boolean; error?: string; message_id?: string }> {
   const rawToken = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
   const PAGE_ACCESS_TOKEN = rawToken.replace(/^["']|["']$/g, "").trim();
@@ -295,8 +326,15 @@ export async function sendFacebookMessage(
   }
 
   const graphVersion = process.env.FACEBOOK_GRAPH_VERSION || "v19.0";
-  // Deliver token via query parameter and header for universal compatibility across Graph API versions
-  const url = `https://graph.facebook.com/${graphVersion}/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`;
+  // The Send API endpoint strictly uses /{PAGE_ID}/messages for the verified Page
+  const effectivePageId = (() => {
+    if (targetPageId && targetPageId.trim() && targetPageId.trim() !== OFFICIAL_APP_ID) {
+      return targetPageId.trim();
+    }
+    return OFFICIAL_PAGE_ID;
+  })();
+
+  const url = `https://graph.facebook.com/${graphVersion}/${effectivePageId}/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`;
 
   // Direct Binary Multipart Upload (Send generated receipts/images directly)
   if (msgObj.fileBuffer) {
@@ -480,7 +518,13 @@ export async function sendFacebookMessage(
       console.error("Facebook API Error Message:", errorBody.message || "Unknown error");
       console.error("Facebook API Error Type:", errorBody.type);
       console.error("Facebook Trace ID:", errorBody.fbtrace_id);
+      console.error("Attempted Page ID:", effectivePageId);
       console.error("Attempted Recipient PSID:", cleanPsid);
+      if (errorBody.code === 10 && (errorBody.error_subcode === 1893063 || String(errorBody.message).includes("permission"))) {
+        console.error("🚨 META ACCOUNT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. Learn more at https://facebook.com/policy/messenger.");
+        if (errorBody.error_user_title) console.error("Error User Title:", errorBody.error_user_title);
+        if (errorBody.error_user_msg) console.error("Error User Message:", errorBody.error_user_msg);
+      }
       console.error("Payload Summary:", JSON.stringify({
         hasText: Boolean(validMessagePayload.text),
         textLength: validMessagePayload.text?.length,
@@ -2101,11 +2145,11 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
 
       await sendFacebookMessage(senderPsid, {
         text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the 1-tap quick buttons below to check your live rent balances, view your ledger & deposit history, or report maintenance.`
-      });
+      }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
         text: `❌ Sorry, we couldn't find a tenant record matching "${query}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
-      });
+      }, webhookPageId);
     }
     return;
   }
@@ -2119,11 +2163,11 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       writeDB(db);
       await sendFacebookMessage(senderPsid, {
         text: `🚪 You have successfully unlinked your Facebook profile from ${oldName}'s tenant record.`
-      });
+      }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
         text: "No tenant account is currently linked to this Facebook Profile."
-      });
+      }, webhookPageId);
     }
     return;
   }
@@ -2138,14 +2182,14 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       hasUnsupportedAttachment
     );
     if (typeof botReply === "string") {
-      await sendFacebookMessage(senderPsid, { text: botReply });
+      await sendFacebookMessage(senderPsid, { text: botReply }, webhookPageId);
     } else {
-      await sendFacebookMessage(senderPsid, botReply);
+      await sendFacebookMessage(senderPsid, botReply, webhookPageId);
     }
   } catch (err) {
     console.error("Failed to process chatbot reply:", err);
     await sendFacebookMessage(senderPsid, {
       text: "Sorry, I'm having trouble processing your request right now. Please try again later."
-    });
+    }, webhookPageId);
   }
 }

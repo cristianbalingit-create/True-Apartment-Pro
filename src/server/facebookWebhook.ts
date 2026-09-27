@@ -9,7 +9,10 @@ import {
   saveMaintenanceSession,
   standardQuickReplies,
   sendFacebookMessage,
-  splitMessageIntoChunks
+  splitMessageIntoChunks,
+  normalizePhoneNumber,
+  isValidPhilippineMobile,
+  maskPhoneNumber
 } from "./chatbotService";
 
 export {
@@ -21,7 +24,10 @@ export {
   saveMaintenanceSession,
   standardQuickReplies,
   sendFacebookMessage,
-  splitMessageIntoChunks
+  splitMessageIntoChunks,
+  normalizePhoneNumber,
+  isValidPhilippineMobile,
+  maskPhoneNumber
 };
 
 // Helper to robustly parse body in various Vercel / serverless runtimes

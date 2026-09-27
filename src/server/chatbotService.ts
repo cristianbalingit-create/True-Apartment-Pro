@@ -47,6 +47,77 @@ export function getAIClient(): GoogleGenAI | null {
   return aiClient;
 }
 
+// Ensure dbService is initialized asynchronously in background
+dbService.initialize().catch(err => {
+  console.warn("dbService background initialization warning:", err?.message || err);
+});
+
+/**
+ * Normalizes any phone number into canonical Philippine mobile format (digits only: 639XXXXXXXXX).
+ * Supports:
+ * - 09171234567 -> 639171234567
+ * - +639171234567 -> 639171234567
+ * - 639171234567 -> 639171234567
+ * - 0917-123-4567 -> 639171234567
+ * - 0917 123 4567 -> 639171234567
+ * - (0917) 123-4567 -> 639171234567
+ * - +63 (917) 123-4567 -> 639171234567
+ * - 9171234567 -> 639171234567
+ */
+export function normalizePhoneNumber(rawPhone: string | null | undefined): string {
+  if (!rawPhone || typeof rawPhone !== "string") return "";
+
+  // 1. Trim whitespace
+  const trimmed = rawPhone.trim();
+
+  // 2. Remove all non-digit characters (spaces, hyphens, parentheses, pluses, dots, etc.)
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // 3. International exit code format: 00639XXXXXXXXX (14 digits) -> 639XXXXXXXXX
+  if (digits.startsWith("00639") && digits.length === 14) {
+    return digits.slice(2);
+  }
+
+  // 4. Philippine domestic mobile format: 09XXXXXXXXX (11 digits) -> 639XXXXXXXXX
+  if (digits.startsWith("09") && digits.length === 11) {
+    return `63${digits.slice(1)}`;
+  }
+
+  // 5. Philippine international mobile format: 639XXXXXXXXX (12 digits)
+  if (digits.startsWith("639") && digits.length === 12) {
+    return digits;
+  }
+
+  // 6. 10-digit mobile format without leading zero: 9XXXXXXXXX (10 digits) -> 639XXXXXXXXX
+  if (digits.startsWith("9") && digits.length === 10) {
+    return `63${digits}`;
+  }
+
+  // Fallback: return remaining digits
+  return digits;
+}
+
+/**
+ * Checks if the normalized string is a valid Philippine mobile number (639XXXXXXXXX, 12 digits)
+ */
+export function isValidPhilippineMobile(normalizedNumber: string): boolean {
+  if (!normalizedNumber || typeof normalizedNumber !== "string") return false;
+  return /^639\d{9}$/.test(normalizedNumber);
+}
+
+/**
+ * Safely masks phone numbers for production server diagnostic logging (e.g. 0917****567)
+ */
+export function maskPhoneNumber(phone: string | null | undefined): string {
+  if (!phone || typeof phone !== "string") return "[empty]";
+  const trimmed = phone.trim();
+  if (trimmed.length <= 4) return "****";
+  const head = trimmed.slice(0, 4);
+  const tail = trimmed.slice(-3);
+  return `${head}****${tail}`;
+}
+
 // Database helper functions
 export function readDB() {
   return dbService.getDB();
@@ -2122,18 +2193,34 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   let linkedTenant = db.tenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
   const textLower = messageText.toLowerCase().trim();
 
-  // 1. Account linking workflow: "link <query>" or "verify <query>"
-  if (textLower.startsWith("link ") || textLower.startsWith("verify ")) {
-    const query = textLower.replace(/^(link|verify)\s+/, "").trim();
-    const queryDigits = query.replace(/\D/g, "");
+  // 1. Account linking workflow: "link <contact_number>" or "verify <contact_number>"
+  if (/^(?:link|verify)(?:[\s:]|$)/i.test(textLower)) {
+    const rawInput = textLower.replace(/^(?:link|verify)\s*[:\s]?\s*/i, "").trim();
+    const normalizedInput = normalizePhoneNumber(rawInput);
 
-    const matchedTenant = db.tenants.find((t: any) => {
-      const contactDigits = (t.contact || "").trim().replace(/\D/g, "");
-      const matchContact = queryDigits.length >= 7 && contactDigits.includes(queryDigits);
-      const matchId = t.id && t.id.toLowerCase() === query.toLowerCase();
-      const matchName = t.name && t.name.toLowerCase().includes(query.toLowerCase()) && query.length >= 3;
-      return matchContact || matchId || matchName;
+    // Validate Philippine mobile number
+    if (!isValidPhilippineMobile(normalizedInput)) {
+      await sendFacebookMessage(senderPsid, {
+        text: `❌ Please enter a valid Philippine mobile number.\n\nExample:\nlink 09171234567`
+      }, webhookPageId);
+      return;
+    }
+
+    const tenantsList = db.tenants || [];
+
+    const matchedTenant = tenantsList.find((t: any) => {
+      const storedContact = t.contact_number || t.contact || t.phone || t.phone_number || "";
+      const normalizedStored = normalizePhoneNumber(storedContact);
+      return normalizedStored === normalizedInput;
     });
+
+    // Temporary diagnostic logging ONLY on the server side (masked phone numbers)
+    console.log("===== TENANT LINK DIAGNOSTIC =====");
+    console.log(`Input number: ${maskPhoneNumber(rawInput)}`);
+    console.log(`Normalized input: ${maskPhoneNumber(normalizedInput)}`);
+    console.log(`Number of tenant records checked: ${tenantsList.length}`);
+    console.log(`Matching tenant found: ${matchedTenant ? "YES" : "NO"}`);
+    console.log("==================================");
 
     if (matchedTenant) {
       matchedTenant.facebook_psid = senderPsid;
@@ -2148,7 +2235,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
-        text: `❌ Sorry, we couldn't find a tenant record matching "${query}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
+        text: `❌ Sorry, we couldn't find a tenant record matching "${rawInput}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
       }, webhookPageId);
     }
     return;

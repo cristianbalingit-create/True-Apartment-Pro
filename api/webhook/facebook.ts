@@ -92,6 +92,21 @@ export function splitMessageIntoChunks(text: string, maxLength: number = 1900): 
   return mod.splitMessageIntoChunks(text, maxLength);
 }
 
+export function normalizePhoneNumber(rawPhone: string | null | undefined): string {
+  const mod = loadWebhookBundle();
+  return mod.normalizePhoneNumber(rawPhone);
+}
+
+export function isValidPhilippineMobile(normalizedNumber: string): boolean {
+  const mod = loadWebhookBundle();
+  return mod.isValidPhilippineMobile(normalizedNumber);
+}
+
+export function maskPhoneNumber(phone: string | null | undefined): string {
+  const mod = loadWebhookBundle();
+  return mod.maskPhoneNumber(phone);
+}
+
 export default async function handler(req: any, res: any) {
   try {
     const webhookModule = loadWebhookBundle();

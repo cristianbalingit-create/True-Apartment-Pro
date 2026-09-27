@@ -2187,10 +2187,10 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   // Safe Token Identity Diagnostic
   await runSafeTokenDiagnostic(webhookPageId);
 
-  // Check DB for tenant linkage
-  const db = readDB();
-  db.tenants = db.tenants || [];
-  let linkedTenant = db.tenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+  // Check live Cloud Firestore for tenant linkage (primary production source)
+  await dbService.ensureInitialized();
+  const liveTenants = await dbService.getLiveTenants();
+  let linkedTenant = liveTenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
   const textLower = messageText.toLowerCase().trim();
 
   // 1. Account linking workflow: "link <contact_number>" or "verify <contact_number>"
@@ -2206,29 +2206,29 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       return;
     }
 
-    const tenantsList = db.tenants || [];
-
-    const matchedTenant = tenantsList.find((t: any) => {
-      const storedContact = t.contact_number || t.contact || t.phone || t.phone_number || "";
-      const normalizedStored = normalizePhoneNumber(storedContact);
-      return normalizedStored === normalizedInput;
+    const matchedTenant = liveTenants.find((t: any) => {
+      const storedContact = t.contact || t.contact_number || t.phone || t.phone_number || "";
+      return normalizePhoneNumber(storedContact) === normalizedInput;
     });
 
-    // Temporary diagnostic logging ONLY on the server side (masked phone numbers)
-    console.log("===== TENANT LINK DIAGNOSTIC =====");
-    console.log(`Input number: ${maskPhoneNumber(rawInput)}`);
-    console.log(`Normalized input: ${maskPhoneNumber(normalizedInput)}`);
-    console.log(`Number of tenant records checked: ${tenantsList.length}`);
-    console.log(`Matching tenant found: ${matchedTenant ? "YES" : "NO"}`);
-    console.log("==================================");
+    // Requirement 8: Safe server-side diagnostic logging
+    console.log("===== FIRESTORE TENANT LOOKUP =====");
+    console.log("Source: Cloud Firestore");
+    console.log("Collection: tenants");
+    console.log(`Records found: ${liveTenants.length}`);
+    console.log(`Input normalized: ${maskPhoneNumber(normalizedInput)}`);
+    console.log(`Match found: ${matchedTenant ? "YES" : "NO"}`);
+    console.log("===================================");
 
     if (matchedTenant) {
+      // Persist PSID directly to live Cloud Firestore
+      await dbService.updateTenantPsidInFirestore(matchedTenant.id, senderPsid);
       matchedTenant.facebook_psid = senderPsid;
       matchedTenant.messenger_psid = senderPsid;
-      writeDB(db);
 
+      const db = readDB();
       const room = (db.rooms || []).find((r: any) => r.id === matchedTenant.room_id);
-      const roomNum = room ? room.room_number : "Unknown";
+      const roomNum = room ? room.room_number : (matchedTenant.room_id ? matchedTenant.room_id.replace(/^room-/, "") : "Unknown");
 
       await sendFacebookMessage(senderPsid, {
         text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the 1-tap quick buttons below to check your live rent balances, view your ledger & deposit history, or report maintenance.`
@@ -2245,9 +2245,9 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   if (textLower === "unlink" || textLower === "disconnect") {
     if (linkedTenant) {
       const oldName = linkedTenant.name;
+      await dbService.unlinkTenantPsidInFirestore(linkedTenant.id);
       delete linkedTenant.facebook_psid;
       delete linkedTenant.messenger_psid;
-      writeDB(db);
       await sendFacebookMessage(senderPsid, {
         text: `🚪 You have successfully unlinked your Facebook profile from ${oldName}'s tenant record.`
       }, webhookPageId);

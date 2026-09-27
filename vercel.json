@@ -2,10 +2,10 @@
   "version": 2,
   "functions": {
     "api/index.ts": {
-      "includeFiles": "dist/**"
+      "includeFiles": "{dist/**,firebase-applet-config.json}"
     },
     "api/webhook/facebook.ts": {
-      "includeFiles": "dist/**"
+      "includeFiles": "{dist/**,firebase-applet-config.json}"
     }
   },
   "rewrites": [

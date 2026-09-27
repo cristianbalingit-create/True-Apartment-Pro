@@ -95,6 +95,7 @@ class DatabaseService {
   private inMemoryCache: DBState | null = null;
   private config: FirebaseConfigOptions;
   private syncInProgress = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
     const envProjectId = process.env.FIREBASE_PROJECT_ID;
@@ -113,7 +114,24 @@ class DatabaseService {
     };
   }
 
+  public async ensureInitialized(): Promise<void> {
+    if (this.isConnectedToFirestore && (this.adminFirestore || this.clientFirestore)) {
+      return;
+    }
+    if (!this.initPromise) {
+      this.initPromise = this.initializeInternal().catch((err) => {
+        this.initPromise = null;
+        console.warn("DB ensureInitialized warning:", err?.message || err);
+      });
+    }
+    return this.initPromise;
+  }
+
   public async initialize(): Promise<void> {
+    return this.ensureInitialized();
+  }
+
+  private async initializeInternal(): Promise<void> {
     if (this.isInitialized) return;
     this.isInitialized = true;
 
@@ -475,6 +493,116 @@ class DatabaseService {
       this.loadFallbackData();
     }
     return this.inMemoryCache!;
+  }
+
+  /**
+   * Directly queries the live Cloud Firestore 'tenants' collection.
+   * Ensures fresh production data on serverless cold starts.
+   */
+  public async getLiveTenants(): Promise<Tenant[]> {
+    await this.ensureInitialized();
+
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        const snap = await this.adminFirestore.collection("tenants").get();
+        const tenants: Tenant[] = [];
+        snap.forEach(doc => {
+          tenants.push({ id: doc.id, ...(doc.data() as any) });
+        });
+        if (tenants.length > 0) {
+          const db = this.getDB();
+          db.tenants = tenants;
+          return tenants;
+        }
+      } else if (this.clientFirestore) {
+        const snap = await getClientDocs(clientCollection(this.clientFirestore, "tenants"));
+        const tenants: Tenant[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+        if (tenants.length > 0) {
+          const db = this.getDB();
+          db.tenants = tenants;
+          return tenants;
+        }
+      }
+    } catch (err: any) {
+      console.warn("Live Firestore getLiveTenants warning:", err?.message || err);
+    }
+
+    // Fallback to in-memory/cache if live query fails
+    const db = this.getDB();
+    return db.tenants || [];
+  }
+
+  /**
+   * Persists tenant Messenger PSID directly to Cloud Firestore.
+   */
+  public async updateTenantPsidInFirestore(tenantId: string, psid: string): Promise<boolean> {
+    await this.ensureInitialized();
+    let updated = false;
+
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        await this.adminFirestore.collection("tenants").doc(tenantId).set({
+          facebook_psid: psid,
+          messenger_psid: psid
+        }, { merge: true });
+        updated = true;
+      } else if (this.clientFirestore) {
+        await clientSetDoc(clientDoc(this.clientFirestore, "tenants", tenantId), {
+          facebook_psid: psid,
+          messenger_psid: psid
+        }, { merge: true });
+        updated = true;
+      }
+    } catch (err: any) {
+      console.error(`Failed to update tenant ${tenantId} PSID in live Firestore:`, err?.message || err);
+    }
+
+    // Also update in-memory / local state
+    const db = this.getDB();
+    const t = (db.tenants || []).find(item => item.id === tenantId);
+    if (t) {
+      t.facebook_psid = psid;
+      t.messenger_psid = psid;
+      this.saveFallbackFile(db);
+    }
+
+    return updated;
+  }
+
+  /**
+   * Unlinks tenant Messenger PSID directly in Cloud Firestore.
+   */
+  public async unlinkTenantPsidInFirestore(tenantId: string): Promise<boolean> {
+    await this.ensureInitialized();
+    let unlinked = false;
+
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        await this.adminFirestore.collection("tenants").doc(tenantId).set({
+          facebook_psid: "",
+          messenger_psid: ""
+        }, { merge: true });
+        unlinked = true;
+      } else if (this.clientFirestore) {
+        await clientSetDoc(clientDoc(this.clientFirestore, "tenants", tenantId), {
+          facebook_psid: "",
+          messenger_psid: ""
+        }, { merge: true });
+        unlinked = true;
+      }
+    } catch (err: any) {
+      console.error(`Failed to unlink tenant ${tenantId} PSID in live Firestore:`, err?.message || err);
+    }
+
+    const db = this.getDB();
+    const t = (db.tenants || []).find(item => item.id === tenantId);
+    if (t) {
+      delete t.facebook_psid;
+      delete t.messenger_psid;
+      this.saveFallbackFile(db);
+    }
+
+    return unlinked;
   }
 
   // Persist updated DB state

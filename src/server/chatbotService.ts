@@ -573,8 +573,11 @@ export async function sendFacebookMessage(
       const code = Number(errorBody.code || res.status);
       const subcode = Number(errorBody.error_subcode || 0);
       const errMsg = String(errorBody.message || "").toLowerCase();
+      // Meta subcode 1893063 means the conversation/recipient is currently
+      // restricted from receiving messages. This is NOT the same as a
+      // 24-hour-window expiry and must never trigger a deprecated tag retry.
+      const recipientRestricted = code === 10 && subcode === 1893063;
       const isWindowExpired = 
-        code === 10 || 
         subcode === 2018278 || 
         subcode === 2018001 || 
         subcode === 1893061 || 
@@ -593,8 +596,8 @@ export async function sendFacebookMessage(
       }
       console.error("Attempted Page ID:", effectivePageId);
       console.error("Attempted Recipient PSID:", cleanPsid ? `${cleanPsid.slice(0, 5)}***` : "unknown");
-      if (errorBody.code === 10 && (errorBody.error_subcode === 1893063 || String(errorBody.message).includes("permission"))) {
-        console.error("🚨 META ACCOUNT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. Learn more at https://facebook.com/policy/messenger.");
+      if (recipientRestricted) {
+        console.error("🚨 META RECIPIENT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. No retry will be attempted.");
         if (errorBody.error_user_title) console.error("Error User Title:", errorBody.error_user_title);
         if (errorBody.error_user_msg) console.error("Error User Message:", errorBody.error_user_msg);
       }
@@ -607,7 +610,8 @@ export async function sendFacebookMessage(
       const safeErrorMsg = errorBody.message || `Facebook Graph API responded with status ${res.status}`;
       return { 
         success: false, 
-        windowExpired: isWindowExpired, 
+        windowExpired: isWindowExpired,
+        recipientRestricted,
         error: safeErrorMsg,
         code,
         subcode 

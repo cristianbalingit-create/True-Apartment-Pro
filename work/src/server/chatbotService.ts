@@ -592,8 +592,8 @@ export async function sendFacebookMessage(
       console.error("Facebook Trace ID:", errorBody.fbtrace_id);
       console.error("Attempted Page ID:", effectivePageId);
       console.error("Attempted Recipient PSID:", cleanPsid);
-      if (errorBody.code === 10 && (errorBody.error_subcode === 1893063 || String(errorBody.message).includes("permission"))) {
-        console.error("🚨 META ACCOUNT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. Learn more at https://facebook.com/policy/messenger.");
+      if (recipientRestricted) {
+        console.error("🚨 META RECIPIENT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. No retry will be attempted.");
         if (errorBody.error_user_title) console.error("Error User Title:", errorBody.error_user_title);
         if (errorBody.error_user_msg) console.error("Error User Message:", errorBody.error_user_msg);
       }

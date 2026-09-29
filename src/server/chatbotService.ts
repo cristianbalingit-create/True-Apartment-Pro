@@ -679,6 +679,14 @@ export function isMaintenanceStatusQuery(rawText: string): boolean {
 export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
   const text = rawText.trim();
   const lower = text.toLowerCase();
+  // Normalize common Messenger chat punctuation/spacing so informal Bisaya
+  // phrases such as "naguba among suga te", "ga-leak ang gripo", and
+  // "dili mo andar among aircon" are recognized consistently.
+  const normalized = lower
+    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
+    .replace(/[.,!?;:()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // 1. Status query check
   if (isMaintenanceStatusQuery(rawText)) {
@@ -731,14 +739,84 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
     return lower.includes(kw);
   };
   
-  // Specific equipment & failure indicators
-  const acKeywords = ["aircon", "air con", "air-con", "air conditioner", "air conditioning", "ac", "cooling", "freon", "refrigerant", "compressor", "split type", "not cooling", "warm air", "ac leak", "ac dripping"];
-  const plumbingKeywords = ["toilet", "cr", "comfort room", "bathroom", "shower", "sink", "faucet", "tap", "pipe", "pipes", "water", "leak", "leaking", "leaks", "leaked", "drip", "dripping", "clog", "clogged", "drain", "drainage", "overflow", "overflowing", "bidet", "burst", "bursting", "flooding", "flood", "flooded", "sewage", "sewer", "no water", "low water pressure", "ceiling", "water coming from"];
-  const electricalKeywords = ["electricity", "electrical", "power", "power outage", "blackout", "brownout", "light", "lights", "bulb", "flicker", "flickering", "flickers", "dim", "socket", "outlet", "plug", "breaker", "circuit breaker", "tripped", "wire", "wires", "wiring", "spark", "sparks", "sparking", "sparked", "short circuit", "shock", "smoke", "burning smell", "no power", "fuse"];
-  const internetKeywords = ["wifi", "wi-fi", "internet", "router", "modem", "connection", "slow connection", "lan cable", "no internet", "network", "signal"];
-  const furnitureKeywords = ["door", "door knob", "doorknob", "door lock", "padlock", "deadbolt", "key", "lock", "locked out", "window", "window latch", "window lock", "bed", "mattress", "chair", "table", "desk", "cabinet", "cupboard", "closet", "drawer", "shelf", "sofa", "furniture", "hinge"];
-  const cleaningKeywords = ["cleaning", "clean", "trash", "garbage", "rubbish", "pest", "pests", "cockroach", "cockroaches", "roach", "roaches", "ant", "ants", "bug", "bugs", "rodent", "rat", "rats", "mice", "mouse", "infestation", "mold", "mildew", "bad odor"];
-  const generalMaintWords = ["broken", "not working", "stopped working", "keeps going out", "repair", "fix", "damaged", "malfunction", "leaking", "clogged", "technician", "problem in my room", "issue in my room"];
+  // Specific equipment & failure indicators. These include common Bisaya/Cebuano
+  // words and informal chat spellings because Messenger tenants may naturally
+  // mix Cebuano, English, and Taglish in the same message.
+  const acKeywords = [
+    "aircon", "air con", "air-con", "air conditioner", "air conditioning", "ac", "cooling",
+    "freon", "refrigerant", "compressor", "split type", "not cooling", "warm air", "ac leak", "ac dripping",
+    "dili mobugnaw", "dili mo bugnaw", "di mobugnaw", "di mo bugnaw", "init ang aircon", "guba ang aircon",
+    "naguba ang aircon", "aircon guba", "aircon nag leak", "ga leak ang aircon", "naga leak ang aircon",
+    "ga tulo ang aircon", "nag tulo ang aircon"
+  ];
+  const plumbingKeywords = [
+    "toilet", "cr", "comfort room", "bathroom", "shower", "sink", "faucet", "tap", "pipe", "pipes",
+    "water", "leak", "leaking", "leaks", "leaked", "drip", "dripping", "clog", "clogged", "drain",
+    "drainage", "overflow", "overflowing", "bidet", "burst", "bursting", "flooding", "flood", "flooded",
+    "sewage", "sewer", "no water", "low water pressure", "ceiling", "water coming from",
+    "gripo", "gripo", "lababo", "tubo", "tubig", "tagas", "nagtulo", "ga tulo", "nag tulo",
+    "ga leak", "naga leak", "nag leak", "barado", "bara", "barado ang cr", "barado ang banyo",
+    "walay tubig", "wala nay tubig", "hinay ang tubig", "kusog ang agas"
+  ];
+  const electricalKeywords = [
+    "electricity", "electrical", "power", "power outage", "blackout", "brownout", "light", "lights", "bulb",
+    "flicker", "flickering", "flickers", "dim", "socket", "outlet", "plug", "breaker", "circuit breaker",
+    "tripped", "wire", "wires", "wiring", "spark", "sparks", "sparking", "sparked", "short circuit",
+    "shock", "smoke", "burning smell", "no power", "fuse",
+    "suga", "suga sa kwarto", "suga sa banyo", "suga sa kusina", "kuryente", "kurente", "outlet",
+    "wala nay suga", "walay suga", "dili mosiga", "di mosiga", "dili na mosiga", "di na mosiga",
+    "dili mo andar", "dili moandar", "di mo andar", "di moandar", "wala moandar", "wala nay kuryente",
+    "walay kuryente", "nag spark", "ga spark", "naga spark", "nagsiga", "wala nagsiga", "dili nagsiga"
+  ];
+  const internetKeywords = [
+    "wifi", "wi-fi", "internet", "router", "modem", "connection", "slow connection", "lan cable",
+    "no internet", "network", "signal", "hinay ang wifi", "hinay among wifi", "wala internet",
+    "walay internet", "dili mo connect", "di mo connect", "dili maka connect", "di maka connect", "hinay ang net"
+  ];
+  const furnitureKeywords = [
+    "door", "door knob", "doorknob", "door lock", "padlock", "deadbolt", "key", "lock", "locked out",
+    "window", "window latch", "window lock", "bed", "mattress", "chair", "table", "desk", "cabinet",
+    "cupboard", "closet", "drawer", "shelf", "sofa", "furniture", "hinge",
+    "pultahan", "kandado", "bintana", "katre", "lingkuranan", "lamisa", "aparador", "kabinet",
+    "guba ang pultahan", "guba ang kandado", "dili ma lock", "dili ma-lock", "di ma lock", "nabungkag"
+  ];
+  const cleaningKeywords = [
+    "cleaning", "clean", "trash", "garbage", "rubbish", "pest", "pests", "cockroach", "cockroaches",
+    "roach", "roaches", "ant", "ants", "bug", "bugs", "rodent", "rat", "rats", "mice", "mouse",
+    "infestation", "mold", "mildew", "bad odor", "hugaw", "hugaw kaayo", "daghan basura", "basura",
+    "ipis", "ilaga", "langaw", "baho", "amag"
+  ];
+  const generalMaintWords = [
+    "broken", "not working", "stopped working", "keeps going out", "repair", "fix", "damaged", "malfunction",
+    "leaking", "clogged", "technician", "problem in my room", "issue in my room",
+    "guba", "naguba", "guba among", "guba ang", "nadaot", "nadamage", "dili moandar", "dili mo andar",
+    "di moandar", "di mo andar", "wala moandar", "wala nay", "walay", "dili na", "di na",
+    "problema", "problema sa among", "problema sa amo", "naay problema", "naa koy problema",
+    "tabang", "paayo", "ipaayo", "ayoa", "ipa-repair", "maintenance", "repairman", "technician",
+    "te guba", "te naguba", "maam guba", "sir guba", "te ga leak", "maam ga leak", "sir ga leak"
+  ];
+
+  // Strong semantic fallback for informal Bisaya/Cebuano maintenance reports.
+  // This intentionally uses combinations of a problem/action word + a physical
+  // apartment object, rather than requiring the English word "maintenance".
+  const bisayaProblemWords = [
+    "guba", "naguba", "nadaot", "nabungkag", "nabuak", "nabali",
+    "barado", "nabara", "tagas", "nagtulo", "ga tulo", "nag tulo",
+    "ga leak", "nag leak", "naga leak", "dili moandar", "di moandar",
+    "dili mo andar", "di mo andar", "wala moandar", "wala nay", "walay",
+    "dili na", "di na", "problema", "naay problema", "naa koy problema",
+    "paayo", "ipaayo", "ayoa", "ipa repair", "ipa-repair"
+  ];
+  const bisayaMaintenanceObjects = [
+    "suga", "kuryente", "kurente", "outlet", "socket", "wire", "breaker",
+    "gripo", "lababo", "tubo", "tubig", "banyo", "cr", "toilet", "shower",
+    "aircon", "wifi", "internet", "pultahan", "kandado", "bintana",
+    "katre", "lingkuranan", "lamisa", "aparador", "kabinet", "tiles",
+    "kisame", "salog", "dingding", "kwarto", "room"
+  ];
+  const hasBisayaProblemWord = bisayaProblemWords.some(word => normalized.includes(word));
+  const hasBisayaMaintenanceObject = bisayaMaintenanceObjects.some(word => normalized.includes(word));
+  const hasBisayaMaintenancePattern = hasBisayaProblemWord && hasBisayaMaintenanceObject;
 
   const hasAc = acKeywords.some(kw => matchesKeyword(kw));
   const hasPlumbing = plumbingKeywords.some(kw => matchesKeyword(kw));
@@ -749,7 +827,7 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
   const hasGeneralProblem = generalMaintWords.some(kw => matchesKeyword(kw));
 
   // Determine if maintenance intent
-  const isMaintenance = isDirectMaintButton || hasAc || hasPlumbing || hasElectrical || hasInternet || hasFurniture || hasCleaning || hasGeneralProblem;
+  const isMaintenance = isDirectMaintButton || hasAc || hasPlumbing || hasElectrical || hasInternet || hasFurniture || hasCleaning || hasGeneralProblem || hasBisayaMaintenancePattern;
 
   if (!isMaintenance) {
     return {
@@ -782,7 +860,7 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
 
   // Determine Category
   let category: MaintenanceCategory = "Other";
-  if (hasAc) {
+  if (hasAc || /\b(aircon|air con|air conditioner)\b/.test(normalized)) {
     category = "Air Conditioning";
   } else if (hasPlumbing) {
     category = "Plumbing";
@@ -794,6 +872,13 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
     category = "Furniture";
   } else if (hasCleaning) {
     category = "Cleaning";
+  } else if (hasBisayaMaintenancePattern) {
+    // Bisaya fallback category mapping when the English keyword lists do not
+    // catch a regional/informal spelling.
+    if (/\b(suga|kuryente|kurente|outlet|socket|wire|breaker)\b/.test(normalized)) category = "Electrical";
+    else if (/\b(gripo|lababo|tubo|tubig|banyo|cr|toilet|shower|tagas|tulo)\b/.test(normalized)) category = "Plumbing";
+    else if (/\b(wifi|internet)\b/.test(normalized)) category = "Internet";
+    else if (/\b(pultahan|kandado|bintana|katre|lingkuranan|lamisa|aparador|kabinet|tiles|kisame|salog|dingding)\b/.test(normalized)) category = "Furniture";
   }
 
   // Determine Severity (CRITICAL, HIGH, MEDIUM, LOW)
@@ -2049,19 +2134,28 @@ Active Announcements:
 ${annSummary || "No active announcements."}
 
 CRITICAL DIRECTIVES:
-1. MAINTENANCE REPORTING PRIORITY:
-   - If the user is reporting any maintenance issue or physical problem in their unit (AC, plumbing, electrical, lock, wifi, leak, etc.):
+1. MULTI-LANGUAGE MAINTENANCE UNDERSTANDING:
+   - Understand English, Bisaya/Cebuano, Taglish, and mixed Bisaya-English naturally.
+   - Do NOT require exact English keywords or the word "maintenance".
+   - Interpret the meaning/context of informal Messenger messages, including common Cebuano words such as "guba", "naguba", "suga", "gripo", "lababo", "tubo", "tagas", "barado", "pultahan", "kandado", "bintana", "kuryente", "walay", "wala nay", "dili moandar", "di moandar", "ga leak", "ga tulo", and "problema".
+   - Example: "naguba among suga te" means the tenant is reporting a broken/non-working light and MUST be treated as a maintenance report.
+   - Example: "guba ang gripo" means a plumbing maintenance issue.
+   - Example: "di moandar ang aircon" means an air-conditioning maintenance issue.
+   - Example: "ga leak among lababo" means a plumbing maintenance issue.
+   - Preserve the tenant's original language in the stored description whenever possible; use the AI interpretation only for intent/category/priority.
+2. MAINTENANCE REPORTING PRIORITY:
+   - If the user is reporting any maintenance issue or physical problem in their unit (AC, plumbing, electrical, lock, wifi, leak, etc.), regardless of language:
      * DO NOT give generic AI advice or DIY repair tutorials for electrical or high hazard problems.
      * Set "is_maintenance": true.
      * Select "category" from: "Plumbing", "Electrical", "Internet", "Air Conditioning", "Furniture", "Cleaning", "Other".
      * Select "priority" from: "CRITICAL", "HIGH", "MEDIUM", "LOW".
      * Provide a clean summary in "description".
-2. STATUS CHECK:
+3. STATUS CHECK:
    - If the user asks for the status of their maintenance repair or ticket:
      * Set "is_status_query": true.
-3. FINANCIAL PRIVACY:
+4. FINANCIAL PRIVACY:
    - If unverified/guest asks for personal balances/bills, ask them to link their account (link <contact_number>).
-4. Return a clean JSON matching this schema:
+5. Return a clean JSON matching this schema:
 {
   "reply": "Conversational reply text formatted in clean Markdown with emojis",
   "intent": "maintenance_report | maintenance_status | get_history | send_payment | get_balance | view_announcements | view_rules | view_profile | chat",

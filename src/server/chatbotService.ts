@@ -1147,6 +1147,10 @@ export async function createMaintenanceTicketRecord(
     const trimmed = photoUrl.trim();
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("/uploads/")) {
       validPhotoUrl = trimmed;
+    } else if (/^data:image\/(?:jpeg|jpg|png|webp);base64,/i.test(trimmed) && trimmed.length <= 950000) {
+      // Small inline image fallback for serverless deployments without Storage credentials.
+      // Keep the size below Firestore's 1 MiB document limit with room for other fields.
+      validPhotoUrl = trimmed;
     }
   }
   const hasPhoto = Boolean(validPhotoUrl.length > 0);
@@ -2199,10 +2203,19 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   const senderPsid = webhook_event.sender?.id;
   if (!senderPsid) return;
 
-  // Extract attachments (Requirement 1: do not require message.text to exist)
-  const attachments = webhook_event.message?.attachments || [];
+  // Extract Messenger attachments without requiring message.text.
+  // Meta normally sends message.attachments[], but accept the singular attachment
+  // shape as a defensive compatibility path for webhook/runtime transformations.
+  const rawAttachments = webhook_event.message?.attachments;
+  const singularAttachment = webhook_event.message?.attachment;
+  const attachments = Array.isArray(rawAttachments)
+    ? rawAttachments
+    : (singularAttachment ? [singularAttachment] : []);
   const imageAttachment = attachments.find(
-    (attachment: any) => attachment.type === "image" && attachment.payload?.url
+    (attachment: any) =>
+      (attachment?.type === "image" || attachment?.type === "photo") &&
+      typeof attachment?.payload?.url === "string" &&
+      attachment.payload.url.trim().length > 0
   );
   const unsupportedAttachment = attachments.find(
     (attachment: any) => attachment.type !== "image"
@@ -2230,8 +2243,14 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   console.log("===== MESSENGER MESSAGE RECEIVED =====");
   console.log(`Sender ID: ${senderPsid}`);
   console.log(`Message: ${messageText || "[No Text]"}`);
-  if (attachmentUrl) console.log(`Attachment: [Image attachment received]`);
-  if (hasUnsupportedAttachment) console.log(`Unsupported Attachment detected: ${attachments[0]?.type}`);
+  if (attachmentUrl) {
+    console.log("Attachment: [Image attachment received]");
+    console.log(`Attachment count: ${attachments.length}`);
+    console.log(`Attachment type: ${String(imageAttachment?.type || "image")}`);
+  }
+  if (hasUnsupportedAttachment) {
+    console.log(`Unsupported Attachment detected: ${String(unsupportedAttachment?.type || "unknown")}`);
+  }
 
   // Safe Token Identity Diagnostic
   await runSafeTokenDiagnostic(webhookPageId);

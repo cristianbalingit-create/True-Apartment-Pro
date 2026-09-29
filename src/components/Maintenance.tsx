@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { DBState, api } from "../lib/api";
+import { fetchDirectFromFirestore } from "../lib/clientFirestore";
 import { MaintenanceRequest } from "../types";
 import { 
   Wrench, Clock, Trash2, BarChart3,
@@ -34,6 +35,12 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   const [recentlyCreatedId, setRecentlyCreatedId] = useState<string | null>(null);
+  // Production source of truth for maintenance: live Cloud Firestore.
+  // This prevents the Vercel UI from showing build-time/sample maintenance records.
+  const [liveMaintenanceRequests, setLiveMaintenanceRequests] = useState<MaintenanceRequest[]>(
+    db.maintenanceRequests || []
+  );
+  const [liveMaintenanceLoading, setLiveMaintenanceLoading] = useState(false);
 
   // New report form states
   const [newCategory, setNewCategory] = useState("Plumbing");
@@ -44,9 +51,37 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
   const [newDescription, setNewDescription] = useState("");
   const [newOccurredAt, setNewOccurredAt] = useState("Today");
 
+  const refreshLiveMaintenance = useCallback(async () => {
+    setLiveMaintenanceLoading(true);
+    try {
+      const live = await fetchDirectFromFirestore();
+      setLiveMaintenanceRequests(live.maintenanceRequests || []);
+    } catch (err) {
+      console.warn("Live maintenance refresh failed; retaining current records:", err);
+    } finally {
+      setLiveMaintenanceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLiveMaintenance();
+  }, [refreshLiveMaintenance]);
+
+  // Keep local list aligned after parent refreshes while retaining live Firestore as source of truth.
+  useEffect(() => {
+    if (!liveMaintenanceLoading && liveMaintenanceRequests.length === 0 && (db.maintenanceRequests || []).length > 0) {
+      setLiveMaintenanceRequests(db.maintenanceRequests || []);
+    }
+  }, [db.maintenanceRequests, liveMaintenanceLoading, liveMaintenanceRequests.length]);
+
+  const liveDb = useMemo<DBState>(() => ({
+    ...db,
+    maintenanceRequests: liveMaintenanceRequests
+  }), [db, liveMaintenanceRequests]);
+
   // Sorted tickets list - Newest first so freshly added tickets always appear at the top
   const tickets = useMemo(() => {
-    const list = [...(db.maintenanceRequests || [])];
+    const list = [...liveMaintenanceRequests];
     return list.sort((a, b) => {
       const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
       const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
@@ -144,6 +179,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
       setNewCategory("Plumbing");
       setIsAddModalOpen(false);
       await onRefresh();
+      await refreshLiveMaintenance();
 
       if (created?.id) {
         handleTicketCreatedSuccess(created.id);
@@ -161,6 +197,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
       setLoading(true);
       await api.updateMaintenanceRequest(id, { status: newStatus });
       onRefresh();
+      await refreshLiveMaintenance();
     } catch (e) {
       console.error(e);
       alert("Failed to update ticket status.");
@@ -178,6 +215,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
         setSelectedTicketForViewer(null);
       }
       onRefresh();
+      await refreshLiveMaintenance();
     } catch (e) {
       console.error(e);
       alert("Failed to delete ticket.");
@@ -256,7 +294,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
       {/* Reports & Graphs Tab (Default / Shown First) */}
       {activeSubTab === "reports" && (
         <MaintenanceReports 
-          db={db} 
+          db={liveDb} 
           onRefresh={onRefresh} 
           standalone={true} 
           onTicketCreated={handleTicketCreatedSuccess} 

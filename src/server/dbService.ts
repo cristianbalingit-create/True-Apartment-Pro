@@ -15,6 +15,7 @@ import {
   deleteDoc as clientDeleteDoc,
   writeBatch as clientWriteBatch,
   query as clientQuery,
+  where as clientWhere,
   limit as clientLimit,
   type Firestore as ClientFirestore
 } from "firebase/firestore";
@@ -767,6 +768,104 @@ class DatabaseService {
         console.warn("Failed to clear payment session:", err?.message || err);
       }
     }
+  }
+
+  public async getLivePaymentSubmissions(): Promise<any[]> {
+    await this.ensureInitialized();
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        const snap = await this.adminFirestore.collection("paymentSubmissions").get();
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+      if (this.clientFirestore) {
+        const snap = await getClientDocs(clientCollection(this.clientFirestore, "paymentSubmissions"));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+    } catch (err: any) {
+      console.error("Failed to load payment submissions:", err?.message || err);
+    }
+    return [];
+  }
+
+  public async savePaymentReceipt(receiptId: string, mimeType: string, base64: string): Promise<boolean> {
+    await this.ensureInitialized();
+    const safeId = String(receiptId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
+    if (!safeId || !/^image\/(jpeg|png|webp|gif)$/i.test(mimeType) || !base64 || base64.length > 8_000_000) return false;
+    const chunkSize = 700_000;
+    const totalChunks = Math.ceil(base64.length / chunkSize);
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        const batch = this.adminFirestore.batch();
+        batch.set(this.adminFirestore.collection("paymentReceipts").doc(safeId), { id: safeId, mime_type: mimeType, total_chunks: totalChunks, created_at: new Date().toISOString() }, { merge: true });
+        for (let i = 0; i < totalChunks; i++) {
+          batch.set(this.adminFirestore.collection("paymentReceiptChunks").doc(`${safeId}_${i}`), { receipt_id: safeId, index: i, data: base64.slice(i * chunkSize, (i + 1) * chunkSize) });
+        }
+        await batch.commit();
+        return true;
+      }
+      if (this.clientFirestore) {
+        // Firestore client batches are limited to 500 writes; a 5 MB receipt is far below this.
+        const batch = clientWriteBatch(this.clientFirestore);
+        batch.set(clientDoc(this.clientFirestore, "paymentReceipts", safeId), { id: safeId, mime_type: mimeType, total_chunks: totalChunks, created_at: new Date().toISOString() }, { merge: true });
+        for (let i = 0; i < totalChunks; i++) {
+          batch.set(clientDoc(this.clientFirestore, "paymentReceiptChunks", `${safeId}_${i}`), { receipt_id: safeId, index: i, data: base64.slice(i * chunkSize, (i + 1) * chunkSize) });
+        }
+        await batch.commit();
+        return true;
+      }
+    } catch (err: any) {
+      console.error(`Failed to persist payment receipt ${safeId}:`, err?.message || err);
+    }
+    return false;
+  }
+
+  public async getPaymentReceipt(receiptId: string): Promise<{ mimeType: string; base64: string } | null> {
+    await this.ensureInitialized();
+    const safeId = String(receiptId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
+    if (!safeId) return null;
+    try {
+      let meta: any = null;
+      let chunks: any[] = [];
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        const metaSnap = await this.adminFirestore.collection("paymentReceipts").doc(safeId).get();
+        if (!metaSnap.exists) return null;
+        meta = metaSnap.data();
+        const chunkSnap = await this.adminFirestore.collection("paymentReceiptChunks").where("receipt_id", "==", safeId).get();
+        chunks = chunkSnap.docs.map(d => d.data());
+      } else if (this.clientFirestore) {
+        const metaSnap = await clientGetDoc(clientDoc(this.clientFirestore, "paymentReceipts", safeId));
+        if (!metaSnap.exists()) return null;
+        meta = metaSnap.data();
+        const chunkSnap = await getClientDocs(clientQuery(clientCollection(this.clientFirestore, "paymentReceiptChunks"), clientWhere("receipt_id", "==", safeId), clientLimit(100)));
+        chunks = chunkSnap.docs.map(d => d.data()).filter((d: any) => d.receipt_id === safeId);
+      }
+      chunks.sort((a, b) => Number(a.index) - Number(b.index));
+      if (!meta || chunks.length !== Number(meta.total_chunks)) return null;
+      return { mimeType: String(meta.mime_type || "image/png"), base64: chunks.map(c => String(c.data || "")).join("") };
+    } catch (err: any) {
+      console.error(`Failed to read payment receipt ${safeId}:`, err?.message || err);
+      return null;
+    }
+  }
+
+  public async updatePaymentSubmission(id: string, updates: any): Promise<boolean> {
+    await this.ensureInitialized();
+    const docId = String(id || "").trim();
+    if (!docId || docId.length > 120) return false;
+    const clean = stripUndefined(updates || {});
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        await this.adminFirestore.collection("paymentSubmissions").doc(docId).set(clean, { merge: true });
+        return true;
+      }
+      if (this.clientFirestore) {
+        await clientSetDoc(clientDoc(this.clientFirestore, "paymentSubmissions", docId), clean, { merge: true });
+        return true;
+      }
+    } catch (err: any) {
+      console.error(`Failed to update payment submission ${docId}:`, err?.message || err);
+    }
+    return false;
   }
 
   public async savePaymentSubmissionToFirestore(submission: any): Promise<boolean> {

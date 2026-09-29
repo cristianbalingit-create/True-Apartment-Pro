@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { dbService } from "./src/server/dbService";
-import { handleMessengerWebhookEvent, queryChatbotWithResult, sendFacebookMessage } from "./src/server/chatbotService";
+import { handleMessengerWebhookEvent, queryChatbotWithResult, sendFacebookMessage, standardQuickReplies } from "./src/server/chatbotService";
 import { generateBillPng, generateBillSvg, sendVisualBillToMessenger, getPublicBaseUrl } from "./src/server/visualBillService";
 
 dotenv.config();
@@ -730,6 +730,36 @@ const getClientKey = (req: express.Request): string => {
   return ip;
 };
 
+// Stateless admin session signing for sensitive payment-verification endpoints.
+// SECURITY: uses a server-only secret; never trusts a client-supplied role flag.
+const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || "change-this-admin-secret";
+function createAdminSessionToken(): string {
+  const issued = String(Date.now());
+  const payload = Buffer.from(`admin|${issued}`).toString("base64url");
+  const signature = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(payload).digest("base64url");
+  return `apt_session_${payload}.${signature}`;
+}
+function isAuthorizedAdmin(req: express.Request): boolean {
+  const header = String(req.headers.authorization || "");
+  if (!header.startsWith("Bearer ")) return false;
+  const token = header.slice(7).trim();
+  if (!token.startsWith("apt_session_")) return false;
+  const raw = token.slice("apt_session_".length);
+  const parts = raw.split(".");
+  if (parts.length !== 2) return false;
+  const [payload, signature] = parts;
+  try {
+    const decoded = Buffer.from(payload, "base64url").toString("utf8");
+    const [role, issuedRaw] = decoded.split("|");
+    const issued = Number(issuedRaw);
+    if (role !== "admin" || !Number.isFinite(issued)) return false;
+    // 12-hour session lifetime; limits exposure if a browser token is stolen.
+    if (Date.now() - issued > 12 * 60 * 60 * 1000 || issued > Date.now() + 60_000) return false;
+    const expected = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(payload).digest("base64url");
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch { return false; }
+}
+
 // ---------------- API ENDPOINTS ----------------
 
 // Health & Database Connection Check
@@ -846,8 +876,7 @@ app.post("/api/auth/login", (req, res) => {
     writeDB(db);
 
     // Generate non-predictable, cryptographically secure session token
-    const randomHex = crypto.randomBytes(32).toString("hex");
-    const sessionToken = `apt_session_${randomHex}_${Date.now()}`;
+    const sessionToken = createAdminSessionToken();
 
     return res.json({
       success: true,
@@ -1951,6 +1980,118 @@ app.post("/api/logs/clear", (req, res) => {
 });
 
 
+
+// 8. PAYMENT VERIFICATION (ADMIN ONLY)
+app.get("/api/payments/receipts/:id", async (req, res) => {
+  if (!isAuthorizedAdmin(req)) return res.status(401).send("Unauthorized");
+  const receipt = await dbService.getPaymentReceipt(String(req.params.id || ""));
+  if (!receipt) return res.status(404).send("Receipt not found");
+  try {
+    const buffer = Buffer.from(receipt.base64, "base64");
+    if (!buffer.length || buffer.length > 5 * 1024 * 1024) return res.status(400).send("Invalid receipt");
+    res.setHeader("Content-Type", receipt.mimeType);
+    res.setHeader("Content-Length", String(buffer.length));
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.status(200).send(buffer);
+  } catch { return res.status(400).send("Invalid receipt"); }
+});
+
+app.get("/api/payments/submissions", async (req, res) => {
+  if (!isAuthorizedAdmin(req)) return res.status(401).json({ message: "Unauthorized" });
+  try {
+    const submissions = await dbService.getLivePaymentSubmissions();
+    submissions.sort((a: any, b: any) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
+    res.json(submissions.slice(0, 200));
+  } catch (err: any) {
+    res.status(500).json({ message: "Unable to load payment submissions" });
+  }
+});
+
+app.post("/api/payments/submissions/:id/verify", async (req, res) => {
+  if (!isAuthorizedAdmin(req)) return res.status(401).json({ message: "Unauthorized" });
+  const id = String(req.params.id || "").trim();
+  const action = req.body?.action === "reject" ? "reject" : req.body?.action === "confirm" ? "confirm" : "";
+  const amount = Number(req.body?.amount);
+  const note = String(req.body?.note || "").replace(/[<>`]/g, "").slice(0, 300);
+  if (!id || !action || (action === "confirm" && (!Number.isFinite(amount) || amount <= 0))) {
+    return res.status(400).json({ message: "Invalid verification request" });
+  }
+
+  const submissions = await dbService.getLivePaymentSubmissions();
+  const submission = submissions.find((x: any) => x.id === id);
+  if (!submission) return res.status(404).json({ message: "Payment submission not found" });
+  if (submission.status !== "pending_verification") return res.status(409).json({ message: "This payment has already been processed" });
+
+  const now = new Date().toISOString();
+  if (action === "reject") {
+    const updated = await dbService.updatePaymentSubmission(id, {
+      status: "rejected",
+      verified_at: now,
+      verified_by: "admin",
+      verification_note: note || "Payment receipt was not verified."
+    });
+    if (!updated) return res.status(500).json({ message: "Could not update payment submission" });
+    if (submission.messenger_psid) {
+      await sendFacebookMessage(submission.messenger_psid, { text: `⚠️ *PAYMENT NOT VERIFIED*\n\nHi ${submission.tenant_name || "Tenant"}, your ${submission.method === "GCASH" ? "GCash" : "bank"} payment submission could not be verified yet.\n\n${note || "Please check the transaction details and submit a valid receipt or reference number."}\n\nYou may submit the payment again through *💳 Send Payment*.`, quick_replies: [{ content_type: "text", title: "💳 Send Payment", payload: "SEND_PAYMENT" }] });
+    }
+    return res.json({ success: true, status: "rejected" });
+  }
+
+  // Find the tenant's oldest unpaid/overdue bill and post the verified amount against it.
+  await dbService.ensureInitialized();
+  const state = dbService.getDB();
+  const bills = (state.billingRecords || []).filter((b: any) => b.tenant_id === submission.tenant_id && ["unpaid", "overdue", "partial"].includes(b.payment_status));
+  bills.sort((a: any, b: any) => String(a.due_date || "").localeCompare(String(b.due_date || "")));
+  const bill = bills[0];
+  if (!bill) return res.status(409).json({ message: "No unpaid or partially paid bill was found for this tenant. Verify the payment manually before confirming." });
+
+  const billTotal = Number(bill.total_amount || 0);
+  const currentPaid = Number(bill.paid_amount || 0);
+  const newPaid = currentPaid + amount;
+  const newStatus = newPaid >= billTotal ? "paid" : "partial";
+  const remaining = Math.max(0, billTotal - newPaid);
+
+  await dbService.upsertDoc("billingRecords", bill.id, {
+    paid_amount: newPaid,
+    payment_status: newStatus,
+    last_payment_method: submission.method,
+    last_payment_reference: submission.reference || "",
+    last_payment_verified_at: now,
+    notes: `${bill.notes || ""}${bill.notes ? "\n" : ""}Verified Messenger payment ${submission.id} (${submission.method})${submission.reference ? ` ref ${submission.reference}` : ""}: ₱${amount.toFixed(2)} on ${now}.`
+  });
+
+  const updated = await dbService.updatePaymentSubmission(id, {
+    status: "confirmed",
+    verified_at: now,
+    verified_by: "admin",
+    verified_amount: amount,
+    billing_id: bill.id,
+    verification_note: note || "Payment verified by management."
+  });
+  if (!updated) return res.status(500).json({ message: "Payment was posted but submission status could not be updated. Check the payment record before retrying." });
+
+  const logId = `log-payment-${Date.now()}`;
+  await dbService.upsertDoc("transactionLogs", logId, {
+    id: logId,
+    category: "payment",
+    action: "payment",
+    title: "Messenger Payment Verified",
+    details: `${submission.tenant_name || "Tenant"} (${submission.method}) payment ₱${amount.toFixed(2)} verified against ${bill.invoice_number || bill.id}.`,
+    created_at: now,
+    performed_by: "Property Manager (Admin)"
+  });
+
+  if (submission.messenger_psid) {
+    const statusText = newStatus === "paid" ? "PAID" : "PARTIALLY PAID";
+    const balanceText = remaining > 0 ? `\n💰 Remaining balance: ₱${remaining.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : "\n🎉 Your bill is fully settled.";
+    await sendFacebookMessage(submission.messenger_psid, {
+      text: `✅ *PAYMENT CONFIRMED*\n\nHi ${submission.tenant_name || "Tenant"}, your ${submission.method === "GCASH" ? "GCash" : "bank transfer"} payment has been verified by ApartmentPro.\n\n💵 Amount received: ₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}\n🧾 Reference: ${submission.reference || "Receipt verified"}\n📋 Bill: ${bill.billing_month || bill.id}\n📌 Status: *${statusText}*${balanceText}\n\nThank you!`,
+      quick_replies: standardQuickReplies
+    });
+  }
+
+  return res.json({ success: true, status: "confirmed", billingStatus: newStatus, remainingBalance: remaining });
+});
 
 // 9. IMAGE UPLOAD ENDPOINT (Receives Base64, uploads to Firebase Storage or persistent fallback, returns URL)
 app.post("/api/upload", async (req, res) => {

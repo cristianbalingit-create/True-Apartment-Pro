@@ -1446,9 +1446,14 @@ async function persistPaymentReceipt(attachmentUrl: string): Promise<string> {
     if (!buffer.length || buffer.length > maxBytes) return "";
 
     const ext = contentType.includes("png") ? ".png" : contentType.includes("webp") ? ".webp" : ".jpg";
-    const base64 = `data:${contentType};base64,${buffer.toString("base64")}`;
-    const result = await dbService.uploadFile(`payment_receipt_${Date.now()}${ext}`, base64);
-    return result?.url || "";
+    const rawBase64 = buffer.toString("base64");
+    // Persist receipts in Firestore chunks so the admin portal can read them even when
+    // Messenger webhook and admin website run on different hosts. No temporary /tmp or
+    // local filesystem URL is used for payment evidence.
+    const receiptId = `rcpt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const saved = await dbService.savePaymentReceipt(receiptId, contentType, rawBase64);
+    if (!saved) return "";
+    return `/api/payments/receipts/${encodeURIComponent(receiptId)}`;
   } catch (err: any) {
     console.warn("Payment receipt persistence failed:", err?.message || err);
     return "";
@@ -2022,7 +2027,7 @@ Tenant Profile:
   }
 
   // Local Rule-Based Fallback Generator (Guaranteed reliable, fast, zero secrets)
-  const generateLocalResponse = async (msg: string): Promise<ChatbotReplyPayload | string> => {
+  const generateLocalResponse = (msg: string): string => {
     const text = msg.toLowerCase().trim();
 
     // =========================================================================
@@ -2105,6 +2110,7 @@ Tenant Profile:
         const submission = {
           id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           tenant_id: tenantObj.id,
+          messenger_psid: senderPsid,
           tenant_name: tenantObj.name,
           room_number: roomNum,
           method: paymentSession.method,
@@ -2132,6 +2138,7 @@ Tenant Profile:
         const submission = {
           id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           tenant_id: tenantObj.id,
+          messenger_psid: senderPsid,
           tenant_name: tenantObj.name,
           room_number: roomNum,
           method: paymentSession.method,
@@ -2292,13 +2299,13 @@ Tenant Profile:
 
   // If Maintenance Intent is detected, process it through the verified priority workflow!
   if (maintAnalysis.is_maintenance || maintAnalysis.is_status_query) {
-    return await generateLocalResponse(messageText);
+    return generateLocalResponse(messageText);
   }
 
   // Try Gemini AI Generation with safety fallback for open conversation
   const ai = getAIClient();
   if (!ai) {
-    return await generateLocalResponse(messageText);
+    return generateLocalResponse(messageText);
   }
 
   try {
@@ -2411,13 +2418,13 @@ CRITICAL DIRECTIVES:
     }
 
     if (parsedRes.is_status_query || parsedRes.intent === "maintenance_status") {
-      return await generateLocalResponse(messageText);
+      return generateLocalResponse(messageText);
     }
 
-    return parsedRes.reply || (await generateLocalResponse(messageText));
+    return parsedRes.reply || generateLocalResponse(messageText);
   } catch (error) {
     console.error("Gemini AI error or timeout, seamlessly using local rules engine:", error);
-    return await generateLocalResponse(messageText);
+    return generateLocalResponse(messageText);
   }
 }
 

@@ -58,6 +58,10 @@ export interface BillingRecord {
   billing_month: string; // e.g., "June 2026"
   due_date: string;
   payment_status: 'unpaid' | 'paid' | 'overdue' | 'partial';
+  paid_amount?: number;
+  last_payment_method?: string;
+  last_payment_reference?: string;
+  last_payment_verified_at?: string;
   bill_image_url?: string;
   invoice_number?: string;
   notification_sent?: boolean;

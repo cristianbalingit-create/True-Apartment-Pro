@@ -256,6 +256,26 @@ export const api = {
     return { id, ...update };
   },
 
+  // Messenger payment verification (admin-only server endpoints)
+  async getPaymentSubmissions(token: string): Promise<any[]> {
+    const res = await fetch("/api/payments/submissions", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("Unable to load payment submissions");
+    return await res.json();
+  },
+
+  async verifyPayment(token: string, id: string, amount: number, action: "confirm" | "reject", note?: string): Promise<any> {
+    const res = await fetch(`/api/payments/submissions/${encodeURIComponent(id)}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount, action, note: note || "" })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || "Payment verification failed");
+    return data;
+  },
+
   // Billing CRUD
   async createBilling(data: Partial<BillingRecord>): Promise<BillingRecord> {
     const newBill: BillingRecord = {

@@ -11,8 +11,9 @@ import Tenants from "./components/Tenants";
 import Billing from "./components/Billing";
 import Maintenance from "./components/Maintenance";
 import { TransactionLogs } from "./components/TransactionLogs";
+import PaymentVerification from "./components/PaymentVerification";
 import { 
-  Building, LayoutDashboard, Users, FileText, Sparkles, LogOut, Menu, X, Bell, RefreshCw, Globe, ArrowRight, UserCheck, Wrench, Activity 
+  Building, LayoutDashboard, Users, FileText, Sparkles, LogOut, Menu, X, Bell, RefreshCw, Globe, ArrowRight, UserCheck, Wrench, Activity, ShieldCheck 
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -25,7 +26,7 @@ function AdminPortal() {
   const [refreshing, setRefreshing] = useState(false);
   
   // Dashboard panel tab state
-  const [activeTab, setActiveTab] = useState<"dashboard" | "apartments" | "tenants" | "billing" | "maintenance" | "logs">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "apartments" | "tenants" | "billing" | "maintenance" | "payments" | "logs">("dashboard");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -77,7 +78,7 @@ function AdminPortal() {
   }
 
   interface SidebarNav {
-    id: "dashboard" | "apartments" | "tenants" | "billing" | "maintenance" | "logs";
+    id: "dashboard" | "apartments" | "tenants" | "billing" | "maintenance" | "payments" | "logs";
     label: string;
     icon: React.ComponentType<any>;
     badge?: string;
@@ -98,6 +99,7 @@ function AdminPortal() {
       icon: Wrench,
       badge: pendingMaintenanceCount > 0 ? String(pendingMaintenanceCount) : undefined
     },
+    { id: "payments", label: "Payment Verification", icon: ShieldCheck },
     { id: "logs", label: "Transaction Logs", icon: Activity },
   ];
 
@@ -116,6 +118,8 @@ function AdminPortal() {
         return <Billing db={db} onRefresh={fetchDB} />;
       case "maintenance":
         return <Maintenance db={db} onRefresh={fetchDB} />;
+      case "payments":
+        return <PaymentVerification token={token} onRefresh={fetchDB} />;
       case "logs":
         return <TransactionLogs logs={db.transactionLogs || []} onRefresh={fetchDB} onClearLogs={handleClearLogs} />;
     }

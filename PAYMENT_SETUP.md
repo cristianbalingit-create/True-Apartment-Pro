@@ -34,3 +34,17 @@ Set these in Vercel and the Google Cloud Run / AI Studio webhook environment. Do
 - The bot never changes a billing record to `paid` solely because a tenant submitted a reference or screenshot.
 - Diagnostic logging does not print payment receipt URLs or full receipt contents.
 - Payment sessions expire after two hours.
+
+
+## Admin Payment Verification
+
+The admin portal now includes **Payment Verification**. Administrators can review Messenger payment submissions, open tenant receipt images, confirm or reject the submission, and—when confirmed—post the verified amount to the tenant's oldest outstanding bill.
+
+Security measures:
+- Verification endpoints require a cryptographically signed admin session token.
+- Receipt files are served through an authenticated endpoint and are not exposed as public URLs.
+- Receipt images are validated as images and capped at 5 MB.
+- Payment submissions remain `pending_verification` until an administrator confirms them.
+- Confirming a payment updates the billing record and sends a Messenger confirmation to the linked tenant.
+- Rejecting a submission sends the tenant a Messenger notice asking them to resubmit.
+- Set `ADMIN_SESSION_SECRET` to a long random server-only value in production.

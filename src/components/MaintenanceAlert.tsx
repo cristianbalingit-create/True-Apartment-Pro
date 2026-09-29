@@ -56,16 +56,16 @@ export default function MaintenanceAlert({
       {criticalTickets.map((crit) => (
         <div 
           key={`critical-${crit.id}`}
-          className="p-5 neu-card border border-[#e73f1e]/40 text-[#2c1a11] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+          className="p-5 neu-card border border-[#8B2626]/40 text-[#2c1a11] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
         >
           <div className="flex items-start gap-3.5">
             <span className="text-2xl shrink-0 leading-none mt-0.5">🚨</span>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-[11px] tracking-wider uppercase neu-pressed text-[#e73f1e] px-2.5 py-0.5 rounded-md">
+                <span className="font-black text-[11px] tracking-wider uppercase neu-pressed text-[#8B2626] px-2.5 py-0.5 rounded-md">
                   CRITICAL MAINTENANCE
                 </span>
-                <span className="text-xs text-[#e73f1e] font-bold">
+                <span className="text-xs text-[#8B2626] font-bold">
                   Immediate attention required
                 </span>
               </div>
@@ -80,7 +80,7 @@ export default function MaintenanceAlert({
 
           <button
             onClick={() => onViewReport(crit)}
-            className="px-4 py-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-black text-xs rounded-xl shadow-md shrink-0 flex items-center gap-1.5 active:scale-95 transition-all"
+            className="px-4 py-2 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-black text-xs rounded-xl shadow-md shrink-0 flex items-center gap-1.5 active:scale-95 transition-all"
           >
             <span>[VIEW REPORT]</span>
             <ArrowRight className="w-3.5 h-3.5 text-white" />
@@ -105,7 +105,7 @@ export default function MaintenanceAlert({
 
           <button
             onClick={onNavigateToMaintenance}
-            className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white text-xs font-extrabold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95"
+            className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white text-xs font-extrabold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95"
           >
             <span>[ View Maintenance Reports ]</span>
             <ArrowRight className="w-3.5 h-3.5 text-white" />
@@ -115,14 +115,14 @@ export default function MaintenanceAlert({
         {/* Priority breakdown badges */}
         <div className="flex flex-wrap gap-2.5 pt-3 border-t border-[#e5d1bd]">
           {criticalTickets.length > 0 && (
-            <div className="neu-pressed px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-bold text-[#e73f1e]">
+            <div className="neu-pressed px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-bold text-[#8B2626]">
               <span className="text-sm">🚨</span>
               <span>{criticalTickets.length} Critical</span>
             </div>
           )}
 
           {highTickets.length > 0 && (
-            <div className="neu-pressed px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-bold text-[#fb6c00]">
+            <div className="neu-pressed px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-bold text-[#EF6905]">
               <span className="text-sm">🔴</span>
               <span>{highTickets.length} High Priority</span>
             </div>

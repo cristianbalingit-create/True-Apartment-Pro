@@ -280,8 +280,8 @@ export function generateReceiptSvg(data: ReceiptDataObject): string {
       <stop offset="100%" stop-color="#1e293b"/>
     </linearGradient>
     <linearGradient id="accentBar" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#e73f1e"/>
-      <stop offset="100%" stop-color="#fb6c00"/>
+      <stop offset="0%" stop-color="#8B2626"/>
+      <stop offset="100%" stop-color="#EF6905"/>
     </linearGradient>
     <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="110%">
       <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.08"/>
@@ -300,12 +300,12 @@ export function generateReceiptSvg(data: ReceiptDataObject): string {
   <!-- Header Banner -->
   <g transform="translate(50, 48)">
     <rect width="700" height="110" rx="16" fill="url(#headerGrad)"/>
-    <circle cx="650" cy="55" r="75" fill="#fb6c00" opacity="0.12"/>
+    <circle cx="650" cy="55" r="75" fill="#EF6905" opacity="0.12"/>
     
     <text x="32" y="44" font-family="FreeSans" font-size="28" font-weight="bold" fill="#ffffff" letter-spacing="1">
       APARTMENTPRO
     </text>
-    <text x="32" y="74" font-family="FreeSans" font-size="16" font-weight="bold" fill="#fb923c" letter-spacing="1">
+    <text x="32" y="74" font-family="FreeSans" font-size="16" font-weight="bold" fill="#EF6905" letter-spacing="1">
       MONTHLY BILL
     </text>
     <text x="32" y="96" font-family="FreeSans" font-size="12" fill="#94a3b8">
@@ -373,7 +373,7 @@ export function generateReceiptSvg(data: ReceiptDataObject): string {
   <!-- Grand Total Box (Massive Visual Prominence) -->
   <g transform="translate(50, ${totalBoxY})">
     <rect width="700" height="150" rx="18" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
-    <circle cx="650" cy="50" r="85" fill="#fb6c00" opacity="0.12"/>
+    <circle cx="650" cy="50" r="85" fill="#EF6905" opacity="0.12"/>
 
     <text x="32" y="40" font-family="FreeSans" font-size="13" font-weight="bold" fill="#94a3b8" letter-spacing="1.5">
       TOTAL AMOUNT DUE

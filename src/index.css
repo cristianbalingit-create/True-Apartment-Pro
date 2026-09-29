@@ -6,12 +6,12 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
   /* Brand Orange & Accent Palette */
-  --color-brand-primary: #e73f1e;
-  --color-brand-orange: #fb6c00;
-  --color-brand-amber: #f9b637;
-  --color-brand-cream: #ffdd9c;
-  --color-brand-navy: #180d09;
-  --color-brand-navy-light: #2d1810;
+  --color-brand-primary: #8B2626;
+  --color-brand-orange: #EF6905;
+  --color-brand-amber: #F1E5A1;
+  --color-brand-cream: #F1E5A1;
+  --color-brand-navy: #486C2F;
+  --color-brand-navy-light: #355522;
 
   /* Crisp White Neumorphic Base Colors */
   --color-neu-bg: #ffffff;
@@ -25,9 +25,9 @@
     --neu-bg: #ffffff;
     --neu-shadow-dark: #cbd5e1;
     --neu-shadow-light: #ffffff;
-    --neu-accent: #ea580c;
-    --neu-accent-secondary: #f97316;
-    --neu-accent-warm: #fb923c;
+    --neu-accent: #EF6905;
+    --neu-accent-secondary: #EF6905;
+    --neu-accent-warm: #EF6905;
     --neu-accent-cream: #ffedd5;
     --neu-accent-glow: rgba(234, 88, 12, 0.3);
   }
@@ -116,6 +116,30 @@
     color: #475569 !important;
     font-weight: 500 !important;
   }
+}
+
+/* ApartmentPro palette + maintenance visibility */
+:root {
+  --ap-dark-red: #8B2626;
+  --ap-orange: #EF6905;
+  --ap-cream: #F1E5A1;
+  --ap-green: #486C2F;
+}
+
+.maintenance-ticket-card {
+  position: relative;
+  border-radius: 1rem;
+}
+
+.maintenance-ticket-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(72, 108, 47, 0.12);
+}
+
+/* Keep the most important report states visually obvious without relying on color alone. */
+.maintenance-ticket-card .ticket-priority-label,
+.maintenance-ticket-card .ticket-status-label {
+  font-weight: 800;
 }
 
 /* ==========================================================================
@@ -263,8 +287,8 @@ a.neu-btn:hover:not(:active):not(.active):not(.btn-clicked),
 a.neu-btn-primary:hover:not(:active):not(.active):not(.btn-clicked) {
   background: #ffffff !important;
   background-color: #ffffff !important;
-  color: #ea580c !important;
-  border-color: #f97316 !important;
+  color: #EF6905 !important;
+  border-color: #EF6905 !important;
   box-shadow: 0 4px 12px rgba(249, 115, 22, 0.18), 0 1px 3px rgba(0, 0, 0, 0.06) !important;
   transform: translateY(-1px) !important;
 }
@@ -272,8 +296,8 @@ a.neu-btn-primary:hover:not(:active):not(.active):not(.btn-clicked) {
 button:hover:not(:disabled):not(:active):not(.active):not([aria-pressed="true"]):not(.btn-clicked) svg,
 [role="button"]:hover:not(:disabled):not(:active):not(.active):not([aria-pressed="true"]):not(.btn-clicked) svg,
 .neu-btn:hover:not(:disabled):not(:active):not(.active):not([aria-pressed="true"]):not(.btn-clicked) svg {
-  color: #ea580c !important;
-  stroke: #ea580c !important;
+  color: #EF6905 !important;
+  stroke: #EF6905 !important;
 }
 
 /* 3. CLICKED / PRESSED / ACTIVE STATE: TURNS VIBRANT SOLID ORANGE! */
@@ -306,8 +330,8 @@ a.neu-btn.active,
 a.neu-btn-primary:active,
 a.neu-btn-primary.btn-clicked,
 a.neu-btn-primary.active {
-  background: #ea580c !important;
-  background-color: #ea580c !important;
+  background: #EF6905 !important;
+  background-color: #EF6905 !important;
   background-image: none !important;
   color: #ffffff !important;
   border-color: #c2410c !important;
@@ -364,27 +388,27 @@ button:disabled,
   background: #ffffff !important;
   background-color: #ffffff !important;
   background-image: none !important;
-  color: #ea580c !important;
+  color: #EF6905 !important;
   border: 2px solid #cbd5e1 !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06) !important;
 }
 
 #chatbot-launcher svg {
-  color: #ea580c !important;
-  stroke: #ea580c !important;
+  color: #EF6905 !important;
+  stroke: #EF6905 !important;
 }
 
 #chatbot-launcher:hover {
   background: #ffffff !important;
-  border-color: #ea580c !important;
+  border-color: #EF6905 !important;
   box-shadow: 0 10px 28px rgba(234, 88, 12, 0.25) !important;
 }
 
 #chatbot-launcher:active,
 #chatbot-launcher.btn-clicked,
 #chatbot-launcher.active {
-  background: #ea580c !important;
-  background-color: #ea580c !important;
+  background: #EF6905 !important;
+  background-color: #EF6905 !important;
   background-image: none !important;
   border-color: #c2410c !important;
   color: #ffffff !important;
@@ -450,14 +474,14 @@ button:disabled,
 }
 
 .neu-input:focus {
-  border-color: #ea580c;
+  border-color: #EF6905;
   background: #ffffff;
   box-shadow: inset 1.5px 1.5px 4px rgba(0, 0, 0, 0.03), 0 0 0 3px rgba(234, 88, 12, 0.25);
 }
 
 /* Dark panel accents */
 .neu-dark-panel {
-  background: #180d09;
+  background: #486C2F;
   box-shadow: 6px 6px 16px rgba(24, 13, 9, 0.4), -3px -3px 8px rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(249, 182, 55, 0.15);
 }
@@ -486,5 +510,5 @@ button:disabled,
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #ea580c;
+  background: #EF6905;
 }

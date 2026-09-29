@@ -306,19 +306,19 @@ export default function Chatbot() {
             id="chatbot-container"
           >
             {/* Header */}
-            <div className="bg-[#23140e] text-white p-4 flex flex-col gap-2 relative border-b border-[#e73f1e]/30">
+            <div className="bg-[#23140e] text-white p-4 flex flex-col gap-2 relative border-b border-[#8B2626]/30">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <div className="relative">
-                    <div className="w-9 h-9 bg-gradient-to-br from-[#e73f1e] to-[#fb6c00] text-white rounded-full flex items-center justify-center font-bold relative border border-[#ffdd9c]/30">
-                      <Sparkles className="w-4 h-4 text-[#ffdd9c]" />
+                    <div className="w-9 h-9 bg-gradient-to-br from-[#8B2626] to-[#EF6905] text-white rounded-full flex items-center justify-center font-bold relative border border-[#F1E5A1]/30">
+                      <Sparkles className="w-4 h-4 text-[#F1E5A1]" />
                     </div>
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#f9b637] rounded-full border-2 border-[#23140e]" />
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#F1E5A1] rounded-full border-2 border-[#23140e]" />
                   </div>
                   <div>
                     <h2 className="text-sm font-bold tracking-tight">ABC Assistant</h2>
-                    <span className="text-[10px] text-[#ffdd9c] font-mono flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-[#fb6c00] rounded-full inline-block animate-pulse" />
+                    <span className="text-[10px] text-[#F1E5A1] font-mono flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-[#EF6905] rounded-full inline-block animate-pulse" />
                       ONLINE • HYBRID INTELLIGENCE
                     </span>
                   </div>
@@ -535,7 +535,7 @@ export default function Chatbot() {
                       ? "Type 'no' to submit or attach photo..."
                       : "Type a message or ask Gemini..."
                   }
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:border-[#ea580c] text-slate-900 pr-8"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:border-[#EF6905] text-slate-900 pr-8"
                 />
               </div>
 
@@ -581,7 +581,7 @@ export default function Chatbot() {
               className="relative"
             >
               <MessageSquare className="w-6 h-6" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#ea580c] rounded-full border-2 border-white" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#EF6905] rounded-full border-2 border-white" />
             </motion.div>
           )}
         </AnimatePresence>

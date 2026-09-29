@@ -87,7 +87,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
       const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
       return timeB - timeA;
     });
-  }, [db.maintenanceRequests]);
+  }, [liveMaintenanceRequests]);
 
   // Active selected ticket for viewer kept in sync with DB
   const activeSelectedTicket = selectedTicketForViewer 
@@ -230,8 +230,8 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
       <div className="neu-card p-5 sm:p-6 space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 neu-pressed rounded-xl flex items-center justify-center text-[#fb6c00]">
-              <Wrench className="w-5 h-5 text-[#fb6c00]" />
+            <div className="w-10 h-10 neu-pressed rounded-xl flex items-center justify-center text-[#EF6905]">
+              <Wrench className="w-5 h-5 text-[#EF6905]" />
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
@@ -245,7 +245,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
 
           {/* Quick pending badge if any */}
           {pendingCount > 0 && (
-            <div className="neu-pressed text-[#e73f1e] px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 border border-[#e73f1e]/30">
+            <div className="neu-pressed text-[#8B2626] px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 border border-[#8B2626]/30">
               <span className="text-sm">🚨</span>
               <span>{pendingCount} Need Attention</span>
             </div>
@@ -259,8 +259,8 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
               onClick={() => setActiveSubTab("reports")}
               className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
                 activeSubTab === "reports" 
-                  ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black" 
-                  : "neu-btn text-slate-900 hover:text-[#ea580c]"
+                  ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-black" 
+                  : "neu-btn text-slate-900 hover:text-[#EF6905]"
               }`}
             >
               <BarChart3 className={`w-4 h-4 ${activeSubTab === "reports" ? "!text-white" : ""}`} />
@@ -271,8 +271,8 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
               onClick={() => setActiveSubTab("tickets")}
               className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
                 activeSubTab === "tickets" 
-                  ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black" 
-                  : "neu-btn text-slate-900 hover:text-[#ea580c]"
+                  ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-black" 
+                  : "neu-btn text-slate-900 hover:text-[#EF6905]"
               }`}
             >
               <Wrench className={`w-4 h-4 ${activeSubTab === "tickets" ? "!text-white" : ""}`} />
@@ -381,7 +381,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                     onClick={() => setMaintFilter("all")}
                     className={`px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase transition-all ${
                       maintFilter === "all"
-                        ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30"
+                        ? "neu-pressed text-[#EF6905] font-extrabold border border-[#EF6905]/30"
                         : "neu-btn text-slate-700"
                     }`}
                   >
@@ -392,12 +392,12 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                     onClick={() => setMaintFilter("pending")}
                     className={`px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-1.5 ${
                       maintFilter === "pending"
-                        ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30"
-                        : "neu-btn text-[#fb6c00]"
+                        ? "neu-pressed text-[#EF6905] font-extrabold border border-[#EF6905]/30"
+                        : "neu-btn text-[#EF6905]"
                     }`}
                   >
                     <span>⏳ PENDING</span>
-                    <span className="neu-badge-inset text-[#fb6c00] px-1.5 py-0.2 text-[10px] font-bold">
+                    <span className="neu-badge-inset text-[#EF6905] px-1.5 py-0.2 text-[10px] font-bold">
                       {pendingCount}
                     </span>
                   </button>
@@ -514,12 +514,16 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                 return (
                   <div 
                     key={ticket.id} 
-                    className={`neu-card p-5 transition-all flex flex-col justify-between gap-4 ${
+                    className={`maintenance-ticket-card neu-card p-5 transition-all flex flex-col justify-between gap-4 ${
                       isNewlyCreated 
-                        ? "border-2 border-[#fb6c00] ring-4 ring-[#fb6c00]/20 shadow-lg scale-[1.01]" 
+                        ? "border-2 border-[#EF6905] ring-4 ring-[#EF6905]/20 shadow-lg scale-[1.01]" 
                         : isCritical 
-                          ? "border-rose-400/80 shadow-[0_0_15px_rgba(244,63,94,0.3)]" 
-                          : ""
+                          ? "border-2 border-[#8B2626] shadow-[0_0_18px_rgba(139,38,38,0.28)]" 
+                          : (ticket.status === "pending" && ((ticket.priority || ticket.severity || "").toLowerCase() === "high") )
+                            ? "border-2 border-[#EF6905] shadow-[0_0_14px_rgba(239,105,5,0.20)]"
+                            : ticket.status === "pending"
+                              ? "border-2 border-[#F1E5A1] shadow-[0_0_10px_rgba(241,229,161,0.45)]"
+                              : ""
                     }`}
                   >
                     <div className="space-y-3.5">
@@ -614,7 +618,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                       {/* Main Action Button */}
                       <button
                         onClick={() => setSelectedTicketForViewer(ticket)}
-                        className="w-full py-2.5 px-4 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
+                        className="w-full py-2.5 px-4 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
                       >
                         <Eye className="w-4 h-4 text-white" />
                         <span>[ VIEW FULL REPORT ]</span>
@@ -707,7 +711,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
           <div className="neu-floating max-w-lg w-full p-6 text-slate-800 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex justify-between items-center border-b border-slate-300/50 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 neu-pressed rounded-lg flex items-center justify-center text-[#fb6c00]">
+                <div className="w-8 h-8 neu-pressed rounded-lg flex items-center justify-center text-[#EF6905]">
                   <Wrench className="w-4 h-4" />
                 </div>
                 <div>

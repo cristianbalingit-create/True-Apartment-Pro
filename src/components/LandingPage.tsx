@@ -364,21 +364,21 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center gap-2">
-              <div className="p-2 bg-[#e73f1e] text-white rounded-xl shadow-md">
+              <div className="p-2 bg-[#8B2626] text-white rounded-xl shadow-md">
                 <Building className="w-6 h-6" />
               </div>
               <div>
                 <span className="font-bold text-xl tracking-tight text-[#2c1a11]">
-                  Apartment<span className="text-[#fb6c00]">Pro</span>
+                  Apartment<span className="text-[#EF6905]">Pro</span>
                 </span>
                 <span className="block text-[9px] text-[#8c6753] font-mono tracking-wider -mt-1 font-semibold">PROPERTY PLATFORM</span>
               </div>
             </div>
 
             <div className="hidden md:flex items-center gap-8">
-              <a href="#listings" className="text-[#44281d] hover:text-[#fb6c00] font-medium transition-colors">Browse Rooms</a>
-              <a href="#about" className="text-[#44281d] hover:text-[#fb6c00] font-medium transition-colors">About</a>
-              <a href="#contact" className="text-[#44281d] hover:text-[#fb6c00] font-medium transition-colors">Contact</a>
+              <a href="#listings" className="text-[#44281d] hover:text-[#EF6905] font-medium transition-colors">Browse Rooms</a>
+              <a href="#about" className="text-[#44281d] hover:text-[#EF6905] font-medium transition-colors">About</a>
+              <a href="#contact" className="text-[#44281d] hover:text-[#EF6905] font-medium transition-colors">Contact</a>
             </div>
 
             <div className="flex items-center gap-3">
@@ -394,7 +394,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <div className="relative bg-[#23140e] text-white py-24 sm:py-32 overflow-hidden border-b border-[#e73f1e]/30">
+      <div className="relative bg-[#23140e] text-white py-24 sm:py-32 overflow-hidden border-b border-[#8B2626]/30">
         {/* Background Image Overlay */}
         <div className="absolute inset-0 z-0">
           <img
@@ -411,12 +411,12 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#fb6c00]/20 text-[#f9b637] border border-[#fb6c00]/40 rounded-full text-xs font-semibold tracking-wider uppercase mb-6">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#EF6905]/20 text-[#F1E5A1] border border-[#EF6905]/40 rounded-full text-xs font-semibold tracking-wider uppercase mb-6">
               <Star className="w-3.5 h-3.5 fill-current" /> Premium Rental Properties
             </span>
             <h1 className="text-4xl sm:text-6xl font-bold tracking-tight mb-6">
               Find Your Next Home in <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#e73f1e] via-[#fb6c00] to-[#f9b637]">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#8B2626] via-[#EF6905] to-[#F1E5A1]">
                 Ultimate Comfort
               </span>
             </h1>
@@ -678,8 +678,8 @@ export default function LandingPage() {
                 alt="Living interior"
                 className="rounded-3xl shadow-xl w-full h-[400px] object-cover"
               />
-              <div className="absolute -bottom-6 -left-6 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] text-white p-6 rounded-2xl shadow-xl hidden sm:block border border-[#ffdd9c]/30">
-                <span className="block font-black text-4xl text-[#ffdd9c]">100%</span>
+              <div className="absolute -bottom-6 -left-6 bg-gradient-to-r from-[#8B2626] to-[#EF6905] text-white p-6 rounded-2xl shadow-xl hidden sm:block border border-[#F1E5A1]/30">
+                <span className="block font-black text-4xl text-[#F1E5A1]">100%</span>
                 <span className="text-xs font-bold uppercase tracking-wider text-white">Occupancy Satisfaction</span>
               </div>
             </div>
@@ -688,7 +688,7 @@ export default function LandingPage() {
       </section>
 
       {/* Contact Section */}
-      <section id="contact" className="py-20 bg-[#23140e] text-white border-t border-[#e73f1e]/30">
+      <section id="contact" className="py-20 bg-[#23140e] text-white border-t border-[#8B2626]/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl mx-auto text-center mb-12">
             <h2 className="text-3xl font-extrabold tracking-tight">Need More Information?</h2>
@@ -698,29 +698,29 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-[#331f16] p-8 rounded-2xl border border-[#fb6c00]/20 text-center">
-              <Phone className="w-8 h-8 text-[#fb6c00] mx-auto mb-4" />
+            <div className="bg-[#331f16] p-8 rounded-2xl border border-[#EF6905]/20 text-center">
+              <Phone className="w-8 h-8 text-[#EF6905] mx-auto mb-4" />
               <h3 className="font-bold text-lg mb-2">Call Leasing Office</h3>
               <p className="text-[#ecd9c6] text-sm font-light">Mon-Fri from 8am to 5pm</p>
-              <p className="text-[#f9b637] font-bold mt-4">+63 (02) 8888-9999</p>
+              <p className="text-[#F1E5A1] font-bold mt-4">+63 (02) 8888-9999</p>
             </div>
 
-            <div className="bg-[#331f16] p-8 rounded-2xl border border-[#fb6c00]/20 text-center">
-              <Mail className="w-8 h-8 text-[#fb6c00] mx-auto mb-4" />
+            <div className="bg-[#331f16] p-8 rounded-2xl border border-[#EF6905]/20 text-center">
+              <Mail className="w-8 h-8 text-[#EF6905] mx-auto mb-4" />
               <h3 className="font-bold text-lg mb-2">Leasing Inquiries</h3>
               <p className="text-[#ecd9c6] text-sm font-light">We reply within 24 hours</p>
-              <p className="text-[#f9b637] font-bold mt-4">rentals@apartmentpro.ph</p>
+              <p className="text-[#F1E5A1] font-bold mt-4">rentals@apartmentpro.ph</p>
             </div>
 
-            <div className="bg-[#331f16] p-8 rounded-2xl border border-[#fb6c00]/20 text-center flex flex-col justify-between items-center">
+            <div className="bg-[#331f16] p-8 rounded-2xl border border-[#EF6905]/20 text-center flex flex-col justify-between items-center">
               <div>
-                <MessageCircle className="w-8 h-8 text-[#fb6c00] mx-auto mb-4" />
+                <MessageCircle className="w-8 h-8 text-[#EF6905] mx-auto mb-4" />
                 <h3 className="font-bold text-lg mb-2">Inquire on Website</h3>
                 <p className="text-[#ecd9c6] text-sm font-light">Select any vacant room and submit an inquiry instantly</p>
               </div>
               <a
                 href="#listings"
-                className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:brightness-110 text-white font-bold text-sm rounded-xl shadow-md transition-all w-full justify-center"
+                className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:brightness-110 text-white font-bold text-sm rounded-xl shadow-md transition-all w-full justify-center"
               >
                 <span>Browse Available Rooms</span>
               </a>
@@ -734,18 +734,18 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-[#331f16] pb-8 mb-8">
             <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-[#e73f1e] text-white rounded-lg">
+              <div className="p-1.5 bg-[#8B2626] text-white rounded-lg">
                 <Building className="w-5 h-5" />
               </div>
-              <span className="font-bold text-white text-lg">Apartment<span className="text-[#fb6c00]">Pro</span></span>
+              <span className="font-bold text-white text-lg">Apartment<span className="text-[#EF6905]">Pro</span></span>
             </div>
 
             <div className="flex flex-wrap gap-6 justify-center items-center">
-              <a href="#listings" className="hover:text-[#f9b637] transition-colors">Browse Rooms</a>
-              <a href="#about" className="hover:text-[#f9b637] transition-colors">About</a>
-              <a href="#contact" className="hover:text-[#f9b637] transition-colors">Contact</a>
-              <a href="https://m.me/yourPageID" target="_blank" rel="noreferrer" className="hover:text-[#f9b637] transition-colors">FB Messenger</a>
-              <a href="/admin" className="text-[#ffdd9c] hover:text-[#fb6c00] text-xs font-semibold px-2.5 py-1 rounded bg-[#331f16] border border-[#fb6c00]/30 transition-colors">Admin Portal</a>
+              <a href="#listings" className="hover:text-[#F1E5A1] transition-colors">Browse Rooms</a>
+              <a href="#about" className="hover:text-[#F1E5A1] transition-colors">About</a>
+              <a href="#contact" className="hover:text-[#F1E5A1] transition-colors">Contact</a>
+              <a href="https://m.me/yourPageID" target="_blank" rel="noreferrer" className="hover:text-[#F1E5A1] transition-colors">FB Messenger</a>
+              <a href="/admin" className="text-[#F1E5A1] hover:text-[#EF6905] text-xs font-semibold px-2.5 py-1 rounded bg-[#331f16] border border-[#EF6905]/30 transition-colors">Admin Portal</a>
             </div>
           </div>
 
@@ -1041,7 +1041,7 @@ export default function LandingPage() {
                         <button
                           type="submit"
                           disabled={submittingInquiry}
-                          className="w-full px-5 py-3 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-extrabold text-sm rounded-xl shadow-md shadow-[#e73f1e]/25 active:scale-95 transition-all disabled:opacity-50"
+                          className="w-full px-5 py-3 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-extrabold text-sm rounded-xl shadow-md shadow-[#8B2626]/25 active:scale-95 transition-all disabled:opacity-50"
                         >
                           {submittingInquiry ? "Submitting Inquiry..." : "Submit Inquiry / Schedule Viewing"}
                         </button>

@@ -188,7 +188,7 @@ export default function MaintenanceReportViewer({
                   {ticket.id}
                 </span>
                 {isCritical && (
-                  <span className="px-2.5 py-1 neu-pressed text-[#e73f1e] font-bold animate-pulse flex items-center gap-1 rounded-lg">
+                  <span className="px-2.5 py-1 neu-pressed text-[#8B2626] font-bold animate-pulse flex items-center gap-1 rounded-lg">
                     <span>🚨</span> CRITICAL URGENCY
                   </span>
                 )}
@@ -210,13 +210,13 @@ export default function MaintenanceReportViewer({
 
         {/* Critical Safety Notice if applicable */}
         {isCritical && (
-          <div className="neu-pressed m-4 p-3 sm:p-4 flex items-start gap-2.5 rounded-xl border border-[#e73f1e]/40">
+          <div className="neu-pressed m-4 p-3 sm:p-4 flex items-start gap-2.5 rounded-xl border border-[#8B2626]/40">
             <span className="text-xl shrink-0">🚨</span>
             <div>
-              <div className="text-xs font-black uppercase tracking-wider text-[#e73f1e]">
+              <div className="text-xs font-black uppercase tracking-wider text-[#8B2626]">
                 CRITICAL MAINTENANCE NOTICE
               </div>
-              <p className="text-xs sm:text-sm text-[#e73f1e] font-medium mt-0.5 leading-snug">
+              <p className="text-xs sm:text-sm text-[#8B2626] font-medium mt-0.5 leading-snug">
                 This issue is flagged as <strong>CRITICAL</strong> urgency. Please alert maintenance personnel or emergency service immediately.
               </p>
             </div>
@@ -385,7 +385,7 @@ export default function MaintenanceReportViewer({
                   </span>
                   <button
                     onClick={() => setIsPhotoLightboxOpen(true)}
-                    className="px-3 py-1.5 bg-[#fb6c00] hover:bg-[#e73f1e] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+                    className="px-3 py-1.5 bg-[#EF6905] hover:bg-[#8B2626] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
                   >
                     <ZoomIn className="w-3.5 h-3.5 text-white" />
                     <span>[ VIEW PHOTO FULL SIZE ]</span>

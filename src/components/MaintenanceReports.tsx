@@ -38,11 +38,11 @@ interface MaintenanceReportsProps {
 type TimeFilter = "all" | "this_month" | "last_month" | "this_year";
 type StatusFilter = "all" | "pending" | "in_progress" | "completed";
 
-// Professional curated color palette using Color Hunt: #e73f1e #fb6c00 #f9b637 #ffdd9c
+// Professional curated color palette using Color Hunt: #8B2626 #EF6905 #F1E5A1 #F1E5A1
 const CATEGORY_COLORS: Record<string, string> = {
-  "Air Conditioning": "#fb6c00", // Brand Orange
-  "Plumbing": "#e73f1e",         // Brand Crimson
-  "Electrical": "#f9b637",       // Brand Amber
+  "Air Conditioning": "#EF6905", // Brand Orange
+  "Plumbing": "#8B2626",         // Brand Crimson
+  "Electrical": "#F1E5A1",       // Brand Amber
   "Internet": "#d97706",         // Dark Amber
   "Furniture": "#b45309",        // Cinnamon
   "Cleaning": "#15803d",         // Warm Emerald
@@ -51,9 +51,9 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const COLOR_WHEEL = [
-  "#e73f1e", // Brand Crimson
-  "#fb6c00", // Brand Orange
-  "#f9b637", // Brand Amber
+  "#8B2626", // Brand Crimson
+  "#EF6905", // Brand Orange
+  "#F1E5A1", // Brand Amber
   "#d97706", // Dark Amber
   "#b45309", // Cinnamon
   "#15803d", // Warm Forest
@@ -321,7 +321,7 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false, 
           {/* Add Ticket / Custom Tag Modal Trigger */}
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 ml-auto lg:ml-0 active:scale-95"
+            className="px-3.5 py-1.5 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 ml-auto lg:ml-0 active:scale-95"
           >
             <Plus className="w-3.5 h-3.5 text-white" />
             Add Report / Custom Tag

@@ -632,8 +632,8 @@ export default function Billing({ db, onRefresh }: BillingProps) {
           onClick={() => setActiveSubTab("billing_statements")}
           className={`px-4 py-2.5 text-sm font-bold transition-all rounded-xl shrink-0 ${
             activeSubTab === "billing_statements"
-              ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black"
-              : "neu-btn text-slate-900 hover:text-[#ea580c]"
+              ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-black"
+              : "neu-btn text-slate-900 hover:text-[#EF6905]"
           }`}
         >
           Statements & Invoices
@@ -642,8 +642,8 @@ export default function Billing({ db, onRefresh }: BillingProps) {
           onClick={() => setActiveSubTab("utility_calculator")}
           className={`px-4 py-2.5 text-sm font-bold transition-all rounded-xl flex items-center gap-2 shrink-0 ${
             activeSubTab === "utility_calculator"
-              ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black"
-              : "neu-btn text-slate-900 hover:text-[#ea580c]"
+              ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-black"
+              : "neu-btn text-slate-900 hover:text-[#EF6905]"
           }`}
         >
           <Calculator className={`w-4 h-4 ${activeSubTab === "utility_calculator" ? "!text-white" : ""}`} />
@@ -653,8 +653,8 @@ export default function Billing({ db, onRefresh }: BillingProps) {
           onClick={() => setActiveSubTab("advance_deposit_ledger")}
           className={`px-4 py-2.5 text-sm font-bold transition-all rounded-xl flex items-center gap-2 shrink-0 ${
             activeSubTab === "advance_deposit_ledger"
-              ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black"
-              : "neu-btn text-slate-900 hover:text-[#ea580c]"
+              ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-black"
+              : "neu-btn text-slate-900 hover:text-[#EF6905]"
           }`}
         >
           <History className={`w-4 h-4 ${activeSubTab === "advance_deposit_ledger" ? "!text-white" : ""}`} />
@@ -682,10 +682,10 @@ export default function Billing({ db, onRefresh }: BillingProps) {
             <div className="neu-card p-5 flex items-center justify-between">
               <div>
                 <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block">Outstanding Unpaid</span>
-                <span className="text-xl font-black text-[#fb6c00] block mt-1">₱{sumAmount(unpaidBills).toLocaleString()}</span>
+                <span className="text-xl font-black text-[#EF6905] block mt-1">₱{sumAmount(unpaidBills).toLocaleString()}</span>
                 <span className="text-[10px] text-slate-500 font-medium block mt-1">{unpaidBills.length} pending statements</span>
               </div>
-              <div className="w-11 h-11 neu-pressed flex items-center justify-center text-[#fb6c00] rounded-xl">
+              <div className="w-11 h-11 neu-pressed flex items-center justify-center text-[#EF6905] rounded-xl">
                 <Clock className="w-5 h-5" />
               </div>
             </div>
@@ -694,25 +694,14 @@ export default function Billing({ db, onRefresh }: BillingProps) {
             <div className="neu-card p-5 flex items-center justify-between">
               <div>
                 <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block">Overdue Incurred</span>
-                <span className="text-xl font-black text-[#e73f1e] block mt-1">₱{sumAmount(overdueBills).toLocaleString()}</span>
-                <span className="text-[10px] text-[#e73f1e] font-bold block mt-1">{overdueBills.length} breach limits</span>
+                <span className="text-xl font-black text-[#8B2626] block mt-1">₱{sumAmount(overdueBills).toLocaleString()}</span>
+                <span className="text-[10px] text-[#8B2626] font-bold block mt-1">{overdueBills.length} breach limits</span>
               </div>
-              <div className="w-11 h-11 neu-pressed flex items-center justify-center text-[#e73f1e] rounded-xl">
+              <div className="w-11 h-11 neu-pressed flex items-center justify-center text-[#8B2626] rounded-xl">
                 <AlertTriangle className="w-5 h-5" />
               </div>
             </div>
 
-            {/* Partial */}
-            <div className="neu-card p-5 flex items-center justify-between">
-              <div>
-                <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block">Partial Collected</span>
-                <span className="text-xl font-black text-[#d97706] block mt-1">₱{sumAmount(partialBills).toLocaleString()}</span>
-                <span className="text-[10px] text-slate-500 font-medium block mt-1">{partialBills.length} custom adjustments</span>
-              </div>
-              <div className="w-11 h-11 neu-pressed flex items-center justify-center text-[#d97706] rounded-xl">
-                <FileText className="w-5 h-5" />
-              </div>
-            </div>
           </div>
 
           {/* Deployment Feedback Banner */}
@@ -801,7 +790,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                 className="px-3 py-2 neu-input rounded-xl text-xs font-semibold text-slate-700"
               />
               {dueDateFilter && (
-                <button onClick={() => setDueDateFilter("")} className="text-xs text-[#e73f1e] font-bold hover:underline">
+                <button onClick={() => setDueDateFilter("")} className="text-xs text-[#8B2626] font-bold hover:underline">
                   Clear Date
                 </button>
               )}
@@ -875,7 +864,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                     type="button"
                                     onClick={() => handleConfirmPaid(bill)}
                                     disabled={isConfirmingPaid}
-                                    className="px-2.5 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-[#ea580c] rounded-lg shadow-xs transition-all flex items-center gap-1 disabled:opacity-50"
+                                    className="px-2.5 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-[#EF6905] rounded-lg shadow-xs transition-all flex items-center gap-1 disabled:opacity-50"
                                     title="Click to confirm marking invoice as Paid"
                                   >
                                     <Check className="w-3.5 h-3.5" />
@@ -901,7 +890,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                     setConfirmPaidBillId(bill.id);
                                     setBillToConfirmPaid(bill);
                                   }}
-                                  className="neu-btn px-3 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all hover:text-[#ea580c]"
+                                  className="neu-btn px-3 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all hover:text-[#EF6905]"
                                   title="Mark invoice as Paid"
                                 >
                                   Mark as Paid
@@ -1956,7 +1945,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                   type="button"
                   onClick={() => handleConfirmPaid()}
                   disabled={isConfirmingPaid}
-                  className="px-5 py-2 font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 active:bg-[#ea580c] rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
+                  className="px-5 py-2 font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 active:bg-[#EF6905] rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
                 >
                   {isConfirmingPaid ? (
                     <>

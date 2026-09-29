@@ -69,9 +69,9 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance }: Da
 
   // Room status data for Pie Chart
   const roomStatusData = [
-    { name: "Occupied", value: occupiedRooms, color: "#e73f1e" }, // Brand Crimson
-    { name: "Vacant", value: vacantRooms, color: "#fb6c00" },     // Brand Orange
-    { name: "Maintenance", value: maintenanceRooms, color: "#f9b637" } // Brand Amber
+    { name: "Occupied", value: occupiedRooms, color: "#8B2626" }, // Brand Crimson
+    { name: "Vacant", value: vacantRooms, color: "#EF6905" },     // Brand Orange
+    { name: "Maintenance", value: maintenanceRooms, color: "#F1E5A1" } // Brand Amber
   ].filter(item => item.value > 0);
 
   // Billing status data for Bar Chart
@@ -81,10 +81,10 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance }: Da
   const overdueCount = db.billingRecords.filter((b) => b.payment_status === "overdue").length;
 
   const billingOverviewData = [
-    { name: "Paid", count: paidCount, color: "#fb6c00" },
-    { name: "Unpaid", count: unpaidCount, color: "#f9b637" },
-    { name: "Partial", count: partialCount, color: "#ffdd9c" },
-    { name: "Overdue", count: overdueCount, color: "#e73f1e" }
+    { name: "Paid", count: paidCount, color: "#EF6905" },
+    { name: "Unpaid", count: unpaidCount, color: "#F1E5A1" },
+    { name: "Partial", count: partialCount, color: "#F1E5A1" },
+    { name: "Overdue", count: overdueCount, color: "#8B2626" }
   ];
 
   const handleInquiryAction = async (id: string, newStatus: "contacted" | "closed") => {

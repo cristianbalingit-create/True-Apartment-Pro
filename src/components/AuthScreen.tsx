@@ -215,19 +215,19 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   return (
     <div className="min-h-screen bg-white flex flex-col justify-center py-10 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Background Graphic Accents */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-[#e73f1e]/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#fb6c00]/5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
+      <div className="absolute top-0 left-0 w-96 h-96 bg-[#8B2626]/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#EF6905]/5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="flex justify-center items-center gap-3">
-          <div className="p-3 bg-gradient-to-br from-[#e73f1e] to-[#fb6c00] text-white rounded-2xl shadow-lg border border-[#ffdd9c]/30">
+          <div className="p-3 bg-gradient-to-br from-[#8B2626] to-[#EF6905] text-white rounded-2xl shadow-lg border border-[#F1E5A1]/30">
             <Building className="w-8 h-8" />
           </div>
           <div>
             <h1 className="text-3xl font-black tracking-tight text-slate-900">
-              Apartment<span className="text-[#fb6c00]">Pro</span>
+              Apartment<span className="text-[#EF6905]">Pro</span>
             </h1>
-            <span className="block text-[10px] text-[#fb6c00] font-mono tracking-widest uppercase font-bold">Property Administration</span>
+            <span className="block text-[10px] text-[#EF6905] font-mono tracking-widest uppercase font-bold">Property Administration</span>
           </div>
         </div>
         <h2 className="mt-6 text-center text-xl font-bold text-slate-700">
@@ -336,7 +336,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                   onChange={handleUsernameChange}
                   autoComplete="username"
                   maxLength={50}
-                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#fb6c00] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed neu-input"
+                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EF6905] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed neu-input"
                 />
               </div>
             </div>
@@ -360,7 +360,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                   onChange={handlePasswordChange}
                   autoComplete="current-password"
                   maxLength={100}
-                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#fb6c00] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed neu-input"
+                  className="block w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EF6905] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed neu-input"
                 />
               </div>
             </div>

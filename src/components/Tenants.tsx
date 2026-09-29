@@ -470,20 +470,9 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
                         <span>{tenant.move_in_date}</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-1 block">FB PSID: {tenant.messenger_psid}</span>
                     </td>
                      <td className="py-4 px-6">
                       <div className="font-extrabold text-brand-orange">₱{Number(tenant.rent_amount).toLocaleString()}/mo</div>
-                      <div className="space-y-0.5 mt-1">
-                        <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                          <span>Deposit Bal:</span>
-                          <span className="font-bold text-slate-700">₱{Number(tenant.deposit_balance !== undefined ? tenant.deposit_balance : tenant.deposit).toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                          <span>Advance Bal:</span>
-                          <span className="font-bold text-slate-700">₱{Number(tenant.advance_balance !== undefined ? tenant.advance_balance : (tenant.advance_payment || tenant.rent_amount)).toLocaleString()}</span>
-                        </div>
-                      </div>
                     </td>
                     <td className="py-4 px-6">
                       {tenant.status === "active" ? (
@@ -502,19 +491,6 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                     </td>
                     <td className="py-4 px-6 text-right">
                       <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => {
-                            setLedgerTenant(tenant);
-                            setLedgerAmount("");
-                            setLedgerDescription("");
-                            setLedgerType("deposit_deduction");
-                            setShowLedgerDialog(true);
-                          }}
-                          className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
-                          title="Manage Advance & Security Deposit Ledger"
-                        >
-                          <DollarSign className="w-4.5 h-4.5" />
-                        </button>
                         <button
                           onClick={() => handleOpenEdit(tenant)}
                           className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"

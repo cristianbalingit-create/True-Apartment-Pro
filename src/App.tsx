@@ -68,9 +68,9 @@ function AdminPortal() {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center text-slate-700">
         <div className="w-16 h-16 neu-pressed rounded-full flex items-center justify-center mb-4">
-          <div className="w-8 h-8 border-3 border-[#fb6c00] border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-3 border-[#EF6905] border-t-transparent rounded-full animate-spin" />
         </div>
-        <p className="font-mono text-xs tracking-widest uppercase font-bold text-[#e73f1e]">Loading ApartmentPro Suite...</p>
+        <p className="font-mono text-xs tracking-widest uppercase font-bold text-[#8B2626]">Loading ApartmentPro Suite...</p>
       </div>
     );
   }
@@ -128,11 +128,11 @@ function AdminPortal() {
         {/* Brand Header */}
         <div className="p-6 border-b border-slate-200/80">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 neu-flat flex items-center justify-center text-[#e73f1e] rounded-xl">
-              <Building className="w-5 h-5 text-[#e73f1e]" />
+            <div className="w-10 h-10 neu-flat flex items-center justify-center text-[#8B2626] rounded-xl">
+              <Building className="w-5 h-5 text-[#8B2626]" />
             </div>
             <span className="text-lg font-black tracking-tight text-slate-900">
-              Apartment<span className="text-[#fb6c00]">Pro</span>
+              Apartment<span className="text-[#EF6905]">Pro</span>
             </span>
           </div>
         </div>
@@ -148,8 +148,8 @@ function AdminPortal() {
                 onClick={() => setActiveTab(item.id)}
                 className={`w-full flex items-center justify-between px-4 py-3 text-sm font-bold rounded-xl transition-all duration-150 ${
                   isActive
-                    ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-extrabold"
-                    : "neu-btn text-slate-900 hover:text-[#ea580c]"
+                    ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-extrabold"
+                    : "neu-btn text-slate-900 hover:text-[#EF6905]"
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -158,7 +158,7 @@ function AdminPortal() {
                 </div>
                 {item.badge && (
                   <span className={`min-w-5 h-5 px-1.5 flex items-center justify-center text-xs font-black rounded-full ${
-                    isActive ? "bg-white text-[#ea580c]" : "bg-[#ea580c] text-white"
+                    isActive ? "bg-white text-[#EF6905]" : "bg-[#EF6905] text-white"
                   }`}>
                     {item.badge}
                   </span>
@@ -172,7 +172,7 @@ function AdminPortal() {
         <div className="mt-auto p-4 border-t border-slate-200/80">
           <div className="neu-pressed rounded-xl p-3 mb-3 bg-slate-50">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 neu-flat rounded-full flex items-center justify-center font-bold text-sm text-[#ea580c]">
+              <div className="w-9 h-9 neu-flat rounded-full flex items-center justify-center font-bold text-sm text-[#EF6905]">
                 AU
               </div>
               <div className="text-sm truncate">
@@ -212,10 +212,10 @@ function AdminPortal() {
             >
               <div className="p-5 border-b border-slate-200/80 flex justify-between items-center">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 neu-flat rounded-xl flex items-center justify-center text-[#e73f1e]">
+                  <div className="w-8 h-8 neu-flat rounded-xl flex items-center justify-center text-[#8B2626]">
                     <Building className="w-4 h-4" />
                   </div>
-                  <span className="font-extrabold text-slate-900 text-base">Apartment<span className="text-[#fb6c00]">Pro</span></span>
+                  <span className="font-extrabold text-slate-900 text-base">Apartment<span className="text-[#EF6905]">Pro</span></span>
                 </div>
                 <button
                   onClick={() => setIsMobileSidebarOpen(false)}
@@ -238,8 +238,8 @@ function AdminPortal() {
                       }}
                       className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition-all ${
                         isActive
-                          ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-extrabold"
-                          : "neu-btn text-slate-900 hover:text-[#ea580c]"
+                          ? "active !bg-[#EF6905] !text-white !border-[#c2410c] shadow-md font-extrabold"
+                          : "neu-btn text-slate-900 hover:text-[#EF6905]"
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -248,7 +248,7 @@ function AdminPortal() {
                       </div>
                       {item.badge && (
                         <span className={`min-w-5 h-5 px-1.5 flex items-center justify-center text-xs font-black rounded-full ${
-                          isActive ? "bg-white text-[#ea580c]" : "bg-[#ea580c] text-white"
+                          isActive ? "bg-white text-[#EF6905]" : "bg-[#EF6905] text-white"
                         }`}>
                           {item.badge}
                         </span>
@@ -293,19 +293,19 @@ function AdminPortal() {
             <button
               onClick={fetchDB}
               disabled={refreshing}
-              className="w-9 h-9 neu-btn rounded-xl flex items-center justify-center text-[#fb6c00] hover:text-[#e73f1e] transition-all"
+              className="w-9 h-9 neu-btn rounded-xl flex items-center justify-center text-[#EF6905] hover:text-[#8B2626] transition-all"
               title="Synchronize Database ledger"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#e73f1e]" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#8B2626]" : ""}`} />
             </button>
 
             {/* Notification indicators */}
             <div className="relative">
-              <button className="w-9 h-9 neu-btn rounded-xl flex items-center justify-center text-[#fb6c00] hover:text-[#e73f1e] transition-all">
+              <button className="w-9 h-9 neu-btn rounded-xl flex items-center justify-center text-[#EF6905] hover:text-[#8B2626] transition-all">
                 <Bell className="w-4 h-4" />
               </button>
               {db && db.notifications.length > 0 && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#e73f1e] rounded-full shadow-[0_0_6px_rgba(231,63,30,0.6)]" />
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#8B2626] rounded-full shadow-[0_0_6px_rgba(231,63,30,0.6)]" />
               )}
             </div>
 
@@ -313,9 +313,9 @@ function AdminPortal() {
 
             <Link
               to="/"
-              className="text-xs font-bold text-[#fb6c00] neu-btn px-3 py-1.5 rounded-xl hover:text-[#e73f1e] transition-all flex items-center gap-1.5"
+              className="text-xs font-bold text-[#EF6905] neu-btn px-3 py-1.5 rounded-xl hover:text-[#8B2626] transition-all flex items-center gap-1.5"
             >
-              <Globe className="w-3.5 h-3.5 text-[#fb6c00]" />
+              <Globe className="w-3.5 h-3.5 text-[#EF6905]" />
               <span>Public Site</span>
             </Link>
           </div>

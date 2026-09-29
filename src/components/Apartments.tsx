@@ -258,13 +258,13 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
               onClick={() => setSelectedAptId(apt.id)}
               className={`p-5 rounded-2xl cursor-pointer transition-all flex flex-col justify-between ${
                 isActive
-                  ? "neu-pressed border-2 border-[#fb6c00]/60 text-slate-900"
+                  ? "neu-pressed border-2 border-[#EF6905]/60 text-slate-900"
                   : "neu-card hover:translate-y-[-2px] text-slate-800"
               }`}
             >
               <div>
                 <div className="flex justify-between items-start gap-2 mb-3">
-                  <div className={`p-2.5 rounded-xl ${isActive ? "neu-btn-primary text-white" : "neu-pressed text-[#fb6c00]"}`}>
+                  <div className={`p-2.5 rounded-xl ${isActive ? "neu-btn-primary text-white" : "neu-pressed text-[#EF6905]"}`}>
                     <Building className="w-5 h-5" />
                   </div>
                   <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-md uppercase neu-pressed ${
@@ -290,7 +290,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                   <span className="text-slate-500 text-[10px]">Vacant</span>
                 </div>
                 <div className="neu-pressed p-1.5 rounded-lg">
-                  <span className="block text-base font-black text-[#fb6c00]">{aptStats.occupied}</span>
+                  <span className="block text-base font-black text-[#EF6905]">{aptStats.occupied}</span>
                   <span className="text-slate-500 text-[10px]">Occupied</span>
                 </div>
               </div>
@@ -322,13 +322,6 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
               <h2 className="text-xl font-black text-slate-900 mt-1">{currentApt.name}</h2>
               <p className="text-slate-500 text-xs mt-0.5 leading-relaxed font-light">{currentApt.description}</p>
             </div>
-            <button
-              onClick={handleOpenAddRoom}
-              className="neu-btn flex items-center gap-2 px-4 py-2.5 font-bold text-sm rounded-xl shadow-xs transition-all shrink-0 self-start sm:self-auto"
-            >
-              <Plus className="w-4.5 h-4.5" />
-              <span>Add New Room</span>
-            </button>
           </div>
 
           {/* Rooms List Grid */}
@@ -337,7 +330,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
               <div className="col-span-full text-center py-16 text-slate-400">
                 <Home className="w-12 h-12 text-slate-200 mx-auto mb-3" />
                 <p className="font-bold">No Rooms Defined</p>
-                <p className="text-xs text-slate-400 font-light mt-1">Add first room to populate listing.</p>
+                <p className="text-xs text-slate-400 font-light mt-1">No rooms are currently assigned to this building.</p>
               </div>
             ) : (
               roomsInCurrentApt.map((room) => {
@@ -410,7 +403,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                     <div className="p-5 border-t border-slate-100 bg-white flex gap-2">
                       <button
                         onClick={() => handleOpenEditRoom(room)}
-                        className="w-full py-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                        className="w-full py-2 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95"
                       >
                         <Edit3 className="w-3.5 h-3.5 text-white" />
                         <span>Edit Room</span>
@@ -446,9 +439,9 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 z-10 text-sm"
+              className="relative bg-white w-full max-w-md max-h-[90vh] rounded-2xl shadow-2xl z-10 text-sm overflow-hidden flex flex-col"
             >
-              <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-5">
+              <div className="flex justify-between items-center border-b border-slate-100 px-6 py-4 shrink-0">
                 <h3 className="text-lg font-black text-slate-900">
                   {editingApt ? "Config Building Properties" : "Register New Building Asset"}
                 </h3>
@@ -457,7 +450,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                 </button>
               </div>
 
-              <form onSubmit={handleAptSubmit} className="space-y-4">
+              <form onSubmit={handleAptSubmit} className="flex-1 min-h-0 overflow-y-auto px-6 pb-6 space-y-4">
                 <div>
                   <label className="block text-slate-600 font-semibold mb-1">Building Name</label>
                   <input
@@ -563,7 +556,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                   </div>
                 )}
 
-                <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <div className="flex gap-3 pt-4 border-t border-slate-100 sticky bottom-0 bg-white/95 backdrop-blur-sm">
                   <button
                     type="button"
                     onClick={() => setShowAptDialog(false)}

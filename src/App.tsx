@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { api, DBState } from "./lib/api";
 import LandingPage from "./components/LandingPage";
+import PrivacyPolicy from "./components/PrivacyPolicy";
 import AuthScreen from "./components/AuthScreen";
 import Dashboard from "./components/Dashboard";
 import Chatbot from "./components/Chatbot";
@@ -347,6 +348,7 @@ export default function App() {
       <Routes>
         {/* Public view */}
         <Route path="/" element={<LandingPage />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
         
         {/* Admin portal (handles /dashboard & /admin checks) */}
         <Route path="/dashboard" element={<AdminPortal />} />

@@ -1396,6 +1396,7 @@ interface PaymentSession {
   tenantId: string;
   method: "GCASH" | "BANK";
   step: "METHOD_SELECTED";
+  submissionId?: string;
   updatedAt: number;
 }
 
@@ -2078,6 +2079,13 @@ Tenant Profile:
     const isPaymentCancel = textLower === "cancel_payment" || textLower === "❌ cancel";
 
     if (isPaymentCancel && paymentSession) {
+      if (paymentSession.submissionId) {
+        await dbService.updatePaymentSubmission(paymentSession.submissionId, {
+          status: "cancelled",
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: "Tenant cancelled payment submission"
+        });
+      }
       await clearPaymentSession(senderPsid);
       return { text: "Payment submission cancelled. No payment was recorded.", quick_replies: standardQuickReplies };
     }
@@ -2088,7 +2096,27 @@ Tenant Profile:
       }
 
       const method: "GCASH" | "BANK" = textLower === "pay_bank" || textLower === "bank" || textLower === "bank transfer" ? "BANK" : "GCASH";
-      await savePaymentSession({ psid: senderPsid, tenantId: tenantObj.id, method, step: "METHOD_SELECTED", updatedAt: Date.now() });
+      const submissionId = `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const paymentIntent = {
+        id: submissionId,
+        tenant_id: tenantObj.id,
+        messenger_psid: senderPsid,
+        tenant_name: tenantObj.name,
+        room_number: roomNum,
+        method,
+        reference: "",
+        receipt_url: "",
+        status: "awaiting_proof",
+        amount_due: Number(outstandingBalance || 0),
+        submitted_at: new Date().toISOString(),
+        source: "messenger"
+      };
+      const intentSaved = await dbService.savePaymentSubmissionToFirestore(paymentIntent);
+      if (!intentSaved) {
+        return { text: "⚠️ We couldn't start your payment submission right now. Please try again.", quick_replies: standardQuickReplies };
+      }
+      await recordPaymentAdminNotice({ ...paymentIntent, status: "awaiting_proof" });
+      await savePaymentSession({ psid: senderPsid, tenantId: tenantObj.id, method, step: "METHOD_SELECTED", submissionId, updatedAt: Date.now() });
       const qrUrl = paymentMethodQrUrl(method);
       return {
         text: paymentMethodDetails(method),
@@ -2108,7 +2136,7 @@ Tenant Profile:
         }
 
         const submission = {
-          id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: paymentSession.submissionId || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           tenant_id: tenantObj.id,
           messenger_psid: senderPsid,
           tenant_name: tenantObj.name,
@@ -2136,7 +2164,7 @@ Tenant Profile:
       const reference = sanitizePaymentReference(textTrimmed);
       if (isPlausiblePaymentReference(reference)) {
         const submission = {
-          id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: paymentSession.submissionId || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           tenant_id: tenantObj.id,
           messenger_psid: senderPsid,
           tenant_name: tenantObj.name,

@@ -499,10 +499,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
               filteredTickets.map((ticket) => {
                 const prio = getPriorityDisplay(ticket.priority || ticket.severity);
                 const stat = getStatusDisplay(ticket.status);
-                const prioLower = (ticket.priority || ticket.severity || "").toLowerCase();
-                const isCritical = prioLower === "critical";
-                const isHigh = prioLower === "high";
-                const isMedium = prioLower === "medium" || (!isCritical && !isHigh && prioLower !== "low");
+                const isCritical = ((ticket.priority || ticket.severity || "").toLowerCase() === "critical");
                 const rawRoom = ticket.room_number || ticket.roomNumber;
                 const roomFormatted = rawRoom 
                   ? (String(rawRoom).toLowerCase().includes("room") ? String(rawRoom).replace(/^room\s*/i, "") : String(rawRoom)) 
@@ -514,112 +511,103 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                 const ticketIdDisplay = ticket.id || ticket.ticketId;
                 const isNewlyCreated = (recentlyCreatedId && (ticket.id === recentlyCreatedId || ticket.ticketId === recentlyCreatedId));
 
-                // Noticeable accent border and elevation depending on priority and status
-                const cardAccentStyles = isNewlyCreated
-                  ? "border-2 border-[#EF6905] border-l-[10px] border-l-[#EF6905] ring-4 ring-[#EF6905]/30 shadow-xl bg-orange-50/20 scale-[1.01]"
-                  : isCritical
-                    ? "border-2 border-red-500 border-l-[10px] border-l-red-600 bg-red-50/25 shadow-[0_8px_24px_rgba(220,38,38,0.22)] ring-1 ring-red-400/40"
-                    : isHigh
-                      ? "border-2 border-orange-500 border-l-[10px] border-l-[#EF6905] bg-orange-50/20 shadow-[0_8px_22px_rgba(239,105,5,0.20)] ring-1 ring-orange-400/40"
-                      : isMedium
-                        ? "border-2 border-amber-500 border-l-[10px] border-l-amber-500 bg-amber-50/20 shadow-[0_8px_20px_rgba(245,158,11,0.20)] ring-1 ring-amber-400/40"
-                        : "border-2 border-emerald-500 border-l-[10px] border-l-emerald-600 bg-emerald-50/15 shadow-[0_6px_18px_rgba(16,185,129,0.18)] ring-1 ring-emerald-400/30";
-
                 return (
                   <div 
                     key={ticket.id} 
-                    className={`maintenance-ticket-card neu-card p-5.5 rounded-2xl transition-all flex flex-col justify-between gap-4 bg-white ${cardAccentStyles}`}
+                    className={`maintenance-ticket-card neu-card p-5 transition-all flex flex-col justify-between gap-4 ${
+                      isNewlyCreated 
+                        ? "border-2 border-[#EF6905] ring-4 ring-[#EF6905]/20 shadow-lg scale-[1.01]" 
+                        : isCritical 
+                          ? "border-2 border-[#8B2626] shadow-[0_0_18px_rgba(139,38,38,0.28)]" 
+                          : (ticket.status === "pending" && ((ticket.priority || ticket.severity || "").toLowerCase() === "high") )
+                            ? "border-2 border-[#EF6905] shadow-[0_0_14px_rgba(239,105,5,0.20)]"
+                            : ticket.status === "pending"
+                              ? "border-2 border-[#F1E5A1] shadow-[0_0_10px_rgba(241,229,161,0.45)]"
+                              : ""
+                    }`}
                   >
                     <div className="space-y-3.5">
-                      {/* Noticeable Pending Banner */}
-                      {ticket.status === "pending" && (
-                        <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 font-black text-xs shadow-xs">
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-amber-800" />
-                            <span>⏳ ACTION REQUIRED — PENDING REVIEW</span>
-                          </span>
-                          <span className="text-[10px] font-extrabold uppercase bg-amber-200/90 text-amber-900 px-2 py-0.5 rounded-md">
-                            New Report
-                          </span>
-                        </div>
-                      )}
-
+                      
                       {/* 1. Priority Banner at Top of Card */}
                       <div className="flex flex-wrap justify-between items-center gap-2">
-                        <div className={`px-3 py-1.5 rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 ${prio.badgeClass}`}>
+                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${prio.badgeClass}`}>
                           <span>{prio.icon}</span>
-                          <span className="tracking-wide uppercase">{prio.label}</span>
+                          <span>{prio.label}</span>
                         </div>
 
                         {/* Current Status Badge */}
-                        <div className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase shadow-xs flex items-center gap-1.5 ${stat.badgeClass}`}>
+                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase flex items-center gap-1.5 ${stat.badgeClass}`}>
                           <span>{stat.label}</span>
                         </div>
                       </div>
 
                       {/* 2. Ticket ID & Category */}
-                      <div className="border-b border-slate-200 pb-2.5 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-black text-slate-800 bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-md shadow-2xs">
-                            {ticketIdDisplay}
-                          </span>
-                          <span className="text-[11px] font-bold text-slate-600">
-                            {dateDisplay}
-                          </span>
-                        </div>
-                        <h2 className="text-lg font-black text-slate-950 tracking-tight leading-snug">
+                      <div className="border-b border-slate-300/50 pb-2.5 space-y-0.5">
+                        <span className="font-mono text-xs font-bold text-slate-500 block">
+                          {ticketIdDisplay}
+                        </span>
+                        <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-snug">
                           {ticket.category || "General Maintenance"}
                         </h2>
                       </div>
 
                       {/* 3. Tenant Name & Room Number */}
-                      <div className="p-3.5 rounded-xl space-y-2 bg-slate-50 border border-slate-200/90 shadow-2xs">
+                      <div className="neu-pressed p-3 rounded-xl space-y-2">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs sm:text-sm">
-                          <span className="text-slate-600 font-bold flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-[#EF6905]" />
+                          <span className="text-slate-500 font-medium flex items-center gap-1.5">
+                            <User className="w-3.5 h-3.5 text-brand-orange" />
                             Tenant:
                           </span>
-                          <strong className="text-slate-950 font-black truncate text-sm" title={tenantDisplayName}>
+                          <strong className="text-slate-900 font-bold truncate" title={tenantDisplayName}>
                             {tenantDisplayName}
                           </strong>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs sm:text-sm border-t border-slate-200 pt-1.5">
-                          <span className="text-slate-600 font-bold flex items-center gap-1.5">
-                            <Building className="w-3.5 h-3.5 text-[#EF6905]" />
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs sm:text-sm border-t border-slate-300/40 pt-1.5">
+                          <span className="text-slate-500 font-medium flex items-center gap-1.5">
+                            <Building className="w-3.5 h-3.5 text-brand-orange" />
                             Room:
                           </span>
-                          <strong className="text-slate-950 font-black text-sm">
-                            Room {roomFormatted}
+                          <strong className="text-slate-900 font-bold">
+                            {roomFormatted}
                           </strong>
                         </div>
                       </div>
 
-                      {/* 4. Description Preview */}
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-black text-slate-700 uppercase tracking-wider block">
+                      {/* 4. Status & Reported Date */}
+                      <div className="space-y-1 text-xs sm:text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-500 font-medium">Status:</span>
+                          <span className="text-slate-900 font-bold uppercase">
+                            {ticket.status === "pending" && "⏳ PENDING"}
+                            {ticket.status === "in_progress" && "🔧 IN PROGRESS"}
+                            {ticket.status === "completed" && "✅ COMPLETED"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-500 font-medium">Reported:</span>
+                          <span className="text-slate-800 font-medium">
+                            {dateDisplay}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 5. Description Preview */}
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
                           Problem Description:
                         </span>
-                        <p className="text-xs sm:text-sm text-slate-900 leading-relaxed font-semibold bg-slate-50 border border-slate-200 p-3 rounded-xl line-clamp-3">
-                          "{descDisplay}"
+                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-normal neu-pressed p-2.5 rounded-xl line-clamp-2">
+                          {descDisplay}
                         </p>
                       </div>
 
-                      {/* Photo indicator & thumbnail preview if attached */}
+                      {/* Photo indicator if attached */}
                       {photoUrl && (
-                        <div 
-                          onClick={() => setSelectedTicketForViewer(ticket)}
-                          className="group relative cursor-pointer overflow-hidden rounded-xl border-2 border-orange-200 bg-orange-50/40 p-2 transition-all hover:border-[#EF6905] shadow-xs"
-                        >
-                          <div className="flex items-center gap-1.5 text-xs font-black text-[#EF6905] mb-2">
-                            <ImageIcon className="w-4 h-4" />
-                            <span>📷 Photo Evidence Attached (Tap to inspect)</span>
-                          </div>
-                          <img 
-                            src={photoUrl} 
-                            alt="Maintenance evidence" 
-                            className="h-28 w-full object-cover rounded-lg border border-slate-200 group-hover:scale-[1.02] transition-transform duration-200" 
-                          />
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-brand-orange neu-pressed p-2 rounded-lg">
+                          <ImageIcon className="w-4 h-4" />
+                          <span>📷 Tenant Attached A Photo</span>
                         </div>
                       )}
                     </div>

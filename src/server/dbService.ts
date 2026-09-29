@@ -787,16 +787,18 @@ class DatabaseService {
     return [];
   }
 
-  public async savePaymentReceipt(receiptId: string, mimeType: string, base64: string): Promise<boolean> {
+  public async savePaymentReceipt(receiptId: string, rawMimeType: string, base64: string): Promise<boolean> {
     await this.ensureInitialized();
     const safeId = String(receiptId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
-    if (!safeId || !/^image\/(jpeg|png|webp|gif)$/i.test(mimeType) || !base64 || base64.length > 8_000_000) return false;
+    const mimeType = (rawMimeType || "image/jpeg").split(";")[0].trim().toLowerCase();
+    if (!safeId || !/^image\/(jpeg|jpg|png|webp|gif)$/i.test(mimeType) || !base64 || base64.length > 8_000_000) return false;
+    const normalizedMime = mimeType === "image/jpg" ? "image/jpeg" : mimeType;
     const chunkSize = 700_000;
     const totalChunks = Math.ceil(base64.length / chunkSize);
     try {
       if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
         const batch = this.adminFirestore.batch();
-        batch.set(this.adminFirestore.collection("paymentReceipts").doc(safeId), { id: safeId, mime_type: mimeType, total_chunks: totalChunks, created_at: new Date().toISOString() }, { merge: true });
+        batch.set(this.adminFirestore.collection("paymentReceipts").doc(safeId), { id: safeId, mime_type: normalizedMime, total_chunks: totalChunks, created_at: new Date().toISOString() }, { merge: true });
         for (let i = 0; i < totalChunks; i++) {
           batch.set(this.adminFirestore.collection("paymentReceiptChunks").doc(`${safeId}_${i}`), { receipt_id: safeId, index: i, data: base64.slice(i * chunkSize, (i + 1) * chunkSize) });
         }
@@ -806,7 +808,7 @@ class DatabaseService {
       if (this.clientFirestore) {
         // Firestore client batches are limited to 500 writes; a 5 MB receipt is far below this.
         const batch = clientWriteBatch(this.clientFirestore);
-        batch.set(clientDoc(this.clientFirestore, "paymentReceipts", safeId), { id: safeId, mime_type: mimeType, total_chunks: totalChunks, created_at: new Date().toISOString() }, { merge: true });
+        batch.set(clientDoc(this.clientFirestore, "paymentReceipts", safeId), { id: safeId, mime_type: normalizedMime, total_chunks: totalChunks, created_at: new Date().toISOString() }, { merge: true });
         for (let i = 0; i < totalChunks; i++) {
           batch.set(clientDoc(this.clientFirestore, "paymentReceiptChunks", `${safeId}_${i}`), { receipt_id: safeId, index: i, data: base64.slice(i * chunkSize, (i + 1) * chunkSize) });
         }

@@ -15,13 +15,15 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
   const [message, setMessage] = useState("");
   const [receiptSrc, setReceiptSrc] = useState<string>("");
 
+  const authToken = token || localStorage.getItem("apartmentpro_token") || "";
+
   const load = async () => {
     setLoading(true);
-    try { setItems(await api.getPaymentSubmissions(token)); }
+    try { setItems(await api.getPaymentSubmissions(authToken)); }
     catch (e: any) { setMessage(e?.message || "Unable to load payment submissions."); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [authToken]);
 
   const pending = useMemo(() => items.filter(x => x.status === "pending_verification"), [items]);
   const filtered = useMemo(() => pending.filter(x => `${x.tenant_name} ${x.room_number} ${x.reference} ${x.method}`.toLowerCase().includes(query.toLowerCase())), [pending, query]);
@@ -29,10 +31,15 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
   const openItem = async (item: any) => {
     setSelected(item); setAmount(String(item.amount_due || "")); setNote(""); setMessage(""); setReceiptSrc("");
     if (item.receipt_url) {
-      try {
-        const res = await fetch(item.receipt_url, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) { const blob = await res.blob(); setReceiptSrc(URL.createObjectURL(blob)); }
-      } catch { /* receipt preview remains unavailable */ }
+      const url = String(item.receipt_url).trim();
+      if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) {
+        setReceiptSrc(url);
+      } else {
+        try {
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
+          if (res.ok) { const blob = await res.blob(); setReceiptSrc(URL.createObjectURL(blob)); }
+        } catch { /* receipt preview remains unavailable */ }
+      }
     }
   };
 
@@ -42,7 +49,7 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
     if (action === "confirm" && (!Number.isFinite(parsed) || parsed <= 0)) { setMessage("Enter a valid received amount before confirming."); return; }
     setBusy(true); setMessage("");
     try {
-      await api.verifyPayment(token, selected.id, action === "confirm" ? parsed : 0, action, note);
+      await api.verifyPayment(authToken, selected.id, action === "confirm" ? parsed : 0, action, note);
       if (receiptSrc) URL.revokeObjectURL(receiptSrc);
       setSelected(null);
       setReceiptSrc("");

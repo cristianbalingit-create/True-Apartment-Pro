@@ -2027,7 +2027,7 @@ Tenant Profile:
   }
 
   // Local Rule-Based Fallback Generator (Guaranteed reliable, fast, zero secrets)
-  const generateLocalResponse = (msg: string): string => {
+  const generateLocalResponse = async (msg: string): Promise<ChatbotReplyPayload | string> => {
     const text = msg.toLowerCase().trim();
 
     // =========================================================================
@@ -2299,13 +2299,13 @@ Tenant Profile:
 
   // If Maintenance Intent is detected, process it through the verified priority workflow!
   if (maintAnalysis.is_maintenance || maintAnalysis.is_status_query) {
-    return generateLocalResponse(messageText);
+    return await generateLocalResponse(messageText);
   }
 
   // Try Gemini AI Generation with safety fallback for open conversation
   const ai = getAIClient();
   if (!ai) {
-    return generateLocalResponse(messageText);
+    return await generateLocalResponse(messageText);
   }
 
   try {
@@ -2418,13 +2418,13 @@ CRITICAL DIRECTIVES:
     }
 
     if (parsedRes.is_status_query || parsedRes.intent === "maintenance_status") {
-      return generateLocalResponse(messageText);
+      return await generateLocalResponse(messageText);
     }
 
-    return parsedRes.reply || generateLocalResponse(messageText);
+    return parsedRes.reply || (await generateLocalResponse(messageText));
   } catch (error) {
     console.error("Gemini AI error or timeout, seamlessly using local rules engine:", error);
-    return generateLocalResponse(messageText);
+    return await generateLocalResponse(messageText);
   }
 }
 

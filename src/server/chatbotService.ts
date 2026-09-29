@@ -1946,7 +1946,7 @@ Tenant Profile:
     // =========================================================================
 
     // 1. TRANSACTION HISTORY & FINANCIAL LEDGER
-    if (text === "get_history" || text === "history" || text.includes("transaction history") || text.includes("my transactions") || text.includes("ledger history") || text.includes("payment history")) {
+    if (text === "get_history" || text === "history" || text === "📋 history" || text.includes("transaction history") || text.includes("my transactions") || text.includes("ledger history") || text.includes("payment history")) {
       if (!tenantObj) {
         return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nTo protect your financial privacy, transaction histories are strictly confidential.\n\n👉 To view your personal records, please link your tenant account:\nType: *link <contact_number>*\nExample: *link 09171234567*`;
       }
@@ -2001,7 +2001,7 @@ Tenant Profile:
     }
 
     // 2. SEND PAYMENT & PAYMENT CHANNELS
-    if (text === "send_payment" || text === "pay" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent") || text.includes("bank account") || text.includes("gcash") || text.includes("maya")) {
+    if (text === "send_payment" || text === "pay" || text === "💳 send payment" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent") || text.includes("bank account") || text.includes("gcash") || text.includes("maya")) {
       let payMsg = `💳 *HOW TO SEND YOUR RENT PAYMENT*\n\n`;
 
       if (tenantObj) {
@@ -2329,12 +2329,18 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   const attachmentUrl: string | undefined = imageAttachment?.payload?.url;
   let messageText = "";
 
-  if (webhook_event.message?.text) {
-    messageText = webhook_event.message.text;
-  } else if (webhook_event.message?.quick_reply?.payload) {
-    messageText = webhook_event.message.quick_reply.payload;
+  // SECURITY/ROUTING: Messenger quick-reply payloads are authoritative action
+  // identifiers. Meta may also include the visible button title in
+  // message.text (for example, "📋 History"). If text is checked first, the
+  // server loses the payload (GET_HISTORY/SEND_PAYMENT/etc.) and falls back to
+  // the generic assistant greeting. Always prefer the signed-in action payload
+  // over the human-readable button label.
+  if (webhook_event.message?.quick_reply?.payload) {
+    messageText = String(webhook_event.message.quick_reply.payload).trim();
   } else if (webhook_event.postback?.payload) {
-    messageText = webhook_event.postback.payload;
+    messageText = String(webhook_event.postback.payload).trim();
+  } else if (webhook_event.message?.text) {
+    messageText = webhook_event.message.text;
   } else if (attachments.length > 0 && !imageAttachment) {
     messageText = "[Unsupported Attachment]";
   }

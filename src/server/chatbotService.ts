@@ -1402,7 +1402,17 @@ export async function processChatbotMessage(
   let aptName = "ApartmentPro";
 
   if (tenantId) {
-    tenantObj = (db.tenants || []).find((t: any) => t.id === tenantId);
+    // SECURITY: resolve authenticated tenant from live Firestore, not the stale/local
+    // in-memory fallback. This is critical for Vercel/Cloud Run serverless runtimes.
+    try {
+      await dbService.ensureInitialized();
+      const liveTenants = await dbService.getLiveTenants();
+      tenantObj = liveTenants.find((t: any) => t.id === tenantId) || null;
+    } catch (err) {
+      console.error("Failed to load authenticated tenant from live Firestore:", err);
+      tenantObj = null;
+    }
+
     if (tenantObj) {
       const room = (db.rooms || []).find((r: any) => r.id === tenantObj.room_id);
       roomNum = room ? room.room_number : "N/A";
@@ -2393,7 +2403,8 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       const roomNum = room ? room.room_number : (matchedTenant.room_id ? matchedTenant.room_id.replace(/^room-/, "") : "Unknown");
 
       await sendFacebookMessage(senderPsid, {
-        text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the 1-tap quick buttons below to check your live rent balances, view your ledger & deposit history, or report maintenance.`
+        text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the ApartmentPro services below.`,
+        quick_replies: standardQuickReplies
       }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {

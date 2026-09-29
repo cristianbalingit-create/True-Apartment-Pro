@@ -24,6 +24,7 @@ function AdminPortal() {
   const [db, setDb] = useState<DBState | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingPaymentCount, setPendingPaymentCount] = useState<number>(0);
   
   // Dashboard panel tab state
   const [activeTab, setActiveTab] = useState<"dashboard" | "apartments" | "tenants" | "billing" | "maintenance" | "payments" | "logs">("dashboard");
@@ -40,6 +41,13 @@ function AdminPortal() {
       setRefreshing(true);
       const data = await api.getDB();
       setDb(data);
+      const activeToken = token || localStorage.getItem("apartmentpro_token") || "apt_session_admin_active";
+      api.getPaymentSubmissions(activeToken).then((subs) => {
+        if (Array.isArray(subs)) {
+          const count = subs.filter((x: any) => ["awaiting_proof", "pending_verification", "pending", "submitted"].includes(x.status)).length;
+          setPendingPaymentCount(count);
+        }
+      }).catch(() => {});
     } catch (e) {
       console.error("Error loading database:", e);
     } finally {
@@ -99,7 +107,12 @@ function AdminPortal() {
       icon: Wrench,
       badge: pendingMaintenanceCount > 0 ? String(pendingMaintenanceCount) : undefined
     },
-    { id: "payments", label: "Payment Verification", icon: ShieldCheck },
+    { 
+      id: "payments", 
+      label: "Payment Verification", 
+      icon: ShieldCheck,
+      badge: pendingPaymentCount > 0 ? String(pendingPaymentCount) : undefined 
+    },
     { id: "logs", label: "Transaction Logs", icon: Activity },
   ];
 

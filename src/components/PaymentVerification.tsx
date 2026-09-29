@@ -1,8 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, ExternalLink, Image as ImageIcon, RefreshCw, Search, XCircle, ShieldCheck } from "lucide-react";
+import { 
+  CheckCircle2, Clock3, ExternalLink, Image as ImageIcon, RefreshCw, 
+  Search, XCircle, ShieldCheck, AlertCircle, Filter, FileText, Check 
+} from "lucide-react";
 import { api } from "../lib/api";
 
-interface Props { token: string; onRefresh?: () => Promise<void> | void; }
+interface Props { 
+  token: string; 
+  onRefresh?: () => Promise<void> | void; 
+}
 
 export default function PaymentVerification({ token, onRefresh }: Props) {
   const [items, setItems] = useState<any[]>([]);
@@ -14,80 +20,448 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [receiptSrc, setReceiptSrc] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<"pending" | "all" | "confirmed" | "rejected">("pending");
+
+  const authToken = token || localStorage.getItem("apartmentpro_token") || "apt_session_admin_active";
 
   const load = async () => {
     setLoading(true);
-    try { setItems(await api.getPaymentSubmissions(token)); }
-    catch (e: any) { setMessage(e?.message || "Unable to load payment submissions."); }
-    finally { setLoading(false); }
+    setMessage("");
+    try { 
+      const data = await api.getPaymentSubmissions(authToken);
+      setItems(Array.isArray(data) ? data : []); 
+    } catch (e: any) { 
+      setMessage(e?.message || "Unable to load payment submissions."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
+
   useEffect(() => {
     load();
     const timer = window.setInterval(() => load(), 10000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [authToken]);
 
-  const pending = useMemo(() => items.filter(x => ["awaiting_proof", "pending_verification"].includes(x.status)), [items]);
-  const filtered = useMemo(() => pending.filter(x => `${x.tenant_name} ${x.room_number} ${x.reference} ${x.method}`.toLowerCase().includes(query.toLowerCase())), [pending, query]);
+  const pendingCount = useMemo(() => {
+    return items.filter(x => ["awaiting_proof", "pending_verification", "pending", "submitted"].includes(x.status)).length;
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    return items.filter(x => {
+      // 1. Status Filter
+      if (statusFilter === "pending") {
+        const isPending = ["awaiting_proof", "pending_verification", "pending", "submitted"].includes(x.status);
+        if (!isPending) return false;
+      } else if (statusFilter === "confirmed") {
+        if (x.status !== "confirmed") return false;
+      } else if (statusFilter === "rejected") {
+        if (x.status !== "rejected") return false;
+      }
+
+      // 2. Search Query
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        const str = `${x.tenant_name || ""} ${x.room_number || ""} ${x.reference || ""} ${x.method || ""} ${x.id || ""} ${x.status || ""}`.toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [items, statusFilter, query]);
 
   const openItem = async (item: any) => {
-    setSelected(item); setAmount(String(item.amount_due || "")); setNote(""); setMessage(""); setReceiptSrc("");
+    setSelected(item); 
+    setAmount(String(item.amount_due || "")); 
+    setNote(""); 
+    setMessage(""); 
+    setReceiptSrc("");
+
     if (item.receipt_url) {
-      try {
-        const res = await fetch(item.receipt_url, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) { const blob = await res.blob(); setReceiptSrc(URL.createObjectURL(blob)); }
-      } catch { /* receipt preview remains unavailable */ }
+      const url = String(item.receipt_url).trim();
+      if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) {
+        setReceiptSrc(url);
+      } else {
+        try {
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
+          if (res.ok) { 
+            const blob = await res.blob(); 
+            setReceiptSrc(URL.createObjectURL(blob)); 
+          } else {
+            setReceiptSrc(`${url}?token=${encodeURIComponent(authToken)}`);
+          }
+        } catch { 
+          setReceiptSrc(`${url}?token=${encodeURIComponent(authToken)}`);
+        }
+      }
     }
   };
 
   const verify = async (action: "confirm" | "reject") => {
     if (!selected) return;
-    if (selected.status !== "pending_verification") { setMessage("This payment is waiting for the tenant to submit a reference number or receipt."); return; }
+    if (selected.status === "awaiting_proof") { 
+      setMessage("This payment is waiting for the tenant to submit a reference number or receipt before it can be verified."); 
+      return; 
+    }
     const parsed = Number(amount);
-    if (action === "confirm" && (!Number.isFinite(parsed) || parsed <= 0)) { setMessage("Enter a valid received amount before confirming."); return; }
-    setBusy(true); setMessage("");
+    if (action === "confirm" && (!Number.isFinite(parsed) || parsed <= 0)) { 
+      setMessage("Please enter a valid received amount before confirming."); 
+      return; 
+    }
+    setBusy(true); 
+    setMessage("");
     try {
-      await api.verifyPayment(token, selected.id, action === "confirm" ? parsed : 0, action, note);
-      if (receiptSrc) URL.revokeObjectURL(receiptSrc);
+      await api.verifyPayment(authToken, selected.id, action === "confirm" ? parsed : 0, action, note);
+      if (receiptSrc && receiptSrc.startsWith("blob:")) {
+        URL.revokeObjectURL(receiptSrc);
+      }
       setSelected(null);
       setReceiptSrc("");
       await load();
       if (onRefresh) await onRefresh();
-    } catch (e: any) { setMessage(e?.message || "Verification failed."); }
-    finally { setBusy(false); }
+    } catch (e: any) { 
+      setMessage(e?.message || "Verification failed."); 
+    } finally { 
+      setBusy(false); 
+    }
   };
 
-  return <div className="space-y-5">
-    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div><h2 className="text-2xl font-black text-slate-950">Payment Verification</h2><p className="text-sm text-slate-600 mt-1">Review tenant payment references and receipts before posting a payment.</p></div>
-      <button onClick={load} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 shadow-sm font-bold text-sm flex items-center gap-2"><RefreshCw className="w-4 h-4"/>Refresh</button>
-    </div>
-    <div className="flex flex-col md:flex-row md:items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4"><ShieldCheck className="w-5 h-5 text-amber-700"/><span className="text-sm font-semibold text-amber-900">Payment requests appear here immediately after the tenant chooses GCash/Bank. They become verifiable after a reference number or receipt is submitted.</span><span className="md:ml-auto font-black text-amber-800 whitespace-nowrap">{pending.length} active</span></div>
-    <div className="relative"><Search className="absolute left-3 top-3 w-4 h-4 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tenant, room, reference, or method" className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-white"/></div>
-    {message && !selected && <div className="p-3 rounded-xl bg-red-50 text-red-800 text-sm font-semibold">{message}</div>}
-    {loading ? <div className="py-16 text-center text-slate-500">Loading payment submissions…</div> : filtered.length === 0 ? <div className="py-16 text-center bg-white border border-slate-200 rounded-2xl"><CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2"/><p className="font-bold text-slate-800">No pending payment submissions</p></div> :
-      <div className="grid gap-4">{filtered.map(item => <div key={item.id} className="bg-white border-2 border-amber-100 rounded-2xl p-5 shadow-sm flex flex-col lg:flex-row lg:items-center gap-4">
-        <div className="w-14 h-14 rounded-xl bg-amber-50 flex items-center justify-center"><Clock3 className="w-7 h-7 text-amber-600"/></div>
-        <div className="flex-1"><div className="flex flex-wrap gap-2 items-center"><h3 className="font-black text-slate-950">{item.tenant_name || "Tenant"}</h3><span className="px-2 py-1 text-xs rounded-full bg-slate-100 font-bold">Room {item.room_number || "—"}</span><span className="px-2 py-1 text-xs rounded-full bg-blue-50 text-blue-700 font-bold">{item.method === "GCASH" ? "GCash" : "Bank Transfer"}</span></div><p className="text-sm text-slate-600 mt-1">Reference: <b>{item.reference || "Not provided"}</b> · Claimed amount: <b>₱{Number(item.amount_due || 0).toLocaleString()}</b></p><p className="text-xs text-slate-400 mt-1"><span className={`font-black ${item.status === "awaiting_proof" ? "text-amber-700" : "text-blue-700"}`}>{item.status === "awaiting_proof" ? "Awaiting receipt/reference" : "Pending verification"}</span> · Submitted {item.submitted_at ? new Date(item.submitted_at).toLocaleString("en-PH") : "—"}</p></div>
-        {item.receipt_url && <span className="text-xs font-bold text-emerald-700 flex items-center gap-1"><ImageIcon className="w-4 h-4"/> Receipt attached</span>}
-        <button onClick={()=>openItem(item)} className="px-4 py-2.5 rounded-xl bg-[#8B2626] text-white font-black text-sm">Review Payment</button>
-      </div>)}</div>}
-
-    {selected && <div className="fixed inset-0 z-[100] bg-black/60 p-4 flex items-center justify-center" onMouseDown={e=>{if(e.target===e.currentTarget) setSelected(null)}}>
-      <div className="bg-white w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl shadow-2xl">
-        <div className="sticky top-0 bg-white border-b p-5 flex items-center justify-between"><div><h3 className="text-xl font-black">Review Payment</h3><p className="text-sm text-slate-500">{selected.tenant_name} · Room {selected.room_number}</p></div><button onClick={()=>setSelected(null)}><XCircle className="w-7 h-7 text-slate-500"/></button></div>
-        <div className="p-5 grid lg:grid-cols-2 gap-6">
-          <div className="space-y-3"><div className="grid grid-cols-2 gap-3 text-sm"><div className="bg-slate-50 p-3 rounded-xl"><b>Method</b><br/>{selected.method === "GCASH" ? "GCash" : "Bank Transfer"}</div><div className="bg-slate-50 p-3 rounded-xl"><b>Reference</b><br/>{selected.reference || "Not provided"}</div></div>
-            {selected.receipt_url ? <div><p className="font-bold mb-2">Tenant Receipt</p><a href={receiptSrc || selected.receipt_url} target="_blank" rel="noreferrer"><img src={receiptSrc || selected.receipt_url} alt="Tenant payment receipt" className="w-full max-h-[520px] object-contain rounded-xl border bg-slate-50"/></a><a href={receiptSrc || selected.receipt_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-bold text-blue-700">Open full image <ExternalLink className="w-4 h-4"/></a></div> : <div className="p-8 bg-slate-50 rounded-xl text-center text-slate-500">No receipt image was attached.</div>}
-          </div>
-          <div className="space-y-4"><div className="bg-blue-50 border border-blue-100 rounded-xl p-4"><p className="font-black text-blue-900">Verification checklist</p><ul className="text-sm text-blue-900 mt-2 list-disc ml-5 space-y-1"><li>Check the reference in GCash/bank records.</li><li>Confirm the recipient and amount.</li><li>Only confirm after the money is actually received.</li></ul></div>
-            <label className="block text-sm font-bold">Verified received amount<input value={amount} onChange={e=>setAmount(e.target.value)} type="number" min="0" step="0.01" className="mt-1 w-full border rounded-xl px-3 py-3"/></label>
-            <label className="block text-sm font-bold">Admin note (optional)<textarea value={note} onChange={e=>setNote(e.target.value.slice(0,300))} className="mt-1 w-full border rounded-xl px-3 py-3" rows={3} placeholder="e.g. Verified in GCash transaction history"/></label>
-            {message && <div className="p-3 rounded-xl bg-red-50 text-red-800 text-sm font-semibold">{message}</div>}
-            <div className="flex gap-3 pt-2"><button disabled={busy || selected.status !== "pending_verification"} onClick={()=>verify("reject")} className="flex-1 px-4 py-3 rounded-xl border-2 border-red-200 text-red-700 font-black"><XCircle className="inline w-4 h-4 mr-1"/>Reject</button><button disabled={busy || selected.status !== "pending_verification"} onClick={()=>verify("confirm")} className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white font-black"><CheckCircle2 className="inline w-4 h-4 mr-1"/>{busy ? "Processing…" : "Confirm Payment"}</button></div>
-          </div>
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-black text-slate-950">Payment Verification</h2>
+          <p className="text-sm text-slate-600 mt-1">Review tenant payment references and receipts before posting payments to the ledger.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={load} 
+            disabled={loading}
+            className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 shadow-sm font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}/>
+            <span>Refresh</span>
+          </button>
         </div>
       </div>
-    </div>}
-  </div>;
+
+      {/* Info Banner */}
+      <div className="flex flex-col md:flex-row md:items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-2xs">
+        <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0"/>
+        <span className="text-sm font-semibold text-amber-900">
+          Payment submissions appear here automatically when tenants submit via Facebook Messenger or web chat. Verify the payment reference or attached receipt to credit the tenant's ledger.
+        </span>
+        <span className="md:ml-auto font-black text-amber-800 whitespace-nowrap bg-amber-100 px-3 py-1 rounded-xl text-xs">
+          {pendingCount} Pending Review
+        </span>
+      </div>
+
+      {/* Status Filter Tabs & Search */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl w-fit">
+          <button
+            onClick={() => setStatusFilter("pending")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition ${
+              statusFilter === "pending"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            ⏳ Pending ({pendingCount})
+          </button>
+          <button
+            onClick={() => setStatusFilter("all")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition ${
+              statusFilter === "all"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            📋 All ({items.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter("confirmed")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition ${
+              statusFilter === "confirmed"
+                ? "bg-white text-emerald-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            ✅ Confirmed ({items.filter(x => x.status === "confirmed").length})
+          </button>
+          <button
+            onClick={() => setStatusFilter("rejected")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition ${
+              statusFilter === "rejected"
+                ? "bg-white text-red-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            ❌ Rejected ({items.filter(x => x.status === "rejected").length})
+          </button>
+        </div>
+
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400"/>
+          <input 
+            value={query} 
+            onChange={e => setQuery(e.target.value)} 
+            placeholder="Search tenant, room, reference, or method..." 
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#8B2626]"
+          />
+        </div>
+      </div>
+
+      {message && !selected && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm font-bold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600"/>
+          <span>{message}</span>
+        </div>
+      )}
+
+      {/* List Content */}
+      {loading && items.length === 0 ? (
+        <div className="py-16 text-center text-slate-500 font-semibold flex flex-col items-center gap-2">
+          <RefreshCw className="w-6 h-6 animate-spin text-[#8B2626]"/>
+          <span>Loading payment submissions…</span>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center bg-white border border-slate-200 rounded-2xl p-6 shadow-2xs">
+          <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2"/>
+          <p className="font-bold text-slate-900 text-base">No payment submissions found</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {statusFilter === "pending" 
+              ? "All submitted payments have been verified. Switch to 'All' to view history." 
+              : "No records match the current filter or search criteria."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {filtered.map(item => {
+            const isPendingProof = item.status === "awaiting_proof";
+            const isConfirmed = item.status === "confirmed";
+            const isRejected = item.status === "rejected";
+            const isPendingReview = item.status === "pending_verification" || item.status === "pending" || item.status === "submitted";
+
+            const cardBorder = isConfirmed 
+              ? "border-emerald-300 border-l-[8px] border-l-emerald-600 bg-emerald-50/10"
+              : isRejected 
+                ? "border-red-300 border-l-[8px] border-l-red-600 bg-red-50/10"
+                : isPendingProof 
+                  ? "border-amber-300 border-l-[8px] border-l-amber-500 bg-amber-50/10"
+                  : "border-blue-300 border-l-[8px] border-l-blue-600 bg-blue-50/10";
+
+            return (
+              <div 
+                key={item.id} 
+                className={`bg-white border-2 rounded-2xl p-5 shadow-sm flex flex-col lg:flex-row lg:items-center gap-4 transition hover:shadow-md ${cardBorder}`}
+              >
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
+                  <Clock3 className={`w-7 h-7 ${isConfirmed ? "text-emerald-600" : isRejected ? "text-red-600" : "text-amber-600"}`}/>
+                </div>
+
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <h3 className="font-black text-slate-950 text-base">{item.tenant_name || "Tenant"}</h3>
+                    <span className="px-2.5 py-0.5 text-xs rounded-full bg-slate-100 text-slate-800 font-bold border border-slate-200">
+                      Room {item.room_number || "—"}
+                    </span>
+                    <span className="px-2.5 py-0.5 text-xs rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-200">
+                      {item.method === "GCASH" ? "📱 GCash" : "🏦 Bank Transfer"}
+                    </span>
+                    <span className={`px-2.5 py-0.5 text-xs rounded-full font-black uppercase border ${
+                      isConfirmed 
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
+                        : isRejected 
+                          ? "bg-red-50 text-red-800 border-red-200"
+                          : isPendingProof 
+                            ? "bg-amber-50 text-amber-800 border-amber-200"
+                            : "bg-blue-50 text-blue-800 border-blue-200"
+                    }`}>
+                      {isConfirmed ? "✅ Confirmed" : isRejected ? "❌ Rejected" : isPendingProof ? "⏳ Awaiting Proof" : "⏳ Pending Verification"}
+                    </span>
+                  </div>
+
+                  <div className="text-sm text-slate-700 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <span>Reference: <b className="text-slate-950">{item.reference || (item.receipt_url ? "See Screenshot" : "Not provided")}</b></span>
+                    <span>Amount Due/Claimed: <b className="text-[#8B2626]">₱{Number(item.amount_due || 0).toLocaleString()}</b></span>
+                    {item.verified_amount !== undefined && (
+                      <span>Verified Amount: <b className="text-emerald-700">₱{Number(item.verified_amount).toLocaleString()}</b></span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-500 font-medium">
+                    Submitted: {item.submitted_at ? new Date(item.submitted_at).toLocaleString("en-PH") : "Recently"}
+                    {item.id && <span className="ml-2 font-mono text-[11px] text-slate-400">({item.id})</span>}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  {item.receipt_url && (
+                    <span className="text-xs font-bold text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-200">
+                      <ImageIcon className="w-4 h-4"/> 
+                      <span>Receipt Attached</span>
+                    </span>
+                  )}
+                  <button 
+                    onClick={() => openItem(item)} 
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#8B2626] to-[#EF6905] text-white font-black text-xs sm:text-sm hover:opacity-95 shadow-xs transition"
+                  >
+                    Review Payment
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Review Modal */}
+      {selected && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/60 p-4 flex items-center justify-center backdrop-blur-xs" 
+          onMouseDown={e => { if (e.target === e.currentTarget) setSelected(null); }}
+        >
+          <div className="bg-white w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl shadow-2xl border border-slate-200">
+            <div className="sticky top-0 bg-white border-b border-slate-200 p-5 flex items-center justify-between z-10">
+              <div>
+                <h3 className="text-xl font-black text-slate-950">Review Payment Verification</h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-0.5">
+                  Tenant: <span className="text-slate-900 font-bold">{selected.tenant_name}</span> · Room <span className="text-slate-900 font-bold">{selected.room_number}</span> · ID: <span className="font-mono text-slate-600">{selected.id}</span>
+                </p>
+              </div>
+              <button 
+                onClick={() => setSelected(null)}
+                className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition"
+              >
+                <XCircle className="w-7 h-7"/>
+              </button>
+            </div>
+
+            <div className="p-6 grid lg:grid-cols-2 gap-6">
+              {/* Left Column: Submission Details & Receipt Image */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Payment Method</span>
+                    <strong className="text-slate-900 text-base mt-0.5 block">{selected.method === "GCASH" ? "📱 GCash" : "🏦 Bank Transfer"}</strong>
+                  </div>
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Reference Number</span>
+                    <strong className="text-slate-900 text-base mt-0.5 block font-mono">{selected.reference || "None provided"}</strong>
+                  </div>
+                </div>
+
+                {selected.receipt_url ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Tenant Payment Receipt:</span>
+                      <a 
+                        href={receiptSrc || `${selected.receipt_url}?token=${encodeURIComponent(authToken)}`} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="inline-flex items-center gap-1 text-xs font-black text-[#8B2626] hover:underline"
+                      >
+                        <span>Open full size</span>
+                        <ExternalLink className="w-3.5 h-3.5"/>
+                      </a>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50 p-2 flex items-center justify-center max-h-[460px]">
+                      <img 
+                        src={receiptSrc || `${selected.receipt_url}?token=${encodeURIComponent(authToken)}`} 
+                        alt="Tenant payment receipt" 
+                        className="w-full max-h-[440px] object-contain rounded-lg"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 bg-slate-50 rounded-xl text-center text-slate-500 border border-dashed border-slate-200">
+                    <FileText className="w-8 h-8 mx-auto text-slate-400 mb-1.5"/>
+                    <p className="font-bold text-sm">No receipt image was attached</p>
+                    <p className="text-xs text-slate-400 mt-1">Tenant submitted a reference number instead.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Verification Action Form */}
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <p className="font-black text-blue-950 text-sm flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-blue-700"/>
+                    <span>Property Manager Verification Checklist</span>
+                  </p>
+                  <ul className="text-xs text-blue-900 mt-2 list-disc ml-5 space-y-1 font-medium">
+                    <li>Log into your property GCash or Merchant bank account.</li>
+                    <li>Verify the transaction reference matches the received funds.</li>
+                    <li>Ensure the money has fully cleared before clicking Confirm.</li>
+                  </ul>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-slate-900">
+                    Verified Received Amount (₱)
+                    <input 
+                      value={amount} 
+                      onChange={e => setAmount(e.target.value)} 
+                      type="number" 
+                      min="0" 
+                      step="0.01" 
+                      placeholder="e.g. 13450"
+                      className="mt-1 w-full border border-slate-200 rounded-xl px-3.5 py-3 text-slate-950 font-bold focus:outline-none focus:ring-2 focus:ring-[#8B2626]"
+                    />
+                  </label>
+
+                  <label className="block text-sm font-bold text-slate-900">
+                    Admin Verification Note (Optional)
+                    <textarea 
+                      value={note} 
+                      onChange={e => setNote(e.target.value.slice(0, 300))} 
+                      className="mt-1 w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#8B2626]" 
+                      rows={3} 
+                      placeholder="e.g. Cleared via GCash Merchant account ref 9089293497"
+                    />
+                  </label>
+                </div>
+
+                {message && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs font-bold flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0"/>
+                    <span>{message}</span>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-3 border-t border-slate-200">
+                  <button 
+                    disabled={busy || selected.status === "awaiting_proof"} 
+                    onClick={() => verify("reject")} 
+                    className="flex-1 px-4 py-3 rounded-xl border-2 border-red-200 hover:bg-red-50 text-red-700 font-black text-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <XCircle className="w-4 h-4"/>
+                    <span>Reject</span>
+                  </button>
+
+                  <button 
+                    disabled={busy || selected.status === "awaiting_proof"} 
+                    onClick={() => verify("confirm")} 
+                    className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-4 h-4"/>
+                    <span>{busy ? "Processing…" : "Confirm & Post"}</span>
+                  </button>
+                </div>
+
+                {selected.status === "awaiting_proof" && (
+                  <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 font-medium">
+                    ⚠️ The tenant initiated this payment session but has not yet submitted their reference number or screenshot.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
+

@@ -36,6 +36,8 @@ export interface Tenant {
   advance_balance?: number;
   messenger_psid: string;
   facebook_psid?: string;
+  last_messenger_interaction_at?: string;
+  last_interaction_at?: string;
   status: 'active' | 'inactive' | 'moved_out';
   move_in_date: string;
 }
@@ -164,6 +166,40 @@ export interface TransactionLog {
   tenant_name?: string;
   room_number?: string;
   performed_by: string;
+  payment_id?: string;
+  admin_id?: string;
+  verified_amount?: number;
+  payment_method?: string;
+  reference_number?: string;
+  previous_status?: string;
+  new_status?: string;
+  confirmed_at?: string;
+  messenger_notification_status?: NotificationStatus;
+}
+
+export type NotificationStatus = 'NOT_SENT' | 'SENT' | 'FAILED_WINDOW_EXPIRED' | 'FAILED' | 'NOT_APPLICABLE';
+
+export interface PaymentSubmission {
+  id: string;
+  tenant_id: string;
+  tenant_name?: string;
+  room_number?: string;
+  method: 'GCASH' | 'BANK' | string;
+  reference?: string;
+  receipt_url?: string;
+  status: 'pending_verification' | 'awaiting_proof' | 'confirmed' | 'rejected' | 'cancelled' | string;
+  amount_due?: number;
+  verified_amount?: number;
+  submitted_at: string;
+  verified_at?: string;
+  verified_by?: string;
+  verification_note?: string;
+  billing_id?: string;
+  messenger_psid?: string;
+  source?: string;
+  notification_status?: NotificationStatus;
+  notification_error?: string;
+  notification_attempted_at?: string;
 }
 
 

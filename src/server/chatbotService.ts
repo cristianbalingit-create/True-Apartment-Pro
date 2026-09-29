@@ -344,7 +344,7 @@ export async function sendFacebookMessage(
   senderPsid: string,
   responsePayload: any,
   targetPageId?: string
-): Promise<{ success: boolean; error?: string; message_id?: string }> {
+): Promise<{ success: boolean; error?: string; message_id?: string; windowExpired?: boolean; code?: number; subcode?: number }> {
   const rawToken = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
   const PAGE_ACCESS_TOKEN = rawToken.replace(/^["']|["']$/g, "").trim();
 
@@ -560,30 +560,8 @@ export async function sendFacebookMessage(
       resData = resText;
     }
 
-    // Fallback: If outside 24-hour standard window (Meta Error #10), retry with MESSAGE_TAG
-    if (!res.ok && (resData?.error?.code === 10 || String(resData?.error?.message).toLowerCase().includes("outside of allowed window"))) {
-      console.warn("Messenger 24-hour window expired; retrying with MESSAGE_TAG CONFIRMED_EVENT_UPDATE...");
-      const taggedRequestBody = {
-        messaging_type: "MESSAGE_TAG",
-        tag: "CONFIRMED_EVENT_UPDATE",
-        recipient: { id: cleanPsid },
-        message: validMessagePayload
-      };
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
-        },
-        body: JSON.stringify(taggedRequestBody)
-      });
-      resText = await res.text();
-      try {
-        resData = JSON.parse(resText);
-      } catch {
-        resData = resText;
-      }
-    }
+    // Under Meta Messenger Platform policies, responses within the 24-hour window use standard messaging_type: "RESPONSE".
+    // If the 24-hour messaging window has expired, no deprecated tag or illegal retry will be attempted.
 
     if (!res.ok) {
       const rawErr = resData?.error || resData || {};
@@ -592,16 +570,29 @@ export async function sendFacebookMessage(
       delete errorBody.token;
       delete errorBody.secret;
 
+      const code = Number(errorBody.code || res.status);
+      const subcode = Number(errorBody.error_subcode || 0);
+      const errMsg = String(errorBody.message || "").toLowerCase();
+      const isWindowExpired = 
+        code === 10 || 
+        subcode === 2018278 || 
+        subcode === 2018001 || 
+        subcode === 1893061 || 
+        errMsg.includes("outside of allowed window") || 
+        errMsg.includes("window expired") || 
+        errMsg.includes("24-hour") ||
+        errMsg.includes("deprecated message tag");
+
       console.error("===== FACEBOOK SEND RESPONSE ERROR =====");
       console.error("HTTP STATUS:", res.status);
-      console.error("META ERROR:", JSON.stringify(errorBody, null, 2));
-      console.error("Facebook API Error Code:", errorBody.code || res.status);
-      console.error("Facebook API Error Subcode:", errorBody.error_subcode);
+      console.error("Facebook API Error Code:", code);
+      console.error("Facebook API Error Subcode:", subcode);
       console.error("Facebook API Error Message:", errorBody.message || "Unknown error");
-      console.error("Facebook API Error Type:", errorBody.type);
-      console.error("Facebook Trace ID:", errorBody.fbtrace_id);
+      if (isWindowExpired) {
+        console.warn("ℹ️ Messenger 24-hour window has expired for recipient. No message tag will be attempted.");
+      }
       console.error("Attempted Page ID:", effectivePageId);
-      console.error("Attempted Recipient PSID:", cleanPsid);
+      console.error("Attempted Recipient PSID:", cleanPsid ? `${cleanPsid.slice(0, 5)}***` : "unknown");
       if (errorBody.code === 10 && (errorBody.error_subcode === 1893063 || String(errorBody.message).includes("permission"))) {
         console.error("🚨 META ACCOUNT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. Learn more at https://facebook.com/policy/messenger.");
         if (errorBody.error_user_title) console.error("Error User Title:", errorBody.error_user_title);
@@ -614,14 +605,20 @@ export async function sendFacebookMessage(
         quickRepliesCount: validMessagePayload.quick_replies?.length
       }));
       const safeErrorMsg = errorBody.message || `Facebook Graph API responded with status ${res.status}`;
-      return { success: false, error: safeErrorMsg };
+      return { 
+        success: false, 
+        windowExpired: isWindowExpired, 
+        error: safeErrorMsg,
+        code,
+        subcode 
+      };
     } else {
-      console.log(`Successfully sent message to Facebook Messenger user: ${cleanPsid}`);
-      return { success: true, message_id: resData?.message_id };
+      console.log(`Successfully sent message to Facebook Messenger user: ${cleanPsid ? `${cleanPsid.slice(0, 5)}***` : "user"}`);
+      return { success: true, message_id: resData?.message_id, windowExpired: false };
     }
   } catch (error: any) {
     console.error("Error calling Facebook Graph API:", error);
-    return { success: false, error: error?.message || "Network error communicating with Facebook Graph API" };
+    return { success: false, windowExpired: false, error: error?.message || "Network error communicating with Facebook Graph API" };
   }
 }
 
@@ -2579,6 +2576,15 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   await dbService.ensureInitialized();
   const liveTenants = await dbService.getLiveTenants();
   let linkedTenant = liveTenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+  if (linkedTenant) {
+    const interactionTime = new Date().toISOString();
+    linkedTenant.last_messenger_interaction_at = interactionTime;
+    linkedTenant.last_interaction_at = interactionTime;
+    dbService.upsertDoc("tenants", linkedTenant.id, {
+      last_messenger_interaction_at: interactionTime,
+      last_interaction_at: interactionTime
+    }).catch(() => {});
+  }
   const textLower = messageText.toLowerCase().trim();
 
   // 1. Account linking workflow: "link <contact_number>" or "verify <contact_number>"

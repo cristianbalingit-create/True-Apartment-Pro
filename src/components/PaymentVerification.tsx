@@ -21,6 +21,7 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
   const [message, setMessage] = useState("");
   const [receiptSrc, setReceiptSrc] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<"pending" | "all" | "confirmed" | "rejected">("pending");
+  const [confirmationNotice, setConfirmationNotice] = useState<{ title: string; desc: string } | null>(null);
 
   const authToken = token || localStorage.getItem("apartmentpro_token") || "apt_session_admin_active";
 
@@ -111,12 +112,42 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
     setBusy(true); 
     setMessage("");
     try {
-      await api.verifyPayment(authToken, selected.id, action === "confirm" ? parsed : 0, action, note);
+      const res = await api.verifyPayment(authToken, selected.id, action === "confirm" ? parsed : 0, action, note);
       if (receiptSrc && receiptSrc.startsWith("blob:")) {
         URL.revokeObjectURL(receiptSrc);
       }
       setSelected(null);
       setReceiptSrc("");
+
+      if (action === "confirm") {
+        if (res.notificationStatus === "FAILED_WINDOW_EXPIRED") {
+          setConfirmationNotice({
+            title: "✅ Payment Confirmed Successfully",
+            desc: "⚠️ Messenger notification was not sent because the Messenger messaging window has expired."
+          });
+        } else if (res.notificationSent) {
+          setConfirmationNotice({
+            title: "✅ Payment Confirmed Successfully",
+            desc: "📨 Tenant notification: Sent via Messenger."
+          });
+        } else if (res.notificationStatus === "NOT_APPLICABLE") {
+          setConfirmationNotice({
+            title: "✅ Payment Confirmed Successfully",
+            desc: "Tenant notification: Not applicable (Tenant is not linked to Facebook Messenger)."
+          });
+        } else {
+          setConfirmationNotice({
+            title: "✅ Payment Confirmed Successfully",
+            desc: "⚠️ Tenant notification: Could not be delivered via Messenger."
+          });
+        }
+      } else {
+        setConfirmationNotice({
+          title: "❌ Payment Submission Rejected",
+          desc: "The payment submission has been rejected."
+        });
+      }
+
       await load();
       if (onRefresh) await onRefresh();
     } catch (e: any) { 
@@ -213,6 +244,27 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
         </div>
       </div>
 
+      {/* Confirmation & Action Notification Banner */}
+      {confirmationNotice && (
+        <div className="p-4 rounded-2xl bg-white border-2 border-emerald-500 shadow-md flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <Check className="w-5 h-5"/>
+            </div>
+            <div>
+              <h4 className="font-black text-slate-950 text-base">{confirmationNotice.title}</h4>
+              <p className="text-sm font-semibold text-slate-700 mt-0.5">{confirmationNotice.desc}</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setConfirmationNotice(null)} 
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+          >
+            <XCircle className="w-5 h-5"/>
+          </button>
+        </div>
+      )}
+
       {message && !selected && (
         <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm font-bold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 text-red-600"/>
@@ -279,9 +331,39 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
                             ? "bg-amber-50 text-amber-800 border-amber-200"
                             : "bg-blue-50 text-blue-800 border-blue-200"
                     }`}>
-                      {isConfirmed ? "✅ Confirmed" : isRejected ? "❌ Rejected" : isPendingProof ? "⏳ Awaiting Proof" : "⏳ Pending Verification"}
+                      {isConfirmed ? "✅ Payment Confirmed" : isRejected ? "❌ Rejected" : isPendingProof ? "⏳ Awaiting Proof" : "⏳ Pending Verification"}
                     </span>
                   </div>
+
+                  {isConfirmed && (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {item.notification_status === "SENT" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                          📨 Tenant Notification: Sent
+                        </span>
+                      )}
+                      {item.notification_status === "FAILED_WINDOW_EXPIRED" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300">
+                          ⚠️ Tenant Notification: Not sent — Messenger window expired
+                        </span>
+                      )}
+                      {item.notification_status === "FAILED" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-red-50 text-red-800 border border-red-200">
+                          ⚠️ Tenant Notification: Not sent — Delivery failed
+                        </span>
+                      )}
+                      {item.notification_status === "NOT_APPLICABLE" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          ℹ️ Tenant Notification: Not applicable (No Messenger)
+                        </span>
+                      )}
+                      {(!item.notification_status || item.notification_status === "NOT_SENT") && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                          ⏳ Tenant Notification: Not sent
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   <div className="text-sm text-slate-700 flex flex-wrap items-center gap-x-4 gap-y-1">
                     <span>Reference: <b className="text-slate-950">{item.reference || (item.receipt_url ? "See Screenshot" : "Not provided")}</b></span>
@@ -431,25 +513,67 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
                   </div>
                 )}
 
-                <div className="flex gap-3 pt-3 border-t border-slate-200">
-                  <button 
-                    disabled={busy || selected.status === "awaiting_proof"} 
-                    onClick={() => verify("reject")} 
-                    className="flex-1 px-4 py-3 rounded-xl border-2 border-red-200 hover:bg-red-50 text-red-700 font-black text-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  >
-                    <XCircle className="w-4 h-4"/>
-                    <span>Reject</span>
-                  </button>
+                {selected.status === "confirmed" ? (
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 space-y-2.5">
+                    <div className="flex items-center gap-2 text-emerald-950 font-black text-sm">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600"/>
+                      <span>✅ Payment Confirmed</span>
+                    </div>
+                    <div className="text-xs text-slate-700 space-y-1.5">
+                      <p>Verified Amount: <b className="text-emerald-800 font-black text-sm">₱{Number(selected.verified_amount || selected.amount_due || 0).toLocaleString()}</b></p>
+                      {selected.verified_at && (
+                        <p className="text-slate-500">Confirmed At: {new Date(selected.verified_at).toLocaleString("en-PH")}</p>
+                      )}
+                      <div className="pt-1">
+                        {selected.notification_status === "SENT" && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                            📨 Tenant Notification: Sent
+                          </span>
+                        )}
+                        {selected.notification_status === "FAILED_WINDOW_EXPIRED" && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black bg-amber-100 text-amber-950 border border-amber-300">
+                            ⚠️ Tenant Notification: Not sent — Messenger window expired
+                          </span>
+                        )}
+                        {selected.notification_status === "FAILED" && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black bg-red-100 text-red-900 border border-red-300">
+                            ⚠️ Tenant Notification: Not sent — Messenger error
+                          </span>
+                        )}
+                        {selected.notification_status === "NOT_APPLICABLE" && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black bg-slate-100 text-slate-800 border border-slate-300">
+                            ℹ️ Tenant Notification: Not applicable (No Messenger)
+                          </span>
+                        )}
+                        {(!selected.notification_status || selected.notification_status === "NOT_SENT") && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black bg-slate-100 text-slate-800 border border-slate-300">
+                            ⏳ Tenant Notification: Not sent
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-3 pt-3 border-t border-slate-200">
+                    <button 
+                      disabled={busy || selected.status === "awaiting_proof"} 
+                      onClick={() => verify("reject")} 
+                      className="flex-1 px-4 py-3 rounded-xl border-2 border-red-200 hover:bg-red-50 text-red-700 font-black text-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <XCircle className="w-4 h-4"/>
+                      <span>Reject</span>
+                    </button>
 
-                  <button 
-                    disabled={busy || selected.status === "awaiting_proof"} 
-                    onClick={() => verify("confirm")} 
-                    className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="w-4 h-4"/>
-                    <span>{busy ? "Processing…" : "Confirm & Post"}</span>
-                  </button>
-                </div>
+                    <button 
+                      disabled={busy || selected.status === "awaiting_proof"} 
+                      onClick={() => verify("confirm")} 
+                      className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-4 h-4"/>
+                      <span>{busy ? "Processing…" : "Confirm & Post"}</span>
+                    </button>
+                  </div>
+                )}
 
                 {selected.status === "awaiting_proof" && (
                   <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 font-medium">

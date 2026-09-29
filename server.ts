@@ -2027,17 +2027,41 @@ app.post("/api/payments/submissions/:id/verify", async (req, res) => {
   const action = req.body?.action === "reject" ? "reject" : req.body?.action === "confirm" ? "confirm" : "";
   const amount = Number(req.body?.amount);
   const note = String(req.body?.note || "").replace(/[<>`]/g, "").slice(0, 300);
+
   if (!id || !action || (action === "confirm" && (!Number.isFinite(amount) || amount <= 0))) {
-    return res.status(400).json({ message: "Invalid verification request" });
+    return res.status(400).json({ message: "Invalid verification request parameters" });
   }
 
+  // 1. Retrieve the payment record from Firestore before modifying it
   const submissions = await dbService.getLivePaymentSubmissions();
   const submission = submissions.find((x: any) => x.id === id);
   if (!submission) return res.status(404).json({ message: "Payment submission not found" });
-  if (submission.status !== "pending_verification") return res.status(409).json({ message: "This payment has already been processed" });
+
+  // 2. Prevent duplicate confirmation (Requirement 7 - Idempotency)
+  if (action === "confirm" && submission.status === "confirmed") {
+    return res.status(200).json({
+      success: true,
+      status: "confirmed",
+      paymentConfirmed: true,
+      alreadyConfirmed: true,
+      message: "Payment is already confirmed.",
+      notificationSent: submission.notification_status === "SENT",
+      notificationStatus: submission.notification_status || "NOT_SENT"
+    });
+  }
+
+  if (submission.status !== "pending_verification" && submission.status !== "awaiting_proof" && submission.status !== "pending" && submission.status !== "submitted") {
+    return res.status(409).json({ message: `This payment has already been processed (status: ${submission.status})` });
+  }
 
   const now = new Date().toISOString();
+
+  // 3. Handle REJECTION
   if (action === "reject") {
+    let rejectNotificationStatus: "NOT_SENT" | "SENT" | "FAILED_WINDOW_EXPIRED" | "FAILED" | "NOT_APPLICABLE" = "NOT_APPLICABLE";
+    let rejectNotificationSent = false;
+    let rejectNotificationMsg = "";
+
     const updated = await dbService.updatePaymentSubmission(id, {
       status: "rejected",
       verified_at: now,
@@ -2045,66 +2069,211 @@ app.post("/api/payments/submissions/:id/verify", async (req, res) => {
       verification_note: note || "Payment receipt was not verified."
     });
     if (!updated) return res.status(500).json({ message: "Could not update payment submission" });
+
     if (submission.messenger_psid) {
-      await sendFacebookMessage(submission.messenger_psid, { text: `⚠️ *PAYMENT NOT VERIFIED*\n\nHi ${submission.tenant_name || "Tenant"}, your ${submission.method === "GCASH" ? "GCash" : "bank"} payment submission could not be verified yet.\n\n${note || "Please check the transaction details and submit a valid receipt or reference number."}\n\nYou may submit the payment again through *💳 Send Payment*.`, quick_replies: [{ content_type: "text", title: "💳 Send Payment", payload: "SEND_PAYMENT" }] });
+      const submittedTime = submission.submitted_at ? new Date(submission.submitted_at).getTime() : 0;
+      const hoursSince = submittedTime > 0 ? (Date.now() - submittedTime) / (1000 * 60 * 60) : 999;
+      if (hoursSince >= 24) {
+        rejectNotificationStatus = "FAILED_WINDOW_EXPIRED";
+        rejectNotificationMsg = "Messenger notification was not sent because the Messenger messaging window has expired.";
+      } else {
+        const sendResult = await sendFacebookMessage(submission.messenger_psid, {
+          text: `⚠️ *PAYMENT NOT VERIFIED*\n\nHi ${submission.tenant_name || "Tenant"}, your ${submission.method === "GCASH" ? "GCash" : "bank"} payment submission could not be verified yet.\n\n${note || "Please check the transaction details and submit a valid receipt or reference number."}\n\nYou may submit the payment again through *💳 Send Payment*.`,
+          quick_replies: [{ content_type: "text", title: "💳 Send Payment", payload: "SEND_PAYMENT" }]
+        });
+        if (sendResult.success) {
+          rejectNotificationStatus = "SENT";
+          rejectNotificationSent = true;
+          rejectNotificationMsg = "Tenant notified via Messenger.";
+        } else if (sendResult.windowExpired) {
+          rejectNotificationStatus = "FAILED_WINDOW_EXPIRED";
+          rejectNotificationMsg = "Messenger notification was not sent because the Messenger messaging window has expired.";
+        } else {
+          rejectNotificationStatus = "FAILED";
+          rejectNotificationMsg = "Messenger notification could not be delivered.";
+        }
+      }
+      await dbService.updatePaymentSubmission(id, { 
+        notification_status: rejectNotificationStatus,
+        notification_attempted_at: now
+      });
     }
-    return res.json({ success: true, status: "rejected" });
+
+    return res.json({ 
+      success: true, 
+      status: "rejected", 
+      paymentConfirmed: false,
+      notificationSent: rejectNotificationSent,
+      notificationStatus: rejectNotificationStatus,
+      notificationMessage: rejectNotificationMsg
+    });
   }
 
-  // Find the tenant's oldest unpaid/overdue bill and post the verified amount against it.
+  // 4. Handle CONFIRMATION
+  // Find the tenant's oldest unpaid/overdue/partial bill
   await dbService.ensureInitialized();
   const state = dbService.getDB();
+
+  // Verify the tenant exists in the database (Requirement 8)
+  const tenant = (state.tenants || []).find((t: any) => t.id === submission.tenant_id);
+  if (!tenant) {
+    return res.status(404).json({ message: "Tenant associated with this payment submission was not found." });
+  }
+
   const bills = (state.billingRecords || []).filter((b: any) => b.tenant_id === submission.tenant_id && ["unpaid", "overdue", "partial"].includes(b.payment_status));
   bills.sort((a: any, b: any) => String(a.due_date || "").localeCompare(String(b.due_date || "")));
   const bill = bills[0];
-  if (!bill) return res.status(409).json({ message: "No unpaid or partially paid bill was found for this tenant. Verify the payment manually before confirming." });
+  if (!bill) {
+    return res.status(409).json({ message: "No unpaid or partially paid bill was found for this tenant. Verify the payment manually before confirming." });
+  }
+
+  // Verify the bill belongs to the correct tenant (Requirement 8)
+  if (bill.tenant_id !== submission.tenant_id) {
+    return res.status(403).json({ message: "Payment record tenant does not match billing tenant." });
+  }
+
+  // Use server-side verified payment amount with safe boundary checks (Requirement 8)
+  const verifiedAmount = (Number.isFinite(amount) && amount > 0) ? amount : Number(submission.amount_due || 0);
+  if (!Number.isFinite(verifiedAmount) || verifiedAmount <= 0 || verifiedAmount > 1000000) {
+    return res.status(400).json({ message: "Invalid payment amount for confirmation." });
+  }
 
   const billTotal = Number(bill.total_amount || 0);
   const currentPaid = Number(bill.paid_amount || 0);
-  const newPaid = currentPaid + amount;
+  const newPaid = currentPaid + verifiedAmount;
   const newStatus = newPaid >= billTotal ? "paid" : "partial";
   const remaining = Math.max(0, billTotal - newPaid);
+  const previousStatus = submission.status || "pending_verification";
 
+  // STEP 1: Update payment status = CONFIRMED in Firestore immediately (Requirement 2)
+  // The payment confirmation succeeds independently of whether Messenger can notify the tenant.
+  const updatedSubmission = await dbService.updatePaymentSubmission(id, {
+    status: "confirmed",
+    verified_at: now,
+    verified_by: "admin",
+    verified_amount: verifiedAmount,
+    billing_id: bill.id,
+    verification_note: note || "Payment verified by management.",
+    notification_status: "NOT_SENT",
+    notification_attempted_at: now
+  });
+  if (!updatedSubmission) {
+    console.warn(`[Payment Verification] Note: updatePaymentSubmission for ${id} returned false.`);
+  }
+
+  // STEP 2: Update tenant billing/ledger (Requirement 2)
+  const safeRef = submission.reference ? String(submission.reference).replace(/[<>`]/g, "").slice(0, 30) : "Receipt Verified";
   await dbService.upsertDoc("billingRecords", bill.id, {
     paid_amount: newPaid,
     payment_status: newStatus,
     last_payment_method: submission.method,
-    last_payment_reference: submission.reference || "",
+    last_payment_reference: safeRef,
     last_payment_verified_at: now,
-    notes: `${bill.notes || ""}${bill.notes ? "\n" : ""}Verified Messenger payment ${submission.id} (${submission.method})${submission.reference ? ` ref ${submission.reference}` : ""}: ₱${amount.toFixed(2)} on ${now}.`
+    notes: `${bill.notes || ""}${bill.notes ? "\n" : ""}Verified Messenger payment ${submission.id} (${submission.method})${submission.reference ? ` ref ${safeRef}` : ""}: ₱${verifiedAmount.toFixed(2)} on ${now}.`
   });
 
-  const updated = await dbService.updatePaymentSubmission(id, {
-    status: "confirmed",
-    verified_at: now,
-    verified_by: "admin",
-    verified_amount: amount,
-    billing_id: bill.id,
-    verification_note: note || "Payment verified by management."
-  });
-  if (!updated) return res.status(500).json({ message: "Payment was posted but submission status could not be updated. Check the payment record before retrying." });
-
-  const logId = `log-payment-${Date.now()}`;
-  await dbService.upsertDoc("transactionLogs", logId, {
-    id: logId,
+  // STEP 3: Create transaction/audit record (Requirement 2 & Requirement 9)
+  const auditId = `audit-pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  await dbService.upsertDoc("transactionLogs", auditId, {
+    id: auditId,
+    timestamp: now,
+    created_at: now,
     category: "payment",
     action: "payment",
-    title: "Messenger Payment Verified",
-    details: `${submission.tenant_name || "Tenant"} (${submission.method}) payment ₱${amount.toFixed(2)} verified against ${bill.invoice_number || bill.id}.`,
-    created_at: now,
+    title: "Payment Verified",
+    details: `${submission.tenant_name || "Tenant"} (${submission.method}) payment ₱${verifiedAmount.toFixed(2)} verified against ${bill.invoice_number || bill.id}.`,
+    payment_id: submission.id,
+    tenant_id: submission.tenant_id,
+    admin_id: "admin",
+    verified_amount: verifiedAmount,
+    payment_method: submission.method,
+    reference_number: safeRef,
+    previous_status: previousStatus,
+    new_status: "confirmed",
+    confirmed_at: now,
+    messenger_notification_status: "NOT_SENT",
     performed_by: "Property Manager (Admin)"
   });
 
+  // STEP 4: Check Messenger notification eligibility (Requirement 2 & Requirement 4)
+  let notificationStatus: "NOT_SENT" | "SENT" | "FAILED_WINDOW_EXPIRED" | "FAILED" | "NOT_APPLICABLE" = "NOT_APPLICABLE";
+  let notificationSent = false;
+  let notificationMessage = "";
+
   if (submission.messenger_psid) {
-    const statusText = newStatus === "paid" ? "PAID" : "PARTIALLY PAID";
-    const balanceText = remaining > 0 ? `\n💰 Remaining balance: ₱${remaining.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : "\n🎉 Your bill is fully settled.";
-    await sendFacebookMessage(submission.messenger_psid, {
-      text: `✅ *PAYMENT CONFIRMED*\n\nHi ${submission.tenant_name || "Tenant"}, your ${submission.method === "GCASH" ? "GCash" : "bank transfer"} payment has been verified by ApartmentPro.\n\n💵 Amount received: ₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}\n🧾 Reference: ${submission.reference || "Receipt verified"}\n📋 Bill: ${bill.billing_month || bill.id}\n📌 Status: *${statusText}*${balanceText}\n\nThank you!`,
-      quick_replies: standardQuickReplies
-    });
+    const submittedTime = submission.submitted_at ? new Date(submission.submitted_at).getTime() : 0;
+    const tenantLastInteraction = tenant.last_messenger_interaction_at || tenant.last_interaction_at;
+    const tenantTime = tenantLastInteraction ? new Date(tenantLastInteraction).getTime() : 0;
+    const lastInteractionTime = Math.max(submittedTime, tenantTime);
+    const hoursSinceInteraction = lastInteractionTime > 0 ? (Date.now() - lastInteractionTime) / (1000 * 60 * 60) : 999;
+
+    // Requirement 4: Check if eligible for normal 24-hour messaging window
+    if (hoursSinceInteraction >= 24) {
+      // Window expired! DO NOT attempt message tag or deprecated messaging fallbacks!
+      notificationStatus = "FAILED_WINDOW_EXPIRED";
+      notificationSent = false;
+      notificationMessage = "Messenger notification was not sent because the Messenger messaging window has expired.";
+      console.warn(`[Payment Confirmation] Messenger window expired (${hoursSinceInteraction.toFixed(1)}h). Skipping Messenger send.`);
+    } else {
+      // Eligible: send standard response within 24h window (NO DEPRECATED TAGS)
+      try {
+        const statusText = newStatus === "paid" ? "PAID" : "PARTIALLY PAID";
+        const formattedAmount = verifiedAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const methodName = submission.method === "GCASH" ? "GCash" : (submission.method || "Bank Transfer");
+
+        const confirmationText = `✅ PAYMENT CONFIRMED\n\nYour payment has been verified by ApartmentPro.\n\nPayment Method: ${methodName}\nAmount Received: ₱${formattedAmount}\nReference: ${safeRef}\nStatus: ${statusText}\n\nThank you!`;
+
+        const sendResult = await sendFacebookMessage(submission.messenger_psid, {
+          text: confirmationText,
+          quick_replies: standardQuickReplies
+        });
+
+        if (sendResult.success) {
+          notificationStatus = "SENT";
+          notificationSent = true;
+          notificationMessage = "Tenant notified via Messenger.";
+        } else if (sendResult.windowExpired) {
+          notificationStatus = "FAILED_WINDOW_EXPIRED";
+          notificationSent = false;
+          notificationMessage = "Messenger notification was not sent because the Messenger messaging window has expired.";
+        } else {
+          notificationStatus = "FAILED";
+          notificationSent = false;
+          notificationMessage = "Messenger notification could not be delivered.";
+        }
+      } catch (err: any) {
+        console.error("[Payment Confirmation] Messenger send error:", err?.message || err);
+        notificationStatus = "FAILED";
+        notificationSent = false;
+        notificationMessage = "Messenger notification could not be delivered.";
+      }
+    }
+  } else {
+    notificationStatus = "NOT_APPLICABLE";
+    notificationMessage = "No Messenger account linked to this tenant.";
   }
 
-  return res.json({ success: true, status: "confirmed", billingStatus: newStatus, remainingBalance: remaining });
+  // STEP 5: Record notification status in payment submission & audit log
+  await dbService.updatePaymentSubmission(id, {
+    notification_status: notificationStatus,
+    notification_attempted_at: now
+  });
+  await dbService.upsertDoc("transactionLogs", auditId, {
+    messenger_notification_status: notificationStatus,
+    details: `${submission.tenant_name || "Tenant"} (${submission.method}) payment ₱${verifiedAmount.toFixed(2)} verified against ${bill.invoice_number || bill.id}. Messenger notification: ${notificationStatus}.`
+  });
+
+  // STEP 6: Return Confirmation Result to Admin (Requirement 2 & Requirement 10)
+  return res.json({
+    success: true,
+    paymentConfirmed: true,
+    status: "confirmed",
+    notificationSent,
+    notificationStatus,
+    notificationMessage,
+    billingStatus: newStatus,
+    remainingBalance: remaining
+  });
 });
 
 // 9. IMAGE UPLOAD ENDPOINT (Receives Base64, uploads to Firebase Storage or persistent fallback, returns URL)

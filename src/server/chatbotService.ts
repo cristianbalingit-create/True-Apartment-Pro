@@ -26,6 +26,16 @@ export const standardQuickReplies = [
   { content_type: "text", title: "📜 Rules", payload: "VIEW_RULES" }
 ];
 
+export const paymentMethodQuickReplies = [
+  { content_type: "text", title: "📱 GCash", payload: "PAY_GCASH" },
+  { content_type: "text", title: "🏦 Bank Transfer", payload: "PAY_BANK" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_PAYMENT" }
+];
+
+export const paymentCancelQuickReplies = [
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_PAYMENT" }
+];
+
 // Lazy Gemini AI Client initialization
 let aiClient: GoogleGenAI | null = null;
 export function getAIClient(): GoogleGenAI | null {
@@ -988,6 +998,7 @@ export interface ChatbotReplyPayload {
   session_step?: string;
   is_maintenance_form?: boolean;
   create_ticket?: boolean;
+  follow_up_image_url?: string;
   ticket_details?: {
     category: MaintenanceCategory;
     priority: MaintenanceSeverity;
@@ -1378,6 +1389,116 @@ export async function createMaintenanceTicketRecord(
   }
 
   return { success: true, ticketId, reply: tenantConfirmation };
+}
+
+interface PaymentSession {
+  psid: string;
+  tenantId: string;
+  method: "GCASH" | "BANK";
+  step: "METHOD_SELECTED";
+  updatedAt: number;
+}
+
+function sanitizePaymentReference(raw: string): string {
+  return raw.replace(/[<>\"'`]/g, "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function isPlausiblePaymentReference(value: string): boolean {
+  const normalized = value.replace(/^reference\s*(number)?\s*[:#-]?\s*/i, "")
+    .replace(/^transaction\s*(number|no\.?)*\s*[:#-]?\s*/i, "")
+    .replace(/^ref\s*[:#-]?\s*/i, "")
+    .trim();
+  return /[A-Za-z0-9]{6,40}/.test(normalized) && normalized.length <= 80;
+}
+
+async function getPaymentSession(psid: string): Promise<PaymentSession | null> {
+  const session = await dbService.getPaymentSession(psid);
+  if (!session) return null;
+  if (Date.now() - Number(session.updatedAt || 0) > 2 * 60 * 60 * 1000) {
+    await dbService.clearPaymentSession(psid);
+    return null;
+  }
+  return session as PaymentSession;
+}
+
+async function savePaymentSession(session: PaymentSession): Promise<void> {
+  await dbService.savePaymentSession(session.psid, session);
+}
+
+async function clearPaymentSession(psid: string): Promise<void> {
+  await dbService.clearPaymentSession(psid);
+}
+
+async function persistPaymentReceipt(attachmentUrl: string): Promise<string> {
+  if (!attachmentUrl || !/^https?:\/\//i.test(attachmentUrl)) return "";
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(attachmentUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return "";
+
+    const contentType = (res.headers.get("content-type") || "").split(";")[0].toLowerCase();
+    if (!contentType.startsWith("image/")) return "";
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const maxBytes = 5 * 1024 * 1024;
+    if (!buffer.length || buffer.length > maxBytes) return "";
+
+    const ext = contentType.includes("png") ? ".png" : contentType.includes("webp") ? ".webp" : ".jpg";
+    const base64 = `data:${contentType};base64,${buffer.toString("base64")}`;
+    const result = await dbService.uploadFile(`payment_receipt_${Date.now()}${ext}`, base64);
+    return result?.url || "";
+  } catch (err: any) {
+    console.warn("Payment receipt persistence failed:", err?.message || err);
+    return "";
+  }
+}
+
+function paymentMethodDetails(method: "GCASH" | "BANK"): string {
+  if (method === "GCASH") {
+    const name = process.env.APARTMENTPRO_GCASH_NAME || "ApartmentPro Property Management";
+    const number = process.env.APARTMENTPRO_GCASH_NUMBER || "NOT CONFIGURED";
+    return `📱 *GCASH PAYMENT*\n\n*Account Name:* ${name}\n*GCash Number:* ${number}\n\nPlease double-check the recipient details before sending.\n\nAfter payment, reply with either:\n• 🧾 your *transaction/reference number*, or\n• 📸 a *screenshot/photo of your payment receipt*.\n\n⚠️ Your payment will remain *PENDING VERIFICATION* until management confirms it.`;
+  }
+
+  const bank = process.env.APARTMENTPRO_BANK_NAME || "BANK NAME NOT CONFIGURED";
+  const accountName = process.env.APARTMENTPRO_BANK_ACCOUNT_NAME || "ApartmentPro Property Management";
+  const accountNumber = process.env.APARTMENTPRO_BANK_ACCOUNT_NUMBER || "NOT CONFIGURED";
+  return `🏦 *BANK TRANSFER*\n\n*Bank:* ${bank}\n*Account Name:* ${accountName}\n*Account Number:* ${accountNumber}\n\nPlease double-check the recipient details before sending.\n\nAfter payment, reply with either:\n• 🧾 your *transaction/reference number*, or\n• 📸 a *screenshot/photo of your payment receipt*.\n\n⚠️ Your payment will remain *PENDING VERIFICATION* until management confirms it.`;
+}
+
+function paymentMethodQrUrl(method: "GCASH" | "BANK"): string {
+  const value = method === "GCASH" ? process.env.APARTMENTPRO_GCASH_QR_URL : process.env.APARTMENTPRO_BANK_QR_URL;
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim()) ? value.trim() : "";
+}
+
+async function recordPaymentAdminNotice(submission: any): Promise<void> {
+  const ref = String(submission.reference || "");
+  const maskedRef = ref ? `${ref.slice(0, Math.max(0, ref.length - 4)).replace(/./g, "*")}${ref.slice(-4)}` : "Receipt image attached";
+  const methodLabel = submission.method === "GCASH" ? "GCash" : "Bank Transfer";
+  const message = `💳 Payment confirmation received from ${submission.tenant_name} (Room ${submission.room_number}) via ${methodLabel}. Reference: ${maskedRef}. Status: PENDING VERIFICATION.`;
+
+  await dbService.upsertDoc("notifications", `notif-pay-${submission.id}`, {
+    tenant_id: submission.tenant_id,
+    tenant_name: submission.tenant_name,
+    message,
+    type: "general",
+    status: "sent",
+    channel: "in_app",
+    created_at: new Date().toISOString()
+  });
+
+  await dbService.upsertDoc("transactionLogs", `log-pay-${submission.id}`, {
+    category: "payment",
+    action: "payment",
+    title: "Messenger Payment Confirmation Submitted",
+    details: message,
+    tenant_id: submission.tenant_id,
+    tenant_name: submission.tenant_name,
+    room_number: submission.room_number,
+    performed_by: "Messenger Bot"
+  });
 }
 
 // Core ApartmentPro Chatbot Engine
@@ -1942,6 +2063,104 @@ Tenant Profile:
     }
 
     // =========================================================================
+    // PAYMENT METHOD / RECEIPT WORKFLOW
+    // SECURITY: Only linked tenants can initiate or submit payment confirmations.
+    // Receipts/references are stored as pending verification; no payment is auto-posted.
+    // =========================================================================
+    const paymentSession = await getPaymentSession(senderPsid);
+    const isPaymentMethodSelection = textLower === "pay_gcash" || textLower === "pay_bank" ||
+      textLower === "gcash" || textLower === "bank transfer" || textLower === "bank";
+    const isPaymentCancel = textLower === "cancel_payment" || textLower === "❌ cancel";
+
+    if (isPaymentCancel && paymentSession) {
+      await clearPaymentSession(senderPsid);
+      return { text: "Payment submission cancelled. No payment was recorded.", quick_replies: standardQuickReplies };
+    }
+
+    if (isPaymentMethodSelection) {
+      if (!tenantObj) {
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, you must link your ApartmentPro tenant account before submitting a payment.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
+      }
+
+      const method: "GCASH" | "BANK" = textLower === "pay_bank" || textLower === "bank" || textLower === "bank transfer" ? "BANK" : "GCASH";
+      await savePaymentSession({ psid: senderPsid, tenantId: tenantObj.id, method, step: "METHOD_SELECTED", updatedAt: Date.now() });
+      const qrUrl = paymentMethodQrUrl(method);
+      return {
+        text: paymentMethodDetails(method),
+        quick_replies: paymentCancelQuickReplies,
+        ...(qrUrl ? { follow_up_image_url: qrUrl } : {})
+      };
+    }
+
+    if (paymentSession && tenantObj && paymentSession.tenantId === tenantObj.id) {
+      if (attachmentUrl) {
+        const receiptUrl = await persistPaymentReceipt(attachmentUrl);
+        if (!receiptUrl) {
+          return {
+            text: "⚠️ I couldn't securely save that payment receipt. Please send the screenshot again as an image (JPG, PNG, or WEBP) under 5 MB.",
+            quick_replies: paymentCancelQuickReplies
+          };
+        }
+
+        const submission = {
+          id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          tenant_id: tenantObj.id,
+          tenant_name: tenantObj.name,
+          room_number: roomNum,
+          method: paymentSession.method,
+          reference: "",
+          receipt_url: receiptUrl,
+          status: "pending_verification",
+          amount_due: Number(outstandingBalance || 0),
+          submitted_at: new Date().toISOString(),
+          source: "messenger"
+        };
+        const saved = await dbService.savePaymentSubmissionToFirestore(submission);
+        if (!saved) {
+          return { text: "⚠️ We couldn't save your payment receipt right now. Please try again.", quick_replies: paymentCancelQuickReplies };
+        }
+        await recordPaymentAdminNotice(submission);
+        await clearPaymentSession(senderPsid);
+        return {
+          text: `✅ *PAYMENT RECEIPT RECEIVED*\n\nThank you, *${tenantObj.name}*. Your ${paymentSession.method === "GCASH" ? "GCash" : "bank"} receipt was securely submitted.\n\n🧾 Status: *PENDING VERIFICATION*\n📅 Submitted: ${new Date().toLocaleString("en-PH")}\n\nManagement will verify the transaction before updating your official ledger.`,
+          quick_replies: standardQuickReplies
+        };
+      }
+
+      const reference = sanitizePaymentReference(textTrimmed);
+      if (isPlausiblePaymentReference(reference)) {
+        const submission = {
+          id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          tenant_id: tenantObj.id,
+          tenant_name: tenantObj.name,
+          room_number: roomNum,
+          method: paymentSession.method,
+          reference,
+          receipt_url: "",
+          status: "pending_verification",
+          amount_due: Number(outstandingBalance || 0),
+          submitted_at: new Date().toISOString(),
+          source: "messenger"
+        };
+        const saved = await dbService.savePaymentSubmissionToFirestore(submission);
+        if (!saved) {
+          return { text: "⚠️ We couldn't save your payment reference right now. Please try again.", quick_replies: paymentCancelQuickReplies };
+        }
+        await recordPaymentAdminNotice(submission);
+        await clearPaymentSession(senderPsid);
+        return {
+          text: `✅ *PAYMENT REFERENCE RECEIVED*\n\nThank you, *${tenantObj.name}*.\n\n🧾 Reference: *${reference}*\n💳 Method: *${paymentSession.method === "GCASH" ? "GCash" : "Bank Transfer"}*\n📌 Status: *PENDING VERIFICATION*\n\nManagement will verify the transaction before updating your official ledger.`,
+          quick_replies: standardQuickReplies
+        };
+      }
+
+      return {
+        text: "🧾 Please send your payment transaction/reference number, or attach a screenshot/photo of your payment receipt.\n\nFor security, payment status will only be updated after management verification.",
+        quick_replies: paymentCancelQuickReplies
+      };
+    }
+
+    // =========================================================================
     // PRIORITY 3: NON-MAINTENANCE INTENTS (LEDGER, PAYMENT, BALANCE, RULES)
     // =========================================================================
 
@@ -2000,69 +2219,24 @@ Tenant Profile:
       return historyText;
     }
 
-    // 2. SEND PAYMENT & PAYMENT CHANNELS
-    if (text === "send_payment" || text === "pay" || text === "💳 send payment" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent") || text.includes("bank account") || text.includes("gcash") || text.includes("maya")) {
-      let payMsg = `💳 *HOW TO SEND YOUR RENT PAYMENT*\n\n`;
-
-      if (tenantObj) {
-        payMsg += `👤 *Tenant:* ${tenantObj.name} (Room ${roomNum})\n` +
-          `💵 *Current Amount Due:* ₱${Number(outstandingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}\n` +
-          `📅 *Due Date:* ${nextDueDate} ${nextDueMonth ? `(${nextDueMonth})` : ""}\n\n`;
+    // 2. SEND PAYMENT — require the tenant to choose a payment method first.
+    if (text === "send_payment" || text === "pay" || text === "💳 send payment" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent")) {
+      if (!tenantObj) {
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, please link your ApartmentPro tenant account before accessing payment instructions.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
       }
-
-      payMsg += `Please settle your payments through any of our official channels:\n\n` +
-        `📱 *GCash / Maya (Instant)*\n` +
-        `• Account Name: ApartmentPro Property Management\n` +
-        `• Mobile Number: 0917-888-9999\n\n` +
-        `🏦 *Bank Transfer / Online Banking*\n` +
-        `• Bank: BDO Unibank (Current Account)\n` +
-        `• Account Name: ApartmentPro Estates Inc.\n` +
-        `• Account Number: 0012-3456-7890\n\n` +
-        `• Bank: BPI (Bank of the Philippine Islands)\n` +
-        `• Account Name: ApartmentPro Estates Inc.\n` +
-        `• Account Number: 0987-6543-2100\n\n` +
-        `-----------------------------------\n` +
-        `📸 *PAYMENT CONFIRMATION INSTRUCTIONS:*\n` +
-        `After completing your transfer, simply reply here with your reference details:\n` +
-        `👉 Type: *paid <amount> ref <reference_number>*\n` +
-        `Example: *paid 13450 ref 987654321*\n\n` +
-        `Our administration will immediately verify and update your official ledger!`;
-
-      return payMsg;
+      return {
+        text: `💳 *HOW WOULD YOU LIKE TO PAY?*\n\n👤 *Tenant:* ${tenantObj.name} (Room ${roomNum})\n💵 *Current Amount Due:* ₱${Number(outstandingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}\n📅 *Due Date:* ${nextDueDate}\n\nPlease choose your payment method:`,
+        quick_replies: paymentMethodQuickReplies
+      };
     }
 
-    // 3. SUBMITTING PAYMENT REFERENCE
-    if (text.startsWith("paid ") || (text.includes("ref") && (text.includes("gcash") || text.includes("bdo") || text.includes("bpi") || text.includes("transfer") || text.includes("payment")))) {
-      const senderName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 6)})`;
-      const senderRoom = tenantObj ? `Room ${roomNum}` : "Unlinked Room";
-
-      logTransaction(db, {
-        category: "payment",
-        action: "create",
-        title: "Payment Reference Submitted via Messenger",
-        details: `Tenant ${senderName} (${senderRoom}) submitted payment reference: "${msg}". Awaiting admin verification and invoice clearing.`,
-        tenant_id: tenantObj?.id || "guest",
-        tenant_name: senderName,
-        room_number: roomNum
-      });
-
-      if (!db.notifications) db.notifications = [];
-      db.notifications.push({
-        id: `notif-pay-${Date.now()}`,
-        tenant_id: tenantObj?.id || "guest",
-        tenant_name: senderName,
-        message: `💳 Payment Reference Received via Messenger from ${senderName} (${senderRoom}): "${msg}". Please verify bank/GCash deposit.`,
-        type: "general" as const,
-        status: "sent" as const,
-        channel: "in_app" as const,
-        created_at: new Date().toISOString()
-      });
-      writeDB(db);
-
-      return `✅ *PAYMENT REFERENCE SUBMITTED!*\n\n` +
-        `Thank you, *${senderName}*! We have successfully registered your payment submission:\n` +
-        `📝 Reference Details: "${msg}"\n\n` +
-        `Our property management team has been notified. Once verified against our bank records, your statement status will automatically update to PAID.`;
+    // 3. LEGACY PAYMENT REFERENCE FORMAT
+    // Accept `paid ... ref ...` only for linked tenants, but require method context.
+    if (text.startsWith("paid ")) {
+      if (!tenantObj) {
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nPlease link your tenant account before submitting payment information.`;
+      }
+      return `🧾 Please tap *💳 Send Payment* first, choose *GCash* or *Bank Transfer*, then send your transaction/reference number or receipt screenshot.\n\nThis keeps your payment method and submission securely associated with your account.`;
     }
 
     // 4. BALANCES, DUE DATES, ESCROWS
@@ -2258,6 +2432,7 @@ export async function queryChatbotWithResult(
   reply: string;
   intent: string;
   create_ticket?: boolean;
+  follow_up_image_url?: string;
   ticket_details?: {
     category: MaintenanceCategory;
     priority: MaintenanceSeverity;
@@ -2450,7 +2625,22 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     if (typeof botReply === "string") {
       await sendFacebookMessage(senderPsid, { text: botReply }, webhookPageId);
     } else {
-      await sendFacebookMessage(senderPsid, botReply, webhookPageId);
+      const replyPayload: any = { ...botReply };
+      const followUpImageUrl = typeof replyPayload.follow_up_image_url === "string"
+        ? replyPayload.follow_up_image_url.trim()
+        : "";
+      delete replyPayload.follow_up_image_url;
+
+      await sendFacebookMessage(senderPsid, replyPayload, webhookPageId);
+
+      if (followUpImageUrl && /^https?:\/\//i.test(followUpImageUrl)) {
+        await sendFacebookMessage(senderPsid, {
+          attachment: {
+            type: "image",
+            payload: { url: followUpImageUrl, is_reusable: false }
+          }
+        }, webhookPageId);
+      }
     }
   } catch (err) {
     console.error("Failed to process chatbot reply:", err);

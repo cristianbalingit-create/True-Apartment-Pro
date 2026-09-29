@@ -45,6 +45,8 @@ export interface DBState {
   depositLedger: DepositLedgerEntry[];
   transactionLogs: TransactionLog[];
   maintenanceSessions?: Record<string, any>;
+  paymentSessions?: Record<string, any>;
+  paymentSubmissions?: any[];
 }
 
 export const DB_COLLECTIONS: (keyof DBState)[] = [
@@ -58,7 +60,8 @@ export const DB_COLLECTIONS: (keyof DBState)[] = [
   "announcements",
   "rules",
   "depositLedger",
-  "transactionLogs"
+  "transactionLogs",
+  "paymentSubmissions"
 ];
 
 // Load local config file if exists
@@ -340,6 +343,7 @@ class DatabaseService {
       rules: [],
       depositLedger: [],
       transactionLogs: [],
+      paymentSubmissions: [],
       maintenanceSessions: {}
     };
     return this.inMemoryCache;
@@ -358,6 +362,10 @@ class DatabaseService {
       rules: Array.isArray(parsed.rules) ? parsed.rules : [],
       depositLedger: Array.isArray(parsed.depositLedger) ? parsed.depositLedger : [],
       transactionLogs: Array.isArray(parsed.transactionLogs) ? parsed.transactionLogs : [],
+      paymentSubmissions: Array.isArray(parsed.paymentSubmissions) ? parsed.paymentSubmissions : [],
+      paymentSessions: (parsed && typeof parsed.paymentSessions === "object" && parsed.paymentSessions !== null)
+        ? parsed.paymentSessions
+        : (this.inMemoryCache?.paymentSessions || {}),
       maintenanceSessions: (parsed && typeof parsed.maintenanceSessions === "object" && parsed.maintenanceSessions !== null)
         ? parsed.maintenanceSessions
         : (this.inMemoryCache?.maintenanceSessions || {})
@@ -689,6 +697,95 @@ class DatabaseService {
 
     const db = this.getDB();
     return db.maintenanceRequests || [];
+  }
+
+  // Persistent Messenger payment session management for serverless runtimes
+  public async getPaymentSession(psid: string): Promise<any | null> {
+    const db = this.getDB();
+    if (db.paymentSessions?.[psid]) return db.paymentSessions[psid];
+
+    if (this.isConnectedToFirestore) {
+      try {
+        if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+          const snap = await this.adminFirestore.collection("paymentSessions").doc(psid).get();
+          if (snap.exists) {
+            const session = snap.data();
+            db.paymentSessions = db.paymentSessions || {};
+            db.paymentSessions[psid] = session;
+            return session;
+          }
+        } else if (this.clientFirestore) {
+          const snap = await clientGetDoc(clientDoc(this.clientFirestore, "paymentSessions", psid));
+          if (snap.exists()) {
+            const session = snap.data();
+            db.paymentSessions = db.paymentSessions || {};
+            db.paymentSessions[psid] = session;
+            return session;
+          }
+        }
+      } catch (err: any) {
+        console.warn("Failed to retrieve payment session:", err?.message || err);
+      }
+    }
+    return null;
+  }
+
+  public async savePaymentSession(psid: string, session: any): Promise<void> {
+    const db = this.getDB();
+    db.paymentSessions = db.paymentSessions || {};
+    db.paymentSessions[psid] = { ...session, psid, updatedAt: Date.now() };
+    this.saveFallbackFile(db);
+
+    if (this.isConnectedToFirestore) {
+      try {
+        const cleanSession = stripUndefined({ ...session, psid, updatedAt: Date.now() });
+        if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+          await this.adminFirestore.collection("paymentSessions").doc(psid).set(cleanSession, { merge: true });
+        } else if (this.clientFirestore) {
+          await clientSetDoc(clientDoc(this.clientFirestore, "paymentSessions", psid), cleanSession, { merge: true });
+        }
+      } catch (err: any) {
+        console.warn("Failed to persist payment session:", err?.message || err);
+      }
+    }
+  }
+
+  public async clearPaymentSession(psid: string): Promise<void> {
+    const db = this.getDB();
+    if (db.paymentSessions?.[psid]) {
+      delete db.paymentSessions[psid];
+      this.saveFallbackFile(db);
+    }
+    if (this.isConnectedToFirestore) {
+      try {
+        if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+          await this.adminFirestore.collection("paymentSessions").doc(psid).delete();
+        } else if (this.clientFirestore) {
+          await clientDeleteDoc(clientDoc(this.clientFirestore, "paymentSessions", psid));
+        }
+      } catch (err: any) {
+        console.warn("Failed to clear payment session:", err?.message || err);
+      }
+    }
+  }
+
+  public async savePaymentSubmissionToFirestore(submission: any): Promise<boolean> {
+    await this.ensureInitialized();
+    const docId = String(submission.id);
+    const cleanSubmission = stripUndefined({ ...submission, id: docId });
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        await this.adminFirestore.collection("paymentSubmissions").doc(docId).set(cleanSubmission, { merge: true });
+        return true;
+      }
+      if (this.clientFirestore) {
+        await clientSetDoc(clientDoc(this.clientFirestore, "paymentSubmissions", docId), cleanSubmission, { merge: true });
+        return true;
+      }
+    } catch (err: any) {
+      console.error(`Failed to save payment submission ${docId}:`, err?.message || err);
+    }
+    return false;
   }
 
   // Persist updated DB state

@@ -470,7 +470,7 @@ export default function Chatbot() {
                           <button
                             key={i}
                             onClick={() => handleQuickAction(reply)}
-                            className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors shadow-sm"
+                            className="neu-btn text-slate-900 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs"
                           >
                             {reply}
                           </button>
@@ -499,17 +499,17 @@ export default function Chatbot() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className={`p-2 rounded-lg border transition-colors flex items-center justify-center ${
+                className={`p-2.5 rounded-xl neu-btn transition-colors flex items-center justify-center ${
                   maintenanceWizard.photoBase64
-                    ? "bg-emerald-50 border-emerald-300 text-emerald-600"
-                    : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
+                    ? "!bg-emerald-50 !border-emerald-300 !text-emerald-700"
+                    : "text-slate-800"
                 }`}
                 title={maintenanceWizard.photoBase64 ? "Change attached photo" : "Attach a photo (Maintenance reports only)"}
               >
                 {maintenanceWizard.photoBase64 ? (
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4.5 h-4.5" />
                 ) : (
-                  <Image className="w-4 h-4" />
+                  <Image className="w-4.5 h-4.5" />
                 )}
               </button>
               <input
@@ -535,16 +535,16 @@ export default function Chatbot() {
                       ? "Type 'no' to submit or attach photo..."
                       : "Type a message or ask Gemini..."
                   }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-brand-orange text-slate-800 pr-8"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:border-[#ea580c] text-slate-900 pr-8"
                 />
               </div>
 
               <button
                 onClick={() => handleSendMessage()}
                 disabled={isLoading}
-                className="p-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:brightness-110 disabled:opacity-50 text-white rounded-xl transition-all flex items-center justify-center shadow-md shadow-[#fb6c00]/30"
+                className="p-2.5 neu-btn disabled:opacity-50 text-slate-900 rounded-xl transition-all flex items-center justify-center shadow-xs"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-4.5 h-4.5" />
               </button>
             </div>
           </motion.div>
@@ -556,7 +556,7 @@ export default function Chatbot() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] text-white w-14 h-14 rounded-full flex items-center justify-center shadow-xl hover:shadow-2xl transition-all hover:brightness-110 focus:outline-none select-none relative border border-[#ffdd9c]/40"
+        className="w-14 h-14 rounded-full flex items-center justify-center shadow-xl hover:shadow-2xl transition-all focus:outline-none select-none relative"
         title="Open Apartment Assistant Chatbot"
         id="chatbot-launcher"
       >
@@ -581,7 +581,7 @@ export default function Chatbot() {
               className="relative"
             >
               <MessageSquare className="w-6 h-6" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#e73f1e] rounded-full border-2 border-white" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#ea580c] rounded-full border-2 border-white" />
             </motion.div>
           )}
         </AnimatePresence>

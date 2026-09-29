@@ -83,6 +83,18 @@ export interface FirebaseConfigOptions {
   serviceAccount?: ServiceAccount;
 }
 
+function stripUndefined(obj: any): any {
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(stripUndefined);
+  const clean: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      clean[key] = (typeof val === "object" && val !== null) ? stripUndefined(val) : val;
+    }
+  }
+  return clean;
+}
+
 class DatabaseService {
   private adminFirestore: AdminFirestore | null = null;
   private clientFirestore: ClientFirestore | null = null;
@@ -605,6 +617,80 @@ class DatabaseService {
     return unlinked;
   }
 
+  /**
+   * Directly persists a maintenance request to Cloud Firestore collection 'maintenanceRequests'.
+   * Awaited for serverless execution integrity.
+   */
+  public async saveMaintenanceRequestToFirestore(ticket: MaintenanceRequest): Promise<boolean> {
+    await this.ensureInitialized();
+    let saved = false;
+
+    const docId = String(ticket.id || ticket.ticketId);
+    const { id, ...dataWithoutId } = ticket;
+    const documentData = stripUndefined({
+      ...dataWithoutId,
+      id: docId,
+      ticketId: docId
+    });
+
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        await this.adminFirestore.collection("maintenanceRequests").doc(docId).set(documentData, { merge: true });
+        saved = true;
+      } else if (this.clientFirestore) {
+        await clientSetDoc(clientDoc(this.clientFirestore, "maintenanceRequests", docId), documentData, { merge: true });
+        saved = true;
+      }
+    } catch (err: any) {
+      console.error(`Failed to save maintenance ticket ${docId} to live Firestore:`, err?.message || err);
+    }
+
+    // Also update in-memory cache and fallback file
+    const db = this.getDB();
+    db.maintenanceRequests = db.maintenanceRequests || [];
+    const idx = db.maintenanceRequests.findIndex((m: any) => m.id === docId || m.ticketId === docId);
+    if (idx !== -1) {
+      db.maintenanceRequests[idx] = { ...documentData, id: docId };
+    } else {
+      db.maintenanceRequests.unshift({ ...documentData, id: docId });
+    }
+    this.saveFallbackFile(db);
+
+    return saved;
+  }
+
+  /**
+   * Directly queries the live Cloud Firestore 'maintenanceRequests' collection.
+   * Ensures fresh production data on serverless cold starts.
+   */
+  public async getLiveMaintenanceRequests(): Promise<MaintenanceRequest[]> {
+    await this.ensureInitialized();
+
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        const snap = await this.adminFirestore.collection("maintenanceRequests").get();
+        const tickets: MaintenanceRequest[] = [];
+        snap.forEach(doc => {
+          tickets.push({ id: doc.id, ...(doc.data() as any) });
+        });
+        const db = this.getDB();
+        db.maintenanceRequests = tickets;
+        return tickets;
+      } else if (this.clientFirestore) {
+        const snap = await getClientDocs(clientCollection(this.clientFirestore, "maintenanceRequests"));
+        const tickets: MaintenanceRequest[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+        const db = this.getDB();
+        db.maintenanceRequests = tickets;
+        return tickets;
+      }
+    } catch (err: any) {
+      console.warn("Live Firestore getLiveMaintenanceRequests warning:", err?.message || err);
+    }
+
+    const db = this.getDB();
+    return db.maintenanceRequests || [];
+  }
+
   // Persist updated DB state
   public async saveDB(updatedState: DBState): Promise<void> {
     this.inMemoryCache = this.sanitizeDBState(updatedState);
@@ -633,10 +719,11 @@ class DatabaseService {
     if (this.isConnectedToFirestore) {
       try {
         const { id, ...dataWithoutId } = data;
+        const cleanData = stripUndefined(dataWithoutId);
         if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
-          await this.adminFirestore.collection(colName).doc(docId).set(dataWithoutId, { merge: true });
+          await this.adminFirestore.collection(colName).doc(docId).set(cleanData, { merge: true });
         } else if (this.clientFirestore) {
-          await clientSetDoc(clientDoc(this.clientFirestore, colName, docId), dataWithoutId, { merge: true });
+          await clientSetDoc(clientDoc(this.clientFirestore, colName, docId), cleanData, { merge: true });
         }
       } catch (err: any) {
         console.warn(`Error writing ${colName}/${docId} to Firestore:`, err.message);
@@ -718,10 +805,11 @@ class DatabaseService {
 
     if (this.isConnectedToFirestore) {
       try {
+        const cleanSession = stripUndefined(session);
         if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
-          await this.adminFirestore.collection("maintenanceSessions").doc(psid).set(session, { merge: true });
+          await this.adminFirestore.collection("maintenanceSessions").doc(psid).set(cleanSession, { merge: true });
         } else if (this.clientFirestore) {
-          await clientSetDoc(clientDoc(this.clientFirestore, "maintenanceSessions", psid), session, { merge: true });
+          await clientSetDoc(clientDoc(this.clientFirestore, "maintenanceSessions", psid), cleanSession, { merge: true });
         }
       } catch (err: any) {
         console.warn("Failed to persist maintenance session to Firestore:", err?.message || err);

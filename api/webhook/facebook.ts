@@ -107,6 +107,11 @@ export function maskPhoneNumber(phone: string | null | undefined): string {
   return mod.maskPhoneNumber(phone);
 }
 
+export async function createMaintenanceTicketRecord(...args: any[]) {
+  const mod = loadWebhookBundle();
+  return mod.createMaintenanceTicketRecord(...args);
+}
+
 export default async function handler(req: any, res: any) {
   try {
     const webhookModule = loadWebhookBundle();

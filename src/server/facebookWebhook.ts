@@ -12,10 +12,13 @@ import {
   splitMessageIntoChunks,
   normalizePhoneNumber,
   isValidPhilippineMobile,
-  maskPhoneNumber
+  maskPhoneNumber,
+  createMaintenanceTicketRecord
 } from "./chatbotService";
+import { dbService } from "./dbService";
 
 export {
+  dbService,
   handleMessengerWebhookEvent,
   runSafeTokenDiagnostic,
   processChatbotMessage,
@@ -27,7 +30,8 @@ export {
   splitMessageIntoChunks,
   normalizePhoneNumber,
   isValidPhilippineMobile,
-  maskPhoneNumber
+  maskPhoneNumber,
+  createMaintenanceTicketRecord
 };
 
 // Helper to robustly parse body in various Vercel / serverless runtimes

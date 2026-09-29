@@ -216,28 +216,28 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
 
         {/* Navigation Tabs - Neumorphic Style (Reports First) */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-300/50">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2.5">
             <button
               onClick={() => setActiveSubTab("reports")}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
                 activeSubTab === "reports" 
-                  ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30" 
-                  : "neu-btn text-slate-700"
+                  ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black" 
+                  : "neu-btn text-slate-900 hover:text-[#ea580c]"
               }`}
             >
-              <BarChart3 className="w-4 h-4 text-[#fb6c00]" />
+              <BarChart3 className={`w-4 h-4 ${activeSubTab === "reports" ? "!text-white" : ""}`} />
               <span>Reports & Graphs</span>
             </button>
 
             <button
               onClick={() => setActiveSubTab("tickets")}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
+              className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
                 activeSubTab === "tickets" 
-                  ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30" 
-                  : "neu-btn text-slate-700"
+                  ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black" 
+                  : "neu-btn text-slate-900 hover:text-[#ea580c]"
               }`}
             >
-              <Wrench className="w-4 h-4 text-[#fb6c00]" />
+              <Wrench className={`w-4 h-4 ${activeSubTab === "tickets" ? "!text-white" : ""}`} />
               <span>Maintenance Tickets ({tickets.length})</span>
             </button>
           </div>
@@ -245,9 +245,9 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
           {/* Direct Add Maintenance Report Button */}
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="px-4 py-2 neu-btn-primary font-bold rounded-xl text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all active:scale-[0.98]"
+            className="px-4 py-2.5 neu-btn font-bold rounded-xl text-sm flex items-center gap-2 shadow-xs transition-all"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4.5 h-4.5" />
             <span>Add Maintenance Report</span>
           </button>
         </div>

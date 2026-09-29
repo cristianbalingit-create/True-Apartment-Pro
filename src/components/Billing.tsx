@@ -608,9 +608,9 @@ export default function Billing({ db, onRefresh }: BillingProps) {
         <div className="flex gap-2 w-full sm:w-auto">
           <button
             onClick={handleCSVExport}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-sm rounded-xl shadow-xs transition-all active:scale-95"
+            className="neu-btn flex items-center justify-center gap-2 px-4 py-2.5 text-slate-900 font-bold text-sm rounded-xl shadow-xs transition-all"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <FileSpreadsheet className="w-4.5 h-4.5" />
             <span>Export CSV</span>
           </button>
         </div>
@@ -620,34 +620,34 @@ export default function Billing({ db, onRefresh }: BillingProps) {
       <div className="flex gap-3 mt-2 mb-4 overflow-x-auto scrollbar-none whitespace-nowrap p-1">
         <button
           onClick={() => setActiveSubTab("billing_statements")}
-          className={`px-4 py-2 text-xs font-bold transition-all rounded-xl shrink-0 ${
+          className={`px-4 py-2.5 text-sm font-bold transition-all rounded-xl shrink-0 ${
             activeSubTab === "billing_statements"
-              ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30"
-              : "neu-btn text-slate-700 hover:text-slate-900"
+              ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black"
+              : "neu-btn text-slate-900 hover:text-[#ea580c]"
           }`}
         >
           Statements & Invoices
         </button>
         <button
           onClick={() => setActiveSubTab("utility_calculator")}
-          className={`px-4 py-2 text-xs font-bold transition-all rounded-xl flex items-center gap-1.5 shrink-0 ${
+          className={`px-4 py-2.5 text-sm font-bold transition-all rounded-xl flex items-center gap-2 shrink-0 ${
             activeSubTab === "utility_calculator"
-              ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30"
-              : "neu-btn text-slate-700 hover:text-slate-900"
+              ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black"
+              : "neu-btn text-slate-900 hover:text-[#ea580c]"
           }`}
         >
-          <Calculator className="w-3.5 h-3.5 text-[#fb6c00]" />
+          <Calculator className={`w-4 h-4 ${activeSubTab === "utility_calculator" ? "!text-white" : ""}`} />
           <span>Calculate & Send Utilities</span>
         </button>
         <button
           onClick={() => setActiveSubTab("advance_deposit_ledger")}
-          className={`px-4 py-2 text-xs font-bold transition-all rounded-xl flex items-center gap-1.5 shrink-0 ${
+          className={`px-4 py-2.5 text-sm font-bold transition-all rounded-xl flex items-center gap-2 shrink-0 ${
             activeSubTab === "advance_deposit_ledger"
-              ? "neu-pressed text-[#fb6c00] font-extrabold border border-[#fb6c00]/30"
-              : "neu-btn text-slate-700 hover:text-slate-900"
+              ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-black"
+              : "neu-btn text-slate-900 hover:text-[#ea580c]"
           }`}
         >
-          <History className="w-3.5 h-3.5 text-[#fb6c00]" />
+          <History className={`w-4 h-4 ${activeSubTab === "advance_deposit_ledger" ? "!text-white" : ""}`} />
           <span>Advance & Deposit Ledger</span>
         </button>
       </div>

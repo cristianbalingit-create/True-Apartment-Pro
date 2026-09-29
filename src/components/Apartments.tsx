@@ -239,9 +239,9 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
         </div>
         <button
           onClick={handleOpenAddApt}
-          className="neu-btn-primary flex items-center gap-2 px-4 py-2 font-bold text-xs rounded-xl shadow-md transition-all active:scale-95"
+          className="neu-btn flex items-center gap-2 px-4 py-2.5 font-bold text-sm rounded-xl shadow-xs transition-all"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-4.5 h-4.5" />
           <span>Add New Building</span>
         </button>
       </div>
@@ -324,9 +324,9 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
             </div>
             <button
               onClick={handleOpenAddRoom}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0 self-start sm:self-auto"
+              className="neu-btn flex items-center gap-2 px-4 py-2.5 font-bold text-sm rounded-xl shadow-xs transition-all shrink-0 self-start sm:self-auto"
             >
-              <Plus className="w-4 h-4 text-white" />
+              <Plus className="w-4.5 h-4.5" />
               <span>Add New Room</span>
             </button>
           </div>

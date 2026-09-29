@@ -322,14 +322,14 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance }: Da
                       {inq.status === "new" && (
                         <button
                           onClick={() => handleInquiryAction(inq.id, "contacted")}
-                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] rounded-lg shadow-sm transition-all active:scale-95"
+                          className="px-3 py-1.5 neu-btn text-slate-900 font-bold text-xs rounded-xl shadow-xs transition-all"
                         >
                           Mark Contacted
                         </button>
                       )}
                       <button
                         onClick={() => handleInquiryAction(inq.id, "closed")}
-                        className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg shadow-sm transition-all active:scale-95"
+                        className="px-3 py-1.5 neu-btn text-slate-900 font-bold text-xs rounded-xl shadow-xs transition-all"
                       >
                         Close Inquiry
                       </button>

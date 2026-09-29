@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import { GoogleGenAI } from "@google/genai";
 import { dbService } from "./dbService";
+import type { MaintenanceRequest } from "../types";
 
 // Meta App ID & Official Facebook Page for ApartmentPro
 // Note: 1298546226679849 is the verified Facebook Page ID for ApartmentPro.
@@ -841,11 +842,13 @@ export function findOpenDuplicateTicket(
   tenantId: string | null,
   roomNum: string,
   category: MaintenanceCategory,
-  description: string
+  description: string,
+  senderPsid?: string
 ): any | null {
   const openTickets = (db.maintenanceRequests || []).filter((t: any) => {
     const matchesTenant = (tenantId && t.tenant_id === tenantId) ||
-      (roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" && t.room_number === roomNum);
+      (senderPsid && t.messenger_psid === senderPsid) ||
+      (roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" && roomNum !== "Unknown" && t.room_number === roomNum);
     const isOpen = t.status === "pending" || t.status === "in_progress";
     return matchesTenant && isOpen;
   });
@@ -1125,7 +1128,7 @@ export function formatReviewSummary(session: MaintenanceSession, justAttachedPho
   };
 }
 
-export function createMaintenanceTicketRecord(
+export async function createMaintenanceTicketRecord(
   db: any,
   tenantObj: any | null,
   roomNum: string,
@@ -1137,19 +1140,33 @@ export function createMaintenanceTicketRecord(
   occurredAt: string = "Recently",
   location: string = "Room",
   photoUrl?: string
-): { ticketId: string; reply: string } {
+): Promise<{ success: boolean; ticketId?: string; reply: string }> {
+  // Validate and sanitize inputs
+  let validPhotoUrl = "";
+  if (photoUrl && typeof photoUrl === "string") {
+    const trimmed = photoUrl.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("/uploads/")) {
+      validPhotoUrl = trimmed;
+    }
+  }
+  const hasPhoto = Boolean(validPhotoUrl.length > 0);
+
+  const sanitizedDesc = description.replace(/<[^>]*>?/gm, "").trim();
+  const sanitizedLocation = (location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).replace(/<[^>]*>?/gm, "").trim();
+  const sanitizedOccurred = (occurredAt || "Recently").replace(/<[^>]*>?/gm, "").trim();
+
   // Generate Clean Ticket ID matching required specification: MT-XXXXXX
   const ticketId = `MT-${Math.floor(100000 + Math.random() * 900000)}`;
   const tenantName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`;
   const sanitizedRoom = roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" ? roomNum : "Unknown";
-
-  const hasPhoto = Boolean(photoUrl && photoUrl.trim().length > 0);
+  const resolvedRoomId = tenantObj?.room_id || (sanitizedRoom !== "Unknown" ? `room-${sanitizedRoom}` : "");
+  const nowIso = new Date().toISOString();
 
   // 1. Create Ticket in database matching all required fields
-  const newMaint = {
+  const newMaint: MaintenanceRequest = {
     id: ticketId,
     ticketId: ticketId,
-    room_id: tenantObj ? tenantObj.room_id : "",
+    room_id: resolvedRoomId,
     room_number: sanitizedRoom,
     roomNumber: sanitizedRoom,
     tenant_id: tenantId || "guest",
@@ -1159,28 +1176,48 @@ export function createMaintenanceTicketRecord(
     category,
     priority,
     severity: priority,
-    when: occurredAt,
-    occurred_at: occurredAt,
-    occurredAt: occurredAt,
-    where: location,
-    location: location,
-    description: description,
-    issue_description: description,
+    when: sanitizedOccurred,
+    occurred_at: sanitizedOccurred,
+    occurredAt: sanitizedOccurred,
+    where: sanitizedLocation,
+    location: sanitizedLocation,
+    description: sanitizedDesc,
+    issue_description: sanitizedDesc,
     photoAttached: hasPhoto,
     photo_attached: hasPhoto,
-    photoUrl: photoUrl || "",
-    photo_url: photoUrl || "",
-    photo: photoUrl || "",
+    photoUrl: validPhotoUrl,
+    photo_url: validPhotoUrl,
+    photo: validPhotoUrl,
     messenger_psid: senderPsid,
     status: "pending" as const,
-    created_at: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    created_at: nowIso,
+    createdAt: nowIso,
+    updated_at: nowIso,
+    updatedAt: nowIso
   };
 
-  db.maintenanceRequests = db.maintenanceRequests || [];
-  db.maintenanceRequests.push(newMaint);
+  // Directly persist and await write to Cloud Firestore collection 'maintenanceRequests'
+  const saveSuccess = await dbService.saveMaintenanceRequestToFirestore(newMaint);
+  if (!saveSuccess) {
+    console.error(`[Maintenance Error] Failed to persist ticket ${ticketId} to Cloud Firestore.`);
+    return {
+      success: false,
+      reply: "⚠️ We couldn't save your maintenance report right now.\n\nPlease try submitting it again."
+    };
+  }
+
+  // Safe server-side diagnostic logging (no sensitive information exposed)
+  console.log("===== FIRESTORE MAINTENANCE WRITE =====");
+  console.log("Source: Cloud Firestore");
+  console.log("Collection: maintenanceRequests");
+  console.log(`Ticket ID: ${ticketId}`);
+  console.log(`Tenant: ${tenantObj ? tenantObj.name.substring(0, 2) + "****" : "Guest"}`);
+  console.log(`Room: ${sanitizedRoom}`);
+  console.log(`Priority: ${priority}`);
+  console.log(`Category: ${category}`);
+  console.log(`Photo attached: ${hasPhoto ? "YES" : "NO"}`);
+  console.log("Status: SAVED_TO_FIRESTORE");
+  console.log("=======================================");
 
   // 2. Format Admin Alert strictly to user specifications (Step 11)
   let adminTitle = "";
@@ -1196,16 +1233,16 @@ export function createMaintenanceTicketRecord(
     adminTitle = "🟢 **LOW PRIORITY MAINTENANCE**";
   }
 
-  const photoStr = (photoUrl && photoUrl.trim().length > 0) ? "Attached" : "No photo";
+  const photoStr = hasPhoto ? "Attached" : "No photo";
   const displayRoom = sanitizedRoom.startsWith("Room") ? sanitizedRoom : `Room ${sanitizedRoom}`;
   const adminMessage = `${adminTitle}\n\n` +
     `Tenant: ${tenantName}\n` +
     `Room: ${displayRoom}\n\n` +
     `Category: ${category}\n` +
     `Severity: ${priority}\n\n` +
-    `📅 When:\n${occurredAt}\n\n` +
-    `📍 Location:\n${location}\n\n` +
-    `📝 Problem:\n${description}\n\n` +
+    `📅 When:\n${sanitizedOccurred}\n\n` +
+    `📍 Location:\n${sanitizedLocation}\n\n` +
+    `📝 Problem:\n${sanitizedDesc}\n\n` +
     `📷 Photo:\n${photoStr}\n\n` +
     `🎫 Ticket:\n${ticketId}${urgentFootnote}`;
 
@@ -1217,31 +1254,30 @@ export function createMaintenanceTicketRecord(
     type: "general" as const,
     status: "sent" as const,
     channel: "in_app" as const,
-    created_at: new Date().toISOString()
+    created_at: nowIso
   };
-  if (!db.notifications) db.notifications = [];
-  db.notifications.push(newNotif);
+  await dbService.upsertDoc("notifications", newNotif.id, newNotif);
 
   // 3. Log in Transaction Audit Trail
-  logTransaction(db, {
-    category: "maintenance",
-    action: "create",
+  const newLog = {
+    category: "maintenance" as const,
+    action: "create" as const,
     title: `Maintenance Request [${priority}] - ${category}`,
-    details: `Ticket ${ticketId} created for ${tenantName} (${displayRoom}): "${description}". Priority: ${priority}. Location: ${location}. Occurred: ${occurredAt}. Photo: ${photoStr}.`,
+    details: `Ticket ${ticketId} created for ${tenantName} (${displayRoom}): "${sanitizedDesc}". Priority: ${priority}. Location: ${sanitizedLocation}. Occurred: ${sanitizedOccurred}. Photo: ${photoStr}.`,
     tenant_id: tenantId || "guest",
     tenant_name: tenantName,
     room_number: sanitizedRoom,
     performed_by: "Messenger AI Bot"
-  });
-
-  writeDB(db);
+  };
+  const logEntry = logTransaction(db, newLog);
+  await dbService.upsertDoc("transactionLogs", logEntry.id, logEntry);
 
   // 4. Format Tenant Confirmation Response strictly to specifications (Step 12)
-  const photoNote = (photoUrl && photoUrl.trim().length > 0) ? "📷 Photo attached to the report." : "📷 No photo attached.";
+  const photoNote = hasPhoto ? "📷 Photo attached to the report." : "📷 No photo attached.";
   let tenantConfirmation = `🔧 **Maintenance Report Submitted**\n\n` +
     `Ticket ID: ${ticketId}\n\n` +
-    `📍 Location: ${location}\n` +
-    `📝 Issue: ${description}\n` +
+    `📍 Location: ${sanitizedLocation}\n` +
+    `📝 Issue: ${sanitizedDesc}\n` +
     `🏷️ Category: ${category}\n` +
     `⚠️ Priority: ${priority}\n\n` +
     `The administration has been notified.\n\n` +
@@ -1252,7 +1288,7 @@ export function createMaintenanceTicketRecord(
       `Please keep a safe distance from the hazard. Do NOT touch any damaged wiring, outlets, or flooded electrical items. If safe, switch off your unit's main circuit breaker or shut off the main water valve. If there is active smoke or fire, evacuate immediately and call emergency services (911).`;
   }
 
-  return { ticketId, reply: tenantConfirmation };
+  return { success: true, ticketId, reply: tenantConfirmation };
 }
 
 // Core ApartmentPro Chatbot Engine
@@ -1524,24 +1560,14 @@ Tenant Profile:
         const finalLocation = (activeSession.location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).trim();
 
         // 3. Duplicate Ticket Check (Step 9)
-        const openDuplicate = findOpenDuplicateTicket(db, tenantId, roomNum, category, finalDesc);
+        const liveRequests = await dbService.getLiveMaintenanceRequests();
+        db.maintenanceRequests = liveRequests;
+        const openDuplicate = findOpenDuplicateTicket(db, tenantId, roomNum, category, finalDesc, senderPsid);
         if (openDuplicate) {
           await clearMaintenanceSession(senderPsid);
 
-          logTransaction(db, {
-            category: "maintenance",
-            action: "update",
-            title: `Tenant Follow-Up on Ticket ${openDuplicate.id}`,
-            details: `Tenant ${tenantObj?.name || "Guest"} (Room ${roomNum}) sent update for open ticket ${openDuplicate.id}: "${finalDesc}". Location: ${finalLocation}. Occurred: ${finalOccurred}.`,
-            tenant_id: tenantId || "guest",
-            tenant_name: tenantObj?.name || "Guest",
-            room_number: roomNum,
-            performed_by: "Messenger AI Bot"
-          });
-
           const notifMsg = `ℹ️ Tenant Follow-up: Room ${roomNum} sent an update regarding open ticket [${openDuplicate.id}]: "${finalDesc}"`;
-          if (!db.notifications) db.notifications = [];
-          db.notifications.push({
+          const followNotif = {
             id: `notif-followup-${Date.now()}`,
             tenant_id: tenantId || "guest",
             tenant_name: tenantObj?.name || "Guest",
@@ -1550,8 +1576,21 @@ Tenant Profile:
             status: "sent" as const,
             channel: "in_app" as const,
             created_at: new Date().toISOString()
-          });
-          writeDB(db);
+          };
+          await dbService.upsertDoc("notifications", followNotif.id, followNotif);
+
+          const followLog = {
+            category: "maintenance" as const,
+            action: "update" as const,
+            title: `Tenant Follow-Up on Ticket ${openDuplicate.id}`,
+            details: `Tenant ${tenantObj?.name || "Guest"} (Room ${roomNum}) sent update for open ticket ${openDuplicate.id}: "${finalDesc}". Location: ${finalLocation}. Occurred: ${finalOccurred}.`,
+            tenant_id: tenantId || "guest",
+            tenant_name: tenantObj?.name || "Guest",
+            room_number: roomNum,
+            performed_by: "Messenger AI Bot"
+          };
+          const followLogEntry = logTransaction(db, followLog);
+          await dbService.upsertDoc("transactionLogs", followLogEntry.id, followLogEntry);
 
           const statusLabel = openDuplicate.status === "in_progress" ? "In Progress" : "Pending";
           const duplicateReply = `🔧 **Existing Maintenance Report Found**\n\n` +
@@ -1574,7 +1613,7 @@ Tenant Profile:
         }
 
         // 4. Create Ticket Record (Step 10, Step 11, Step 12)
-        const ticketResult = createMaintenanceTicketRecord(
+        const ticketResult = await createMaintenanceTicketRecord(
           db,
           tenantObj,
           roomNum,
@@ -1587,6 +1626,16 @@ Tenant Profile:
           finalLocation,
           activeSession.photoUrl
         );
+
+        if (!ticketResult.success) {
+          // If Firestore persistence fails, preserve session for retry
+          return {
+            text: ticketResult.reply,
+            quick_replies: reviewQuickReplies,
+            session_step: "REVIEW",
+            is_maintenance_form: true
+          };
+        }
 
         await clearMaintenanceSession(senderPsid);
 

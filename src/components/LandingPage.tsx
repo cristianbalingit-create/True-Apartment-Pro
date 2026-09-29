@@ -206,9 +206,9 @@ function RoomCard({ room, apt, onSelect }: RoomCardProps) {
           {/* Action Button */}
           <button
             onClick={() => onSelect(room)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-sm rounded-xl shadow-md shadow-[#e73f1e]/20 transition-all active:scale-[0.98]"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 neu-btn text-slate-900 font-bold text-base rounded-xl shadow-xs transition-all"
           >
-            <Eye className="w-4 h-4 text-white" />
+            <Eye className="w-4.5 h-4.5" />
             <span>View Details & Inquire</span>
           </button>
         </div>
@@ -384,7 +384,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-3">
               <a
                 href="#listings"
-                className="flex items-center gap-2 px-4 py-2 bg-[#fb6c00] hover:bg-[#e73f1e] text-white font-medium text-sm rounded-xl shadow-md active:scale-95 transition-all"
+                className="flex items-center gap-2 px-4 py-2.5 neu-btn text-slate-900 font-bold text-sm rounded-xl shadow-xs transition-all"
               >
                 <span>Inquire Online</span>
               </a>

@@ -369,22 +369,22 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
               <button
                 type="submit"
                 disabled={loading || isLockedOut}
-                className="w-full flex justify-center items-center gap-2 py-3 px-4 rounded-xl shadow-lg shadow-[#e73f1e]/25 text-sm font-bold text-white bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#fb6c00] active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex justify-center items-center gap-2 py-3.5 px-4 rounded-xl text-base font-bold neu-btn text-slate-900 shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <>
-                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    <span className="w-4 h-4 border-2 border-slate-900/40 border-t-slate-900 rounded-full animate-spin" />
                     <span>Authenticating...</span>
                   </>
                 ) : isLockedOut ? (
                   <>
-                    <Lock className="w-4 h-4 text-white/80" />
+                    <Lock className="w-4.5 h-4.5 text-slate-800" />
                     <span>Locked ({formatTime(remainingSeconds)})</span>
                   </>
                 ) : (
                   <>
                     <span>Login to Dashboard</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="w-4.5 h-4.5" />
                   </>
                 )}
               </button>

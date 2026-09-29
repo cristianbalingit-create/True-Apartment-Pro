@@ -146,19 +146,19 @@ function AdminPortal() {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-bold rounded-xl transition-all duration-150 ${
+                className={`w-full flex items-center justify-between px-4 py-3 text-sm font-bold rounded-xl transition-all duration-150 ${
                   isActive
-                    ? "neu-pressed text-[#e73f1e] font-extrabold border border-[#e73f1e]/30 bg-[#fff5f2]"
-                    : "neu-btn text-slate-700 hover:text-[#fb6c00]"
+                    ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-extrabold"
+                    : "neu-btn text-slate-900 hover:text-[#ea580c]"
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${isActive ? "text-[#e73f1e]" : "text-[#fb6c00]"}`} />
-                  <span>{item.label}</span>
+                  <Icon className={`w-5 h-5 ${isActive ? "!text-white" : "text-slate-800"}`} />
+                  <span className="text-sm">{item.label}</span>
                 </div>
                 {item.badge && (
-                  <span className={`min-w-5 h-5 px-1.5 flex items-center justify-center text-[10px] font-black rounded-full ${
-                    isActive ? "bg-[#e73f1e] text-white" : "bg-[#fb6c00] text-white"
+                  <span className={`min-w-5 h-5 px-1.5 flex items-center justify-center text-xs font-black rounded-full ${
+                    isActive ? "bg-white text-[#ea580c]" : "bg-[#ea580c] text-white"
                   }`}>
                     {item.badge}
                   </span>
@@ -172,21 +172,21 @@ function AdminPortal() {
         <div className="mt-auto p-4 border-t border-slate-200/80">
           <div className="neu-pressed rounded-xl p-3 mb-3 bg-slate-50">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 neu-flat rounded-full flex items-center justify-center font-bold text-xs text-[#e73f1e]">
+              <div className="w-9 h-9 neu-flat rounded-full flex items-center justify-center font-bold text-sm text-[#ea580c]">
                 AU
               </div>
-              <div className="text-xs truncate">
-                <div className="font-bold text-slate-900 truncate">Admin User</div>
-                <div className="text-[11px] text-slate-500 truncate">Property Manager</div>
+              <div className="text-sm truncate">
+                <div className="font-bold text-slate-950 truncate">Admin User</div>
+                <div className="text-xs text-slate-700 font-semibold truncate">Property Manager</div>
               </div>
             </div>
           </div>
           
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-2 neu-btn-danger text-xs font-bold rounded-xl"
+            className="w-full flex items-center justify-center gap-2 py-2.5 neu-btn text-sm font-bold rounded-xl"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-4 h-4" />
             <span>Logout Portal</span>
           </button>
         </div>
@@ -225,7 +225,7 @@ function AdminPortal() {
                 </button>
               </div>
 
-              <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+              <nav className="flex-1 px-4 py-4 space-y-2.5 overflow-y-auto">
                 {sidebarItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
@@ -236,19 +236,19 @@ function AdminPortal() {
                         setActiveTab(item.id);
                         setIsMobileSidebarOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition-all ${
                         isActive
-                          ? "neu-pressed text-[#e73f1e] font-extrabold border border-[#e73f1e]/30 bg-[#fff5f2]"
-                          : "neu-btn text-slate-700 hover:text-[#fb6c00]"
+                          ? "active !bg-[#ea580c] !text-white !border-[#c2410c] shadow-md font-extrabold"
+                          : "neu-btn text-slate-900 hover:text-[#ea580c]"
                       }`}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 ${isActive ? "text-[#e73f1e]" : "text-[#fb6c00]"}`} />
+                      <div className="flex items-center gap-3">
+                        <Icon className={`w-5 h-5 ${isActive ? "!text-white" : "text-slate-800"}`} />
                         <span>{item.label}</span>
                       </div>
                       {item.badge && (
-                        <span className={`min-w-4 h-4 px-1 flex items-center justify-center text-[9px] font-black rounded-full ${
-                          isActive ? "bg-[#e73f1e] text-white" : "bg-[#fb6c00] text-white"
+                        <span className={`min-w-5 h-5 px-1.5 flex items-center justify-center text-xs font-black rounded-full ${
+                          isActive ? "bg-white text-[#ea580c]" : "bg-[#ea580c] text-white"
                         }`}>
                           {item.badge}
                         </span>
@@ -261,9 +261,9 @@ function AdminPortal() {
               <div className="p-4 border-t border-slate-200/80">
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center justify-center gap-2 py-2 neu-btn-danger text-xs font-bold rounded-xl"
+                  className="w-full flex items-center justify-center gap-2 py-2.5 neu-btn text-sm font-bold rounded-xl"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="w-4 h-4" />
                   <span>Logout Portal</span>
                 </button>
               </div>

@@ -405,9 +405,9 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
         </div>
         <button
           onClick={handleOpenAdd}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#e73f1e] to-[#fb6c00] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-bold text-sm rounded-xl shadow-md shadow-[#e73f1e]/25 transition-all active:scale-95"
+          className="flex items-center gap-2 px-5 py-2.5 neu-btn text-slate-900 font-bold text-sm rounded-xl shadow-xs transition-all"
         >
-          <Plus className="w-4 h-4 text-white" />
+          <Plus className="w-4.5 h-4.5 text-slate-800" />
           <span>Add New Tenant</span>
         </button>
       </div>
@@ -501,7 +501,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       )}
                     </td>
                     <td className="py-4 px-6 text-right">
-                      <div className="flex gap-1.5 justify-end">
+                      <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => {
                             setLedgerTenant(tenant);
@@ -510,17 +510,17 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                             setLedgerType("deposit_deduction");
                             setShowLedgerDialog(true);
                           }}
-                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
+                          className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
                           title="Manage Advance & Security Deposit Ledger"
                         >
-                          <DollarSign className="w-4 h-4" />
+                          <DollarSign className="w-4.5 h-4.5" />
                         </button>
                         <button
                           onClick={() => handleOpenEdit(tenant)}
-                          className="p-2 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
+                          className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
                           title="Edit Tenant"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          <Edit2 className="w-4.5 h-4.5" />
                         </button>
                         {tenant.status === "active" && (
                           <button
@@ -528,10 +528,10 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                               setUseAdvanceForSettlement(true);
                               setCheckoutReceiptTenant(tenant);
                             }}
-                            className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
+                            className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
                             title="Register Move-Out"
                           >
-                            <LogOut className="w-4 h-4" />
+                            <LogOut className="w-4.5 h-4.5" />
                           </button>
                         )}
                       </div>

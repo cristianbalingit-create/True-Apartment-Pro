@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "{dist/**,firebase-applet-config.json}"
+    },
+    "api/webhook/facebook.ts": {
+      "includeFiles": "{dist/**,firebase-applet-config.json}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/webhook/facebook",
+      "destination": "/api/webhook/facebook"
+    },
+    {
+      "source": "/webhook/facebook",
+      "destination": "/api/webhook/facebook"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/webhook/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "/uploads/$1"
+    },
+    {
+      "source": "/((?!api|webhook|uploads).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

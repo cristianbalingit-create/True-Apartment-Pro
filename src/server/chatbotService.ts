@@ -2605,7 +2605,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       const roomNum = room ? room.room_number : (matchedTenant.room_id ? matchedTenant.room_id.replace(/^room-/, "") : "Unknown");
 
       await sendFacebookMessage(senderPsid, {
-        text: `Account linked successfully.\n\nWelcome back, ${matchedTenant.name}.`,
+        text: `Hi, welcome, ${matchedTenant.name}!\n\nWhat would you like to do today? I can help you report maintenance, view your transaction history, send a payment, or check your balance.`,
         quick_replies: standardQuickReplies
       }, webhookPageId);
     } else {
@@ -2640,7 +2640,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   // tenant functions until the Messenger PSID is linked to an active tenant.
   if (!linkedTenant) {
     await sendFacebookMessage(senderPsid, {
-      text: "Hi! Welcome to ApartmentPro.\n\nIf you are an ApartmentPro tenant, please enter your registered mobile number.",
+      text: "Hi! Welcome to ApartmentPro!\n\nApartmentPro helps tenants manage their apartment services, including maintenance reports, payments, transaction history, and account balances.\n\nIf you are already an ApartmentPro tenant, please enter your registered mobile number to link your account.",
       quick_replies: []
     }, webhookPageId);
     return;

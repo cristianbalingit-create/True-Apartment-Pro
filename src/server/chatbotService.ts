@@ -18,12 +18,10 @@ export const RETIRED_OLD_PAGE_ID = "1049465111594454";
 export const RETIRED_OLD_PAGE_NAME = "FullReddit";
 
 export const standardQuickReplies = [
-  { content_type: "text", title: "📋 History", payload: "GET_HISTORY" },
-  { content_type: "text", title: "💳 Send Payment", payload: "SEND_PAYMENT" },
-  { content_type: "text", title: "💰 Balances", payload: "GET_BALANCE" },
-  { content_type: "text", title: "🔧 Maintenance", payload: "REPORT_MAINTENANCE" },
-  { content_type: "text", title: "📢 Updates", payload: "VIEW_ANNOUNCEMENTS" },
-  { content_type: "text", title: "📜 Rules", payload: "VIEW_RULES" }
+  { content_type: "text", title: "Report Maintenance", payload: "REPORT_MAINTENANCE" },
+  { content_type: "text", title: "Transaction History", payload: "GET_HISTORY" },
+  { content_type: "text", title: "Send Payment", payload: "SEND_PAYMENT" },
+  { content_type: "text", title: "Balance", payload: "GET_BALANCE" }
 ];
 
 export const paymentMethodQuickReplies = [
@@ -486,9 +484,9 @@ export async function sendFacebookMessage(
 
   // Handle text messages with automatic chunking if > 2000 characters
   let textContent = typeof msgObj.text === "string" ? msgObj.text.trim() : "";
-  // Messenger bot replies are plain text; remove Markdown bold markers from
-  // both static and AI-generated responses before sending them to the tenant.
-  textContent = textContent.replace(/\*\*/g, "");
+  // Messenger bot replies are plain text. Remove Markdown formatting markers
+  // so tenants never see stray asterisks or other formatting syntax.
+  textContent = textContent.replace(/\*/g, "");
   if (!textContent && !msgObj.attachment) {
     textContent = "Hello! How can I assist you with your apartment today?";
   }
@@ -2286,8 +2284,11 @@ Tenant Profile:
       }
     }
 
-    // Default conversational greeting & navigation menu
-    return `👋 Hello! I am the **ApartmentPro Assistant**.\n\nHow can I help you today? Tap any of the quick action buttons below:\n\n• 🔧 *Report Maintenance* — Log a repair ticket (e.g. "My aircon is leaking")\n• 📋 *Transaction History* — View ledger & receipts\n• 💳 *Send Payment* — Payment channels & instructions\n• 💰 *Balances* — Live rent & utility summary\n• 📢 *Announcements* — Building news & advisories\n• 📜 *Apartment Rules* — Policies & guidelines\n\n👉 If you are a tenant, type: *link <your_contact_number>* (e.g. *link 09171234567*) to securely link your profile!`;
+    // Default authenticated response: keep the interface short and action-focused.
+    return {
+      text: "What would you like to do?",
+      quick_replies: standardQuickReplies
+    };
   };
 
   // If Maintenance Intent is detected, process it through the verified priority workflow!
@@ -2318,6 +2319,10 @@ Active Announcements:
 ${annSummary || "No active announcements."}
 
 CRITICAL DIRECTIVES:
+0. RESPONSE STYLE:
+   - Keep replies short, direct, and action-focused.
+   - Use plain text only. Never use Markdown, asterisks, underscores, headings, or long explanations.
+   - For button actions, perform the requested action immediately without explaining the feature.
 1. MULTI-LANGUAGE MAINTENANCE UNDERSTANDING:
    - Understand English, Bisaya/Cebuano, Taglish, and mixed Bisaya-English naturally.
    - Do NOT require exact English keywords or the word "maintenance".
@@ -2341,7 +2346,7 @@ CRITICAL DIRECTIVES:
    - If unverified/guest asks for personal balances/bills, ask them to link their account (link <contact_number>).
 5. Return a clean JSON matching this schema:
 {
-  "reply": "Conversational reply text formatted in clean Markdown with emojis",
+  "reply": "Short plain-text reply with no Markdown formatting",
   "intent": "maintenance_report | maintenance_status | get_history | send_payment | get_balance | view_announcements | view_rules | view_profile | chat",
   "is_maintenance": boolean,
   "is_status_query": boolean,
@@ -2555,15 +2560,22 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   }
   const textLower = messageText.toLowerCase().trim();
 
-  // 1. Account linking workflow: "link <contact_number>" or "verify <contact_number>"
-  if (/^(?:link|verify)(?:[\s:]|$)/i.test(textLower)) {
-    const rawInput = textLower.replace(/^(?:link|verify)\s*[:\s]?\s*/i, "").trim();
+  // 1. Account linking workflow: "link <contact_number>", "verify <contact_number>",
+  // or a bare Philippine mobile number entered after the welcome message.
+  const isLinkCommand = /^(?:link|verify)(?:[\s:]|$)/i.test(textLower);
+  const barePhoneCandidate = normalizePhoneNumber(textLower);
+  const isBarePhoneLink = isValidPhilippineMobile(barePhoneCandidate);
+  if (isLinkCommand || isBarePhoneLink) {
+    const rawInput = isLinkCommand
+      ? textLower.replace(/^(?:link|verify)\s*[:\s]?\s*/i, "").trim()
+      : textLower;
     const normalizedInput = normalizePhoneNumber(rawInput);
 
     // Validate Philippine mobile number
     if (!isValidPhilippineMobile(normalizedInput)) {
       await sendFacebookMessage(senderPsid, {
-        text: `❌ Please enter a valid Philippine mobile number.\n\nExample:\nlink 09171234567`
+        text: `Please enter a valid Philippine mobile number.\nExample: 09171234567`,
+        quick_replies: []
       }, webhookPageId);
       return;
     }
@@ -2593,12 +2605,13 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       const roomNum = room ? room.room_number : (matchedTenant.room_id ? matchedTenant.room_id.replace(/^room-/, "") : "Unknown");
 
       await sendFacebookMessage(senderPsid, {
-        text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the ApartmentPro services below.`,
+        text: `Account linked successfully.\n\nWelcome back, ${matchedTenant.name}.`,
         quick_replies: standardQuickReplies
       }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
-        text: `❌ Sorry, we couldn't find a tenant record matching "${rawInput}" in our directory.\n\nPlease type: *link <your_contact_number>*\nExample: *link 09171234567*`
+        text: `Sorry, we couldn't find an ApartmentPro tenant account for that number.\n\nPlease enter your registered mobile number again.`,
+        quick_replies: []
       }, webhookPageId);
     }
     return;
@@ -2622,7 +2635,18 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     return;
   }
 
-  // 3. Process chatbot message through the real ApartmentPro AI Engine
+  // 3. Unauthenticated users receive only the welcome/authentication prompt.
+  // Do not expose tenant menus, maintenance workflows, financial actions, or AI
+  // tenant functions until the Messenger PSID is linked to an active tenant.
+  if (!linkedTenant) {
+    await sendFacebookMessage(senderPsid, {
+      text: "Hi! Welcome to ApartmentPro.\n\nIf you are an ApartmentPro tenant, please enter your registered mobile number.",
+      quick_replies: []
+    }, webhookPageId);
+    return;
+  }
+
+  // 4. Process chatbot message through the real ApartmentPro AI Engine
   try {
     const botReply = await processChatbotMessage(
       messageText,

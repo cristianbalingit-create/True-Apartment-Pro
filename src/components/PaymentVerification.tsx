@@ -120,12 +120,7 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
       setReceiptSrc("");
 
       if (action === "confirm") {
-        if (res.notificationStatus === "FAILED_RECIPIENT_RESTRICTED") {
-          setConfirmationNotice({
-            title: "✅ Payment Confirmed Successfully",
-            desc: "⚠️ Payment is confirmed, but Meta is temporarily restricting messages to this Messenger conversation. No deprecated message tag was attempted."
-          });
-        } else if (res.notificationStatus === "FAILED_WINDOW_EXPIRED") {
+        if (res.notificationStatus === "FAILED_WINDOW_EXPIRED") {
           setConfirmationNotice({
             title: "✅ Payment Confirmed Successfully",
             desc: "⚠️ Messenger notification was not sent because the Messenger messaging window has expired."
@@ -350,11 +345,6 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
                       {item.notification_status === "FAILED_WINDOW_EXPIRED" && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300">
                           ⚠️ Tenant Notification: Not sent — Messenger window expired
-                        </span>
-                      )}
-                      {item.notification_status === "FAILED_RECIPIENT_RESTRICTED" && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-900 border border-orange-300">
-                          ⚠️ Tenant Notification: Not sent — Meta recipient restriction
                         </span>
                       )}
                       {item.notification_status === "FAILED" && (

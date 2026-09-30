@@ -26,6 +26,16 @@ export const standardQuickReplies = [
   { content_type: "text", title: "📜 Rules", payload: "VIEW_RULES" }
 ];
 
+export const paymentMethodQuickReplies = [
+  { content_type: "text", title: "📱 GCash", payload: "PAY_GCASH" },
+  { content_type: "text", title: "🏦 Bank Transfer", payload: "PAY_BANK" },
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_PAYMENT" }
+];
+
+export const paymentCancelQuickReplies = [
+  { content_type: "text", title: "❌ Cancel", payload: "CANCEL_PAYMENT" }
+];
+
 // Lazy Gemini AI Client initialization
 let aiClient: GoogleGenAI | null = null;
 export function getAIClient(): GoogleGenAI | null {
@@ -334,7 +344,7 @@ export async function sendFacebookMessage(
   senderPsid: string,
   responsePayload: any,
   targetPageId?: string
-): Promise<{ success: boolean; error?: string; message_id?: string }> {
+): Promise<{ success: boolean; error?: string; message_id?: string; windowExpired?: boolean; code?: number; subcode?: number }> {
   const rawToken = (process.env.PAGE_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
   const PAGE_ACCESS_TOKEN = rawToken.replace(/^["']|["']$/g, "").trim();
 
@@ -476,6 +486,9 @@ export async function sendFacebookMessage(
 
   // Handle text messages with automatic chunking if > 2000 characters
   let textContent = typeof msgObj.text === "string" ? msgObj.text.trim() : "";
+  // Messenger bot replies are plain text; remove Markdown bold markers from
+  // both static and AI-generated responses before sending them to the tenant.
+  textContent = textContent.replace(/\*\*/g, "");
   if (!textContent && !msgObj.attachment) {
     textContent = "Hello! How can I assist you with your apartment today?";
   }
@@ -550,30 +563,8 @@ export async function sendFacebookMessage(
       resData = resText;
     }
 
-    // Fallback: If outside 24-hour standard window (Meta Error #10), retry with MESSAGE_TAG
-    if (!res.ok && (resData?.error?.code === 10 || String(resData?.error?.message).toLowerCase().includes("outside of allowed window"))) {
-      console.warn("Messenger 24-hour window expired; retrying with MESSAGE_TAG CONFIRMED_EVENT_UPDATE...");
-      const taggedRequestBody = {
-        messaging_type: "MESSAGE_TAG",
-        tag: "CONFIRMED_EVENT_UPDATE",
-        recipient: { id: cleanPsid },
-        message: validMessagePayload
-      };
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${PAGE_ACCESS_TOKEN}`
-        },
-        body: JSON.stringify(taggedRequestBody)
-      });
-      resText = await res.text();
-      try {
-        resData = JSON.parse(resText);
-      } catch {
-        resData = resText;
-      }
-    }
+    // Under Meta Messenger Platform policies, responses within the 24-hour window use standard messaging_type: "RESPONSE".
+    // If the 24-hour messaging window has expired, no deprecated tag or illegal retry will be attempted.
 
     if (!res.ok) {
       const rawErr = resData?.error || resData || {};
@@ -582,18 +573,31 @@ export async function sendFacebookMessage(
       delete errorBody.token;
       delete errorBody.secret;
 
+      const code = Number(errorBody.code || res.status);
+      const subcode = Number(errorBody.error_subcode || 0);
+      const errMsg = String(errorBody.message || "").toLowerCase();
+      const isWindowExpired = 
+        code === 10 || 
+        subcode === 2018278 || 
+        subcode === 2018001 || 
+        subcode === 1893061 || 
+        errMsg.includes("outside of allowed window") || 
+        errMsg.includes("window expired") || 
+        errMsg.includes("24-hour") ||
+        errMsg.includes("deprecated message tag");
+
       console.error("===== FACEBOOK SEND RESPONSE ERROR =====");
       console.error("HTTP STATUS:", res.status);
-      console.error("META ERROR:", JSON.stringify(errorBody, null, 2));
-      console.error("Facebook API Error Code:", errorBody.code || res.status);
-      console.error("Facebook API Error Subcode:", errorBody.error_subcode);
+      console.error("Facebook API Error Code:", code);
+      console.error("Facebook API Error Subcode:", subcode);
       console.error("Facebook API Error Message:", errorBody.message || "Unknown error");
-      console.error("Facebook API Error Type:", errorBody.type);
-      console.error("Facebook Trace ID:", errorBody.fbtrace_id);
+      if (isWindowExpired) {
+        console.warn("ℹ️ Messenger 24-hour window has expired for recipient. No message tag will be attempted.");
+      }
       console.error("Attempted Page ID:", effectivePageId);
-      console.error("Attempted Recipient PSID:", cleanPsid);
-      if (recipientRestricted) {
-        console.error("🚨 META RECIPIENT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. No retry will be attempted.");
+      console.error("Attempted Recipient PSID:", cleanPsid ? `${cleanPsid.slice(0, 5)}***` : "unknown");
+      if (errorBody.code === 10 && (errorBody.error_subcode === 1893063 || String(errorBody.message).includes("permission"))) {
+        console.error("🚨 META ACCOUNT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. Learn more at https://facebook.com/policy/messenger.");
         if (errorBody.error_user_title) console.error("Error User Title:", errorBody.error_user_title);
         if (errorBody.error_user_msg) console.error("Error User Message:", errorBody.error_user_msg);
       }
@@ -604,14 +608,20 @@ export async function sendFacebookMessage(
         quickRepliesCount: validMessagePayload.quick_replies?.length
       }));
       const safeErrorMsg = errorBody.message || `Facebook Graph API responded with status ${res.status}`;
-      return { success: false, error: safeErrorMsg };
+      return { 
+        success: false, 
+        windowExpired: isWindowExpired, 
+        error: safeErrorMsg,
+        code,
+        subcode 
+      };
     } else {
-      console.log(`Successfully sent message to Facebook Messenger user: ${cleanPsid}`);
-      return { success: true, message_id: resData?.message_id };
+      console.log(`Successfully sent message to Facebook Messenger user: ${cleanPsid ? `${cleanPsid.slice(0, 5)}***` : "user"}`);
+      return { success: true, message_id: resData?.message_id, windowExpired: false };
     }
   } catch (error: any) {
     console.error("Error calling Facebook Graph API:", error);
-    return { success: false, error: error?.message || "Network error communicating with Facebook Graph API" };
+    return { success: false, windowExpired: false, error: error?.message || "Network error communicating with Facebook Graph API" };
   }
 }
 
@@ -679,6 +689,14 @@ export function isMaintenanceStatusQuery(rawText: string): boolean {
 export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
   const text = rawText.trim();
   const lower = text.toLowerCase();
+  // Normalize common Messenger chat punctuation/spacing so informal Bisaya
+  // phrases such as "naguba among suga te", "ga-leak ang gripo", and
+  // "dili mo andar among aircon" are recognized consistently.
+  const normalized = lower
+    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
+    .replace(/[.,!?;:()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // 1. Status query check
   if (isMaintenanceStatusQuery(rawText)) {
@@ -788,6 +806,28 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
     "te guba", "te naguba", "maam guba", "sir guba", "te ga leak", "maam ga leak", "sir ga leak"
   ];
 
+  // Strong semantic fallback for informal Bisaya/Cebuano maintenance reports.
+  // This intentionally uses combinations of a problem/action word + a physical
+  // apartment object, rather than requiring the English word "maintenance".
+  const bisayaProblemWords = [
+    "guba", "naguba", "nadaot", "nabungkag", "nabuak", "nabali",
+    "barado", "nabara", "tagas", "nagtulo", "ga tulo", "nag tulo",
+    "ga leak", "nag leak", "naga leak", "dili moandar", "di moandar",
+    "dili mo andar", "di mo andar", "wala moandar", "wala nay", "walay",
+    "dili na", "di na", "problema", "naay problema", "naa koy problema",
+    "paayo", "ipaayo", "ayoa", "ipa repair", "ipa-repair"
+  ];
+  const bisayaMaintenanceObjects = [
+    "suga", "kuryente", "kurente", "outlet", "socket", "wire", "breaker",
+    "gripo", "lababo", "tubo", "tubig", "banyo", "cr", "toilet", "shower",
+    "aircon", "wifi", "internet", "pultahan", "kandado", "bintana",
+    "katre", "lingkuranan", "lamisa", "aparador", "kabinet", "tiles",
+    "kisame", "salog", "dingding", "kwarto", "room"
+  ];
+  const hasBisayaProblemWord = bisayaProblemWords.some(word => normalized.includes(word));
+  const hasBisayaMaintenanceObject = bisayaMaintenanceObjects.some(word => normalized.includes(word));
+  const hasBisayaMaintenancePattern = hasBisayaProblemWord && hasBisayaMaintenanceObject;
+
   const hasAc = acKeywords.some(kw => matchesKeyword(kw));
   const hasPlumbing = plumbingKeywords.some(kw => matchesKeyword(kw));
   const hasElectrical = electricalKeywords.some(kw => matchesKeyword(kw));
@@ -797,7 +837,7 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
   const hasGeneralProblem = generalMaintWords.some(kw => matchesKeyword(kw));
 
   // Determine if maintenance intent
-  const isMaintenance = isDirectMaintButton || hasAc || hasPlumbing || hasElectrical || hasInternet || hasFurniture || hasCleaning || hasGeneralProblem;
+  const isMaintenance = isDirectMaintButton || hasAc || hasPlumbing || hasElectrical || hasInternet || hasFurniture || hasCleaning || hasGeneralProblem || hasBisayaMaintenancePattern;
 
   if (!isMaintenance) {
     return {
@@ -830,7 +870,7 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
 
   // Determine Category
   let category: MaintenanceCategory = "Other";
-  if (hasAc) {
+  if (hasAc || /\b(aircon|air con|air conditioner)\b/.test(normalized)) {
     category = "Air Conditioning";
   } else if (hasPlumbing) {
     category = "Plumbing";
@@ -842,6 +882,13 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
     category = "Furniture";
   } else if (hasCleaning) {
     category = "Cleaning";
+  } else if (hasBisayaMaintenancePattern) {
+    // Bisaya fallback category mapping when the English keyword lists do not
+    // catch a regional/informal spelling.
+    if (/\b(suga|kuryente|kurente|outlet|socket|wire|breaker)\b/.test(normalized)) category = "Electrical";
+    else if (/\b(gripo|lababo|tubo|tubig|banyo|cr|toilet|shower|tagas|tulo)\b/.test(normalized)) category = "Plumbing";
+    else if (/\b(wifi|internet)\b/.test(normalized)) category = "Internet";
+    else if (/\b(pultahan|kandado|bintana|katre|lingkuranan|lamisa|aparador|kabinet|tiles|kisame|salog|dingding)\b/.test(normalized)) category = "Furniture";
   }
 
   // Determine Severity (CRITICAL, HIGH, MEDIUM, LOW)
@@ -951,6 +998,7 @@ export interface ChatbotReplyPayload {
   session_step?: string;
   is_maintenance_form?: boolean;
   create_ticket?: boolean;
+  follow_up_image_url?: string;
   ticket_details?: {
     category: MaintenanceCategory;
     priority: MaintenanceSeverity;
@@ -1207,8 +1255,23 @@ export async function createMaintenanceTicketRecord(
   const sanitizedLocation = (location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).replace(/<[^>]*>?/gm, "").trim();
   const sanitizedOccurred = (occurredAt || "Recently").replace(/<[^>]*>?/gm, "").trim();
 
-  // Generate Clean Ticket ID matching required specification: MT-XXXXXX
-  const ticketId = `MT-${Math.floor(100000 + Math.random() * 900000)}`;
+  // Generate a unique maintenance ticket ID. Every submission gets a new ticket.
+  // AP-XXXXXX is the canonical ApartmentPro maintenance ticket format.
+  const existingTickets = await dbService.getLiveMaintenanceRequests();
+  let ticketId = "";
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const candidate = `AP-${Math.floor(100000 + Math.random() * 900000)}`;
+    if (!existingTickets.some((ticket: any) => String(ticket.id || ticket.ticketId || "") === candidate)) {
+      ticketId = candidate;
+      break;
+    }
+  }
+  if (!ticketId) {
+    return {
+      success: false,
+      reply: "⚠️ We couldn't generate a unique maintenance report ID right now.\n\nPlease try submitting your report again."
+    };
+  }
   const tenantName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`;
   const sanitizedRoom = roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" ? roomNum : "Unknown";
   const resolvedRoomId = tenantObj?.room_id || (sanitizedRoom !== "Unknown" ? `room-${sanitizedRoom}` : "");
@@ -1343,6 +1406,122 @@ export async function createMaintenanceTicketRecord(
   return { success: true, ticketId, reply: tenantConfirmation };
 }
 
+interface PaymentSession {
+  psid: string;
+  tenantId: string;
+  method: "GCASH" | "BANK";
+  step: "METHOD_SELECTED";
+  submissionId?: string;
+  updatedAt: number;
+}
+
+function sanitizePaymentReference(raw: string): string {
+  return raw.replace(/[<>\"'`]/g, "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function isPlausiblePaymentReference(value: string): boolean {
+  const normalized = value.replace(/^reference\s*(number)?\s*[:#-]?\s*/i, "")
+    .replace(/^transaction\s*(number|no\.?)*\s*[:#-]?\s*/i, "")
+    .replace(/^ref\s*[:#-]?\s*/i, "")
+    .trim();
+  return /[A-Za-z0-9]{6,40}/.test(normalized) && normalized.length <= 80;
+}
+
+async function getPaymentSession(psid: string): Promise<PaymentSession | null> {
+  const session = await dbService.getPaymentSession(psid);
+  if (!session) return null;
+  if (Date.now() - Number(session.updatedAt || 0) > 2 * 60 * 60 * 1000) {
+    await dbService.clearPaymentSession(psid);
+    return null;
+  }
+  return session as PaymentSession;
+}
+
+async function savePaymentSession(session: PaymentSession): Promise<void> {
+  await dbService.savePaymentSession(session.psid, session);
+}
+
+async function clearPaymentSession(psid: string): Promise<void> {
+  await dbService.clearPaymentSession(psid);
+}
+
+async function persistPaymentReceipt(attachmentUrl: string): Promise<string> {
+  if (!attachmentUrl || !/^https?:\/\//i.test(attachmentUrl)) return "";
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(attachmentUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return "";
+
+    const contentType = (res.headers.get("content-type") || "").split(";")[0].toLowerCase();
+    if (!contentType.startsWith("image/")) return "";
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const maxBytes = 5 * 1024 * 1024;
+    if (!buffer.length || buffer.length > maxBytes) return "";
+
+    const ext = contentType.includes("png") ? ".png" : contentType.includes("webp") ? ".webp" : ".jpg";
+    const rawBase64 = buffer.toString("base64");
+    // Persist receipts in Firestore chunks so the admin portal can read them even when
+    // Messenger webhook and admin website run on different hosts. No temporary /tmp or
+    // local filesystem URL is used for payment evidence.
+    const receiptId = `rcpt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const saved = await dbService.savePaymentReceipt(receiptId, contentType, rawBase64);
+    if (!saved) return "";
+    return `/api/payments/receipts/${encodeURIComponent(receiptId)}`;
+  } catch (err: any) {
+    console.warn("Payment receipt persistence failed:", err?.message || err);
+    return "";
+  }
+}
+
+function paymentMethodDetails(method: "GCASH" | "BANK"): string {
+  if (method === "GCASH") {
+    const name = process.env.APARTMENTPRO_GCASH_NAME || "ApartmentPro Property Management";
+    const number = process.env.APARTMENTPRO_GCASH_NUMBER || "NOT CONFIGURED";
+    return `📱 *GCASH PAYMENT*\n\n*Account Name:* ${name}\n*GCash Number:* ${number}\n\nPlease double-check the recipient details before sending.\n\nAfter payment, reply with either:\n• 🧾 your *transaction/reference number*, or\n• 📸 a *screenshot/photo of your payment receipt*.\n\n⚠️ Your payment will remain *PENDING VERIFICATION* until management confirms it.`;
+  }
+
+  const bank = process.env.APARTMENTPRO_BANK_NAME || "BANK NAME NOT CONFIGURED";
+  const accountName = process.env.APARTMENTPRO_BANK_ACCOUNT_NAME || "ApartmentPro Property Management";
+  const accountNumber = process.env.APARTMENTPRO_BANK_ACCOUNT_NUMBER || "NOT CONFIGURED";
+  return `🏦 *BANK TRANSFER*\n\n*Bank:* ${bank}\n*Account Name:* ${accountName}\n*Account Number:* ${accountNumber}\n\nPlease double-check the recipient details before sending.\n\nAfter payment, reply with either:\n• 🧾 your *transaction/reference number*, or\n• 📸 a *screenshot/photo of your payment receipt*.\n\n⚠️ Your payment will remain *PENDING VERIFICATION* until management confirms it.`;
+}
+
+function paymentMethodQrUrl(method: "GCASH" | "BANK"): string {
+  const value = method === "GCASH" ? process.env.APARTMENTPRO_GCASH_QR_URL : process.env.APARTMENTPRO_BANK_QR_URL;
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim()) ? value.trim() : "";
+}
+
+async function recordPaymentAdminNotice(submission: any): Promise<void> {
+  const ref = String(submission.reference || "");
+  const maskedRef = ref ? `${ref.slice(0, Math.max(0, ref.length - 4)).replace(/./g, "*")}${ref.slice(-4)}` : "Receipt image attached";
+  const methodLabel = submission.method === "GCASH" ? "GCash" : "Bank Transfer";
+  const message = `💳 Payment confirmation received from ${submission.tenant_name} (Room ${submission.room_number}) via ${methodLabel}. Reference: ${maskedRef}. Status: PENDING VERIFICATION.`;
+
+  await dbService.upsertDoc("notifications", `notif-pay-${submission.id}`, {
+    tenant_id: submission.tenant_id,
+    tenant_name: submission.tenant_name,
+    message,
+    type: "general",
+    status: "sent",
+    channel: "in_app",
+    created_at: new Date().toISOString()
+  });
+
+  await dbService.upsertDoc("transactionLogs", `log-pay-${submission.id}`, {
+    category: "payment",
+    action: "payment",
+    title: "Messenger Payment Confirmation Submitted",
+    details: message,
+    tenant_id: submission.tenant_id,
+    tenant_name: submission.tenant_name,
+    room_number: submission.room_number,
+    performed_by: "Messenger Bot"
+  });
+}
+
 // Core ApartmentPro Chatbot Engine
 export async function processChatbotMessage(
   messageText: string,
@@ -1365,7 +1544,17 @@ export async function processChatbotMessage(
   let aptName = "ApartmentPro";
 
   if (tenantId) {
-    tenantObj = (db.tenants || []).find((t: any) => t.id === tenantId);
+    // SECURITY: resolve authenticated tenant from live Firestore, not the stale/local
+    // in-memory fallback. This is critical for Vercel/Cloud Run serverless runtimes.
+    try {
+      await dbService.ensureInitialized();
+      const liveTenants = await dbService.getLiveTenants();
+      tenantObj = liveTenants.find((t: any) => t.id === tenantId) || null;
+    } catch (err) {
+      console.error("Failed to load authenticated tenant from live Firestore:", err);
+      tenantObj = null;
+    }
+
     if (tenantObj) {
       const room = (db.rooms || []).find((r: any) => r.id === tenantObj.room_id);
       roomNum = room ? room.room_number : "N/A";
@@ -1611,58 +1800,8 @@ Tenant Profile:
         const finalOccurred = (activeSession.occurredAt || "Recently").trim();
         const finalLocation = (activeSession.location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).trim();
 
-        // 3. Duplicate Ticket Check (Step 9)
-        const liveRequests = await dbService.getLiveMaintenanceRequests();
-        db.maintenanceRequests = liveRequests;
-        const openDuplicate = findOpenDuplicateTicket(db, tenantId, roomNum, category, finalDesc, senderPsid);
-        if (openDuplicate) {
-          await clearMaintenanceSession(senderPsid);
-
-          const notifMsg = `ℹ️ Tenant Follow-up: Room ${roomNum} sent an update regarding open ticket [${openDuplicate.id}]: "${finalDesc}"`;
-          const followNotif = {
-            id: `notif-followup-${Date.now()}`,
-            tenant_id: tenantId || "guest",
-            tenant_name: tenantObj?.name || "Guest",
-            message: notifMsg,
-            type: "general" as const,
-            status: "sent" as const,
-            channel: "in_app" as const,
-            created_at: new Date().toISOString()
-          };
-          await dbService.upsertDoc("notifications", followNotif.id, followNotif);
-
-          const followLog = {
-            category: "maintenance" as const,
-            action: "update" as const,
-            title: `Tenant Follow-Up on Ticket ${openDuplicate.id}`,
-            details: `Tenant ${tenantObj?.name || "Guest"} (Room ${roomNum}) sent update for open ticket ${openDuplicate.id}: "${finalDesc}". Location: ${finalLocation}. Occurred: ${finalOccurred}.`,
-            tenant_id: tenantId || "guest",
-            tenant_name: tenantObj?.name || "Guest",
-            room_number: roomNum,
-            performed_by: "Messenger AI Bot"
-          };
-          const followLogEntry = logTransaction(db, followLog);
-          await dbService.upsertDoc("transactionLogs", followLogEntry.id, followLogEntry);
-
-          const statusLabel = openDuplicate.status === "in_progress" ? "In Progress" : "Pending";
-          const duplicateReply = `🔧 **Existing Maintenance Report Found**\n\n` +
-            `You already have an active maintenance report for this issue.\n\n` +
-            `Ticket ID: ${openDuplicate.id}\n` +
-            `Status: ${statusLabel}\n\n` +
-            `Your new information has been added as a follow-up.`;
-
-          return {
-            text: duplicateReply,
-            quick_replies: standardQuickReplies,
-            is_maintenance_form: false,
-            ticket_details: {
-              category: openDuplicate.category,
-              priority: openDuplicate.priority,
-              description: openDuplicate.issue_description,
-              ticket_id: openDuplicate.id
-            }
-          };
-        }
+        // 3. Every submission is intentionally treated as a new maintenance ticket.
+        // Do not search for, merge with, update, or reject an existing maintenance report.
 
         // 4. Create Ticket Record (Step 10, Step 11, Step 12)
         const ticketResult = await createMaintenanceTicketRecord(
@@ -1854,7 +1993,7 @@ Tenant Profile:
   }
 
   // Local Rule-Based Fallback Generator (Guaranteed reliable, fast, zero secrets)
-  const generateLocalResponse = (msg: string): string => {
+  const generateLocalResponse = async (msg: string): Promise<ChatbotReplyPayload | string> => {
     const text = msg.toLowerCase().trim();
 
     // =========================================================================
@@ -1895,11 +2034,138 @@ Tenant Profile:
     }
 
     // =========================================================================
+    // PAYMENT METHOD / RECEIPT WORKFLOW
+    // SECURITY: Only linked tenants can initiate or submit payment confirmations.
+    // Receipts/references are stored as pending verification; no payment is auto-posted.
+    // =========================================================================
+    const paymentSession = await getPaymentSession(senderPsid);
+    const isPaymentMethodSelection = textLower === "pay_gcash" || textLower === "pay_bank" ||
+      textLower === "gcash" || textLower === "bank transfer" || textLower === "bank";
+    const isPaymentCancel = textLower === "cancel_payment" || textLower === "❌ cancel";
+
+    if (isPaymentCancel && paymentSession) {
+      if (paymentSession.submissionId) {
+        await dbService.updatePaymentSubmission(paymentSession.submissionId, {
+          status: "cancelled",
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: "Tenant cancelled payment submission"
+        });
+      }
+      await clearPaymentSession(senderPsid);
+      return { text: "Payment submission cancelled. No payment was recorded.", quick_replies: standardQuickReplies };
+    }
+
+    if (isPaymentMethodSelection) {
+      if (!tenantObj) {
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, you must link your ApartmentPro tenant account before submitting a payment.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
+      }
+
+      const method: "GCASH" | "BANK" = textLower === "pay_bank" || textLower === "bank" || textLower === "bank transfer" ? "BANK" : "GCASH";
+      const submissionId = `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const paymentIntent = {
+        id: submissionId,
+        tenant_id: tenantObj.id,
+        messenger_psid: senderPsid,
+        tenant_name: tenantObj.name,
+        room_number: roomNum,
+        method,
+        reference: "",
+        receipt_url: "",
+        status: "awaiting_proof",
+        amount_due: Number(outstandingBalance || 0),
+        submitted_at: new Date().toISOString(),
+        source: "messenger"
+      };
+      const intentSaved = await dbService.savePaymentSubmissionToFirestore(paymentIntent);
+      if (!intentSaved) {
+        return { text: "⚠️ We couldn't start your payment submission right now. Please try again.", quick_replies: standardQuickReplies };
+      }
+      await recordPaymentAdminNotice({ ...paymentIntent, status: "awaiting_proof" });
+      await savePaymentSession({ psid: senderPsid, tenantId: tenantObj.id, method, step: "METHOD_SELECTED", submissionId, updatedAt: Date.now() });
+      const qrUrl = paymentMethodQrUrl(method);
+      return {
+        text: paymentMethodDetails(method),
+        quick_replies: paymentCancelQuickReplies,
+        ...(qrUrl ? { follow_up_image_url: qrUrl } : {})
+      };
+    }
+
+    if (paymentSession && tenantObj && paymentSession.tenantId === tenantObj.id) {
+      if (attachmentUrl) {
+        const receiptUrl = await persistPaymentReceipt(attachmentUrl);
+        if (!receiptUrl) {
+          return {
+            text: "⚠️ I couldn't securely save that payment receipt. Please send the screenshot again as an image (JPG, PNG, or WEBP) under 5 MB.",
+            quick_replies: paymentCancelQuickReplies
+          };
+        }
+
+        const submission = {
+          id: paymentSession.submissionId || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          tenant_id: tenantObj.id,
+          messenger_psid: senderPsid,
+          tenant_name: tenantObj.name,
+          room_number: roomNum,
+          method: paymentSession.method,
+          reference: "",
+          receipt_url: receiptUrl,
+          status: "pending_verification",
+          amount_due: Number(outstandingBalance || 0),
+          submitted_at: new Date().toISOString(),
+          source: "messenger"
+        };
+        const saved = await dbService.savePaymentSubmissionToFirestore(submission);
+        if (!saved) {
+          return { text: "⚠️ We couldn't save your payment receipt right now. Please try again.", quick_replies: paymentCancelQuickReplies };
+        }
+        await recordPaymentAdminNotice(submission);
+        await clearPaymentSession(senderPsid);
+        return {
+          text: `✅ *PAYMENT RECEIPT RECEIVED*\n\nThank you, *${tenantObj.name}*. Your ${paymentSession.method === "GCASH" ? "GCash" : "bank"} receipt was securely submitted.\n\n🧾 Status: *PENDING VERIFICATION*\n📅 Submitted: ${new Date().toLocaleString("en-PH")}\n\nManagement will verify the transaction before updating your official ledger.`,
+          quick_replies: standardQuickReplies
+        };
+      }
+
+      const reference = sanitizePaymentReference(textTrimmed);
+      if (isPlausiblePaymentReference(reference)) {
+        const submission = {
+          id: paymentSession.submissionId || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          tenant_id: tenantObj.id,
+          messenger_psid: senderPsid,
+          tenant_name: tenantObj.name,
+          room_number: roomNum,
+          method: paymentSession.method,
+          reference,
+          receipt_url: "",
+          status: "pending_verification",
+          amount_due: Number(outstandingBalance || 0),
+          submitted_at: new Date().toISOString(),
+          source: "messenger"
+        };
+        const saved = await dbService.savePaymentSubmissionToFirestore(submission);
+        if (!saved) {
+          return { text: "⚠️ We couldn't save your payment reference right now. Please try again.", quick_replies: paymentCancelQuickReplies };
+        }
+        await recordPaymentAdminNotice(submission);
+        await clearPaymentSession(senderPsid);
+        return {
+          text: `✅ *PAYMENT REFERENCE RECEIVED*\n\nThank you, *${tenantObj.name}*.\n\n🧾 Reference: *${reference}*\n💳 Method: *${paymentSession.method === "GCASH" ? "GCash" : "Bank Transfer"}*\n📌 Status: *PENDING VERIFICATION*\n\nManagement will verify the transaction before updating your official ledger.`,
+          quick_replies: standardQuickReplies
+        };
+      }
+
+      return {
+        text: "🧾 Please send your payment transaction/reference number, or attach a screenshot/photo of your payment receipt.\n\nFor security, payment status will only be updated after management verification.",
+        quick_replies: paymentCancelQuickReplies
+      };
+    }
+
+    // =========================================================================
     // PRIORITY 3: NON-MAINTENANCE INTENTS (LEDGER, PAYMENT, BALANCE, RULES)
     // =========================================================================
 
     // 1. TRANSACTION HISTORY & FINANCIAL LEDGER
-    if (text === "get_history" || text === "history" || text.includes("transaction history") || text.includes("my transactions") || text.includes("ledger history") || text.includes("payment history")) {
+    if (text === "get_history" || text === "history" || text === "📋 history" || text.includes("transaction history") || text.includes("my transactions") || text.includes("ledger history") || text.includes("payment history")) {
       if (!tenantObj) {
         return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nTo protect your financial privacy, transaction histories are strictly confidential.\n\n👉 To view your personal records, please link your tenant account:\nType: *link <contact_number>*\nExample: *link 09171234567*`;
       }
@@ -1953,69 +2219,24 @@ Tenant Profile:
       return historyText;
     }
 
-    // 2. SEND PAYMENT & PAYMENT CHANNELS
-    if (text === "send_payment" || text === "pay" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent") || text.includes("bank account") || text.includes("gcash") || text.includes("maya")) {
-      let payMsg = `💳 *HOW TO SEND YOUR RENT PAYMENT*\n\n`;
-
-      if (tenantObj) {
-        payMsg += `👤 *Tenant:* ${tenantObj.name} (Room ${roomNum})\n` +
-          `💵 *Current Amount Due:* ₱${Number(outstandingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}\n` +
-          `📅 *Due Date:* ${nextDueDate} ${nextDueMonth ? `(${nextDueMonth})` : ""}\n\n`;
+    // 2. SEND PAYMENT — require the tenant to choose a payment method first.
+    if (text === "send_payment" || text === "pay" || text === "💳 send payment" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent")) {
+      if (!tenantObj) {
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, please link your ApartmentPro tenant account before accessing payment instructions.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
       }
-
-      payMsg += `Please settle your payments through any of our official channels:\n\n` +
-        `📱 *GCash / Maya (Instant)*\n` +
-        `• Account Name: ApartmentPro Property Management\n` +
-        `• Mobile Number: 0917-888-9999\n\n` +
-        `🏦 *Bank Transfer / Online Banking*\n` +
-        `• Bank: BDO Unibank (Current Account)\n` +
-        `• Account Name: ApartmentPro Estates Inc.\n` +
-        `• Account Number: 0012-3456-7890\n\n` +
-        `• Bank: BPI (Bank of the Philippine Islands)\n` +
-        `• Account Name: ApartmentPro Estates Inc.\n` +
-        `• Account Number: 0987-6543-2100\n\n` +
-        `-----------------------------------\n` +
-        `📸 *PAYMENT CONFIRMATION INSTRUCTIONS:*\n` +
-        `After completing your transfer, simply reply here with your reference details:\n` +
-        `👉 Type: *paid <amount> ref <reference_number>*\n` +
-        `Example: *paid 13450 ref 987654321*\n\n` +
-        `Our administration will immediately verify and update your official ledger!`;
-
-      return payMsg;
+      return {
+        text: `💳 *HOW WOULD YOU LIKE TO PAY?*\n\n👤 *Tenant:* ${tenantObj.name} (Room ${roomNum})\n💵 *Current Amount Due:* ₱${Number(outstandingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}\n📅 *Due Date:* ${nextDueDate}\n\nPlease choose your payment method:`,
+        quick_replies: paymentMethodQuickReplies
+      };
     }
 
-    // 3. SUBMITTING PAYMENT REFERENCE
-    if (text.startsWith("paid ") || (text.includes("ref") && (text.includes("gcash") || text.includes("bdo") || text.includes("bpi") || text.includes("transfer") || text.includes("payment")))) {
-      const senderName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 6)})`;
-      const senderRoom = tenantObj ? `Room ${roomNum}` : "Unlinked Room";
-
-      logTransaction(db, {
-        category: "payment",
-        action: "create",
-        title: "Payment Reference Submitted via Messenger",
-        details: `Tenant ${senderName} (${senderRoom}) submitted payment reference: "${msg}". Awaiting admin verification and invoice clearing.`,
-        tenant_id: tenantObj?.id || "guest",
-        tenant_name: senderName,
-        room_number: roomNum
-      });
-
-      if (!db.notifications) db.notifications = [];
-      db.notifications.push({
-        id: `notif-pay-${Date.now()}`,
-        tenant_id: tenantObj?.id || "guest",
-        tenant_name: senderName,
-        message: `💳 Payment Reference Received via Messenger from ${senderName} (${senderRoom}): "${msg}". Please verify bank/GCash deposit.`,
-        type: "general" as const,
-        status: "sent" as const,
-        channel: "in_app" as const,
-        created_at: new Date().toISOString()
-      });
-      writeDB(db);
-
-      return `✅ *PAYMENT REFERENCE SUBMITTED!*\n\n` +
-        `Thank you, *${senderName}*! We have successfully registered your payment submission:\n` +
-        `📝 Reference Details: "${msg}"\n\n` +
-        `Our property management team has been notified. Once verified against our bank records, your statement status will automatically update to PAID.`;
+    // 3. LEGACY PAYMENT REFERENCE FORMAT
+    // Accept `paid ... ref ...` only for linked tenants, but require method context.
+    if (text.startsWith("paid ")) {
+      if (!tenantObj) {
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nPlease link your tenant account before submitting payment information.`;
+      }
+      return `🧾 Please tap *💳 Send Payment* first, choose *GCash* or *Bank Transfer*, then send your transaction/reference number or receipt screenshot.\n\nThis keeps your payment method and submission securely associated with your account.`;
     }
 
     // 4. BALANCES, DUE DATES, ESCROWS
@@ -2071,13 +2292,13 @@ Tenant Profile:
 
   // If Maintenance Intent is detected, process it through the verified priority workflow!
   if (maintAnalysis.is_maintenance || maintAnalysis.is_status_query) {
-    return generateLocalResponse(messageText);
+    return await generateLocalResponse(messageText);
   }
 
   // Try Gemini AI Generation with safety fallback for open conversation
   const ai = getAIClient();
   if (!ai) {
-    return generateLocalResponse(messageText);
+    return await generateLocalResponse(messageText);
   }
 
   try {
@@ -2190,13 +2411,13 @@ CRITICAL DIRECTIVES:
     }
 
     if (parsedRes.is_status_query || parsedRes.intent === "maintenance_status") {
-      return generateLocalResponse(messageText);
+      return await generateLocalResponse(messageText);
     }
 
-    return parsedRes.reply || generateLocalResponse(messageText);
+    return parsedRes.reply || (await generateLocalResponse(messageText));
   } catch (error) {
     console.error("Gemini AI error or timeout, seamlessly using local rules engine:", error);
-    return generateLocalResponse(messageText);
+    return await generateLocalResponse(messageText);
   }
 }
 
@@ -2211,6 +2432,7 @@ export async function queryChatbotWithResult(
   reply: string;
   intent: string;
   create_ticket?: boolean;
+  follow_up_image_url?: string;
   ticket_details?: {
     category: MaintenanceCategory;
     priority: MaintenanceSeverity;
@@ -2282,12 +2504,18 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   const attachmentUrl: string | undefined = imageAttachment?.payload?.url;
   let messageText = "";
 
-  if (webhook_event.message?.text) {
-    messageText = webhook_event.message.text;
-  } else if (webhook_event.message?.quick_reply?.payload) {
-    messageText = webhook_event.message.quick_reply.payload;
+  // SECURITY/ROUTING: Messenger quick-reply payloads are authoritative action
+  // identifiers. Meta may also include the visible button title in
+  // message.text (for example, "📋 History"). If text is checked first, the
+  // server loses the payload (GET_HISTORY/SEND_PAYMENT/etc.) and falls back to
+  // the generic assistant greeting. Always prefer the signed-in action payload
+  // over the human-readable button label.
+  if (webhook_event.message?.quick_reply?.payload) {
+    messageText = String(webhook_event.message.quick_reply.payload).trim();
   } else if (webhook_event.postback?.payload) {
-    messageText = webhook_event.postback.payload;
+    messageText = String(webhook_event.postback.payload).trim();
+  } else if (webhook_event.message?.text) {
+    messageText = webhook_event.message.text;
   } else if (attachments.length > 0 && !imageAttachment) {
     messageText = "[Unsupported Attachment]";
   }
@@ -2316,6 +2544,15 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   await dbService.ensureInitialized();
   const liveTenants = await dbService.getLiveTenants();
   let linkedTenant = liveTenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+  if (linkedTenant) {
+    const interactionTime = new Date().toISOString();
+    linkedTenant.last_messenger_interaction_at = interactionTime;
+    linkedTenant.last_interaction_at = interactionTime;
+    dbService.upsertDoc("tenants", linkedTenant.id, {
+      last_messenger_interaction_at: interactionTime,
+      last_interaction_at: interactionTime
+    }).catch(() => {});
+  }
   const textLower = messageText.toLowerCase().trim();
 
   // 1. Account linking workflow: "link <contact_number>" or "verify <contact_number>"
@@ -2356,7 +2593,8 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       const roomNum = room ? room.room_number : (matchedTenant.room_id ? matchedTenant.room_id.replace(/^room-/, "") : "Unknown");
 
       await sendFacebookMessage(senderPsid, {
-        text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the 1-tap quick buttons below to check your live rent balances, view your ledger & deposit history, or report maintenance.`
+        text: `🎉 *Account Linked Successfully!*\n\nWelcome back, *${matchedTenant.name}* (Room ${roomNum})!\n\nYour Messenger account is now securely connected to your ApartmentPro tenant portal.\n\nYou can now use the ApartmentPro services below.`,
+        quick_replies: standardQuickReplies
       }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
@@ -2396,7 +2634,22 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     if (typeof botReply === "string") {
       await sendFacebookMessage(senderPsid, { text: botReply }, webhookPageId);
     } else {
-      await sendFacebookMessage(senderPsid, botReply, webhookPageId);
+      const replyPayload: any = { ...botReply };
+      const followUpImageUrl = typeof replyPayload.follow_up_image_url === "string"
+        ? replyPayload.follow_up_image_url.trim()
+        : "";
+      delete replyPayload.follow_up_image_url;
+
+      await sendFacebookMessage(senderPsid, replyPayload, webhookPageId);
+
+      if (followUpImageUrl && /^https?:\/\//i.test(followUpImageUrl)) {
+        await sendFacebookMessage(senderPsid, {
+          attachment: {
+            type: "image",
+            payload: { url: followUpImageUrl, is_reusable: false }
+          }
+        }, webhookPageId);
+      }
     }
   } catch (err) {
     console.error("Failed to process chatbot reply:", err);

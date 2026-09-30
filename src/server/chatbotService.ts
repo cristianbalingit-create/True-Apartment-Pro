@@ -486,6 +486,9 @@ export async function sendFacebookMessage(
 
   // Handle text messages with automatic chunking if > 2000 characters
   let textContent = typeof msgObj.text === "string" ? msgObj.text.trim() : "";
+  // Messenger bot replies are plain text; remove Markdown bold markers from
+  // both static and AI-generated responses before sending them to the tenant.
+  textContent = textContent.replace(/\*\*/g, "");
   if (!textContent && !msgObj.attachment) {
     textContent = "Hello! How can I assist you with your apartment today?";
   }
@@ -573,11 +576,8 @@ export async function sendFacebookMessage(
       const code = Number(errorBody.code || res.status);
       const subcode = Number(errorBody.error_subcode || 0);
       const errMsg = String(errorBody.message || "").toLowerCase();
-      // Meta subcode 1893063 means the conversation/recipient is currently
-      // restricted from receiving messages. This is NOT the same as a
-      // 24-hour-window expiry and must never trigger a deprecated tag retry.
-      const recipientRestricted = code === 10 && subcode === 1893063;
       const isWindowExpired = 
+        code === 10 || 
         subcode === 2018278 || 
         subcode === 2018001 || 
         subcode === 1893061 || 
@@ -596,8 +596,8 @@ export async function sendFacebookMessage(
       }
       console.error("Attempted Page ID:", effectivePageId);
       console.error("Attempted Recipient PSID:", cleanPsid ? `${cleanPsid.slice(0, 5)}***` : "unknown");
-      if (recipientRestricted) {
-        console.error("🚨 META RECIPIENT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. No retry will be attempted.");
+      if (errorBody.code === 10 && (errorBody.error_subcode === 1893063 || String(errorBody.message).includes("permission"))) {
+        console.error("🚨 META ACCOUNT RESTRICTION (1893063): Meta is temporarily restricting message sends to this conversation or recipient. Learn more at https://facebook.com/policy/messenger.");
         if (errorBody.error_user_title) console.error("Error User Title:", errorBody.error_user_title);
         if (errorBody.error_user_msg) console.error("Error User Message:", errorBody.error_user_msg);
       }
@@ -610,8 +610,7 @@ export async function sendFacebookMessage(
       const safeErrorMsg = errorBody.message || `Facebook Graph API responded with status ${res.status}`;
       return { 
         success: false, 
-        windowExpired: isWindowExpired,
-        recipientRestricted,
+        windowExpired: isWindowExpired, 
         error: safeErrorMsg,
         code,
         subcode 
@@ -1256,8 +1255,23 @@ export async function createMaintenanceTicketRecord(
   const sanitizedLocation = (location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).replace(/<[^>]*>?/gm, "").trim();
   const sanitizedOccurred = (occurredAt || "Recently").replace(/<[^>]*>?/gm, "").trim();
 
-  // Generate Clean Ticket ID matching required specification: MT-XXXXXX
-  const ticketId = `MT-${Math.floor(100000 + Math.random() * 900000)}`;
+  // Generate a unique maintenance ticket ID. Every submission gets a new ticket.
+  // AP-XXXXXX is the canonical ApartmentPro maintenance ticket format.
+  const existingTickets = await dbService.getLiveMaintenanceRequests();
+  let ticketId = "";
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const candidate = `AP-${Math.floor(100000 + Math.random() * 900000)}`;
+    if (!existingTickets.some((ticket: any) => String(ticket.id || ticket.ticketId || "") === candidate)) {
+      ticketId = candidate;
+      break;
+    }
+  }
+  if (!ticketId) {
+    return {
+      success: false,
+      reply: "⚠️ We couldn't generate a unique maintenance report ID right now.\n\nPlease try submitting your report again."
+    };
+  }
   const tenantName = tenantObj ? tenantObj.name : `Facebook Guest (${senderPsid.substring(0, 5)})`;
   const sanitizedRoom = roomNum && roomNum !== "N/A" && roomNum !== "Guest/Unknown" ? roomNum : "Unknown";
   const resolvedRoomId = tenantObj?.room_id || (sanitizedRoom !== "Unknown" ? `room-${sanitizedRoom}` : "");
@@ -1786,58 +1800,8 @@ Tenant Profile:
         const finalOccurred = (activeSession.occurredAt || "Recently").trim();
         const finalLocation = (activeSession.location || (roomNum && roomNum !== "N/A" ? `Room ${roomNum}` : "Apartment Unit")).trim();
 
-        // 3. Duplicate Ticket Check (Step 9)
-        const liveRequests = await dbService.getLiveMaintenanceRequests();
-        db.maintenanceRequests = liveRequests;
-        const openDuplicate = findOpenDuplicateTicket(db, tenantId, roomNum, category, finalDesc, senderPsid);
-        if (openDuplicate) {
-          await clearMaintenanceSession(senderPsid);
-
-          const notifMsg = `ℹ️ Tenant Follow-up: Room ${roomNum} sent an update regarding open ticket [${openDuplicate.id}]: "${finalDesc}"`;
-          const followNotif = {
-            id: `notif-followup-${Date.now()}`,
-            tenant_id: tenantId || "guest",
-            tenant_name: tenantObj?.name || "Guest",
-            message: notifMsg,
-            type: "general" as const,
-            status: "sent" as const,
-            channel: "in_app" as const,
-            created_at: new Date().toISOString()
-          };
-          await dbService.upsertDoc("notifications", followNotif.id, followNotif);
-
-          const followLog = {
-            category: "maintenance" as const,
-            action: "update" as const,
-            title: `Tenant Follow-Up on Ticket ${openDuplicate.id}`,
-            details: `Tenant ${tenantObj?.name || "Guest"} (Room ${roomNum}) sent update for open ticket ${openDuplicate.id}: "${finalDesc}". Location: ${finalLocation}. Occurred: ${finalOccurred}.`,
-            tenant_id: tenantId || "guest",
-            tenant_name: tenantObj?.name || "Guest",
-            room_number: roomNum,
-            performed_by: "Messenger AI Bot"
-          };
-          const followLogEntry = logTransaction(db, followLog);
-          await dbService.upsertDoc("transactionLogs", followLogEntry.id, followLogEntry);
-
-          const statusLabel = openDuplicate.status === "in_progress" ? "In Progress" : "Pending";
-          const duplicateReply = `🔧 **Existing Maintenance Report Found**\n\n` +
-            `You already have an active maintenance report for this issue.\n\n` +
-            `Ticket ID: ${openDuplicate.id}\n` +
-            `Status: ${statusLabel}\n\n` +
-            `Your new information has been added as a follow-up.`;
-
-          return {
-            text: duplicateReply,
-            quick_replies: standardQuickReplies,
-            is_maintenance_form: false,
-            ticket_details: {
-              category: openDuplicate.category,
-              priority: openDuplicate.priority,
-              description: openDuplicate.issue_description,
-              ticket_id: openDuplicate.id
-            }
-          };
-        }
+        // 3. Every submission is intentionally treated as a new maintenance ticket.
+        // Do not search for, merge with, update, or reject an existing maintenance report.
 
         // 4. Create Ticket Record (Step 10, Step 11, Step 12)
         const ticketResult = await createMaintenanceTicketRecord(

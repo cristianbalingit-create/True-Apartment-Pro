@@ -48,7 +48,3 @@ Security measures:
 - Confirming a payment updates the billing record and sends a Messenger confirmation to the linked tenant.
 - Rejecting a submission sends the tenant a Messenger notice asking them to resubmit.
 - Set `ADMIN_SESSION_SECRET` to a long random server-only value in production.
-
-## Messenger notification restriction handling
-
-ApartmentPro treats Meta error code 10 / subcode 1893063 as a recipient/conversation restriction, not as proof that the payment failed. The payment remains confirmed, no deprecated message tag is attempted, and the admin sees `FAILED_RECIPIENT_RESTRICTED` for the notification.

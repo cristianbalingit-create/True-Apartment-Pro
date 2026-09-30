@@ -2058,7 +2058,7 @@ app.post("/api/payments/submissions/:id/verify", async (req, res) => {
 
   // 3. Handle REJECTION
   if (action === "reject") {
-    let rejectNotificationStatus: "NOT_SENT" | "SENT" | "FAILED_WINDOW_EXPIRED" | "FAILED_RECIPIENT_RESTRICTED" | "FAILED" | "NOT_APPLICABLE" = "NOT_APPLICABLE";
+    let rejectNotificationStatus: "NOT_SENT" | "SENT" | "FAILED_WINDOW_EXPIRED" | "FAILED" | "NOT_APPLICABLE" = "NOT_APPLICABLE";
     let rejectNotificationSent = false;
     let rejectNotificationMsg = "";
 
@@ -2085,9 +2085,6 @@ app.post("/api/payments/submissions/:id/verify", async (req, res) => {
           rejectNotificationStatus = "SENT";
           rejectNotificationSent = true;
           rejectNotificationMsg = "Tenant notified via Messenger.";
-        } else if (sendResult.recipientRestricted) {
-          rejectNotificationStatus = "FAILED_RECIPIENT_RESTRICTED";
-          rejectNotificationMsg = "Payment rejection recorded, but Meta is temporarily restricting messages to this Messenger conversation.";
         } else if (sendResult.windowExpired) {
           rejectNotificationStatus = "FAILED_WINDOW_EXPIRED";
           rejectNotificationMsg = "Messenger notification was not sent because the Messenger messaging window has expired.";
@@ -2199,7 +2196,7 @@ app.post("/api/payments/submissions/:id/verify", async (req, res) => {
   });
 
   // STEP 4: Check Messenger notification eligibility (Requirement 2 & Requirement 4)
-  let notificationStatus: "NOT_SENT" | "SENT" | "FAILED_WINDOW_EXPIRED" | "FAILED_RECIPIENT_RESTRICTED" | "FAILED" | "NOT_APPLICABLE" = "NOT_APPLICABLE";
+  let notificationStatus: "NOT_SENT" | "SENT" | "FAILED_WINDOW_EXPIRED" | "FAILED" | "NOT_APPLICABLE" = "NOT_APPLICABLE";
   let notificationSent = false;
   let notificationMessage = "";
 
@@ -2235,10 +2232,6 @@ app.post("/api/payments/submissions/:id/verify", async (req, res) => {
           notificationStatus = "SENT";
           notificationSent = true;
           notificationMessage = "Tenant notified via Messenger.";
-        } else if (sendResult.recipientRestricted) {
-          notificationStatus = "FAILED_RECIPIENT_RESTRICTED";
-          notificationSent = false;
-          notificationMessage = "Payment confirmed, but Meta is temporarily restricting messages to this Messenger conversation.";
         } else if (sendResult.windowExpired) {
           notificationStatus = "FAILED_WINDOW_EXPIRED";
           notificationSent = false;

@@ -414,12 +414,12 @@ export default function LandingPage() {
             <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#EF6905]/20 text-[#F1E5A1] border border-[#EF6905]/40 rounded-full text-xs font-semibold tracking-wider uppercase mb-6">
               <Star className="w-3.5 h-3.5 fill-current" /> Premium Rental Properties
             </span>
-            <h1 className="text-4xl sm:text-6xl font-bold tracking-tight mb-6">
-              Find Your Next Home in <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#8B2626] via-[#EF6905] to-[#F1E5A1]">
-                Ultimate Comfort
-              </span>
-            </h1>
+         <h1 className="text-4xl sm:text-6xl font-bold tracking-tight mb-6 text-white drop-shadow-lg">
+  Find Your Next Home in <br />
+  <span className="bg-gradient-to-r from-orange-500 via-orange-400 to-amber-300 bg-clip-text text-transparent">
+    Ultimate Comfort
+  </span>
+</h1>
             <p className="max-w-2xl mx-auto text-lg sm:text-xl text-[#ecd9c6] mb-10 font-light">
               Explore premium, fully-vetted vacant apartments with transparent billing, modern amenities, and dedicated on-site customer assistance.
             </p>

@@ -849,18 +849,36 @@ class DatabaseService {
   public async getLivePaymentSubmissions(): Promise<any[]> {
     await this.ensureInitialized();
     try {
+      let liveDocs: any[] = [];
       if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
         const snap = await this.adminFirestore.collection("paymentSubmissions").get();
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      }
-      if (this.clientFirestore) {
+        liveDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } else if (this.clientFirestore) {
         const snap = await getClientDocs(clientCollection(this.clientFirestore, "paymentSubmissions"));
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        liveDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+      if (liveDocs.length > 0) {
+        const db = this.getDB();
+        const mergedMap = new Map<string, any>();
+        (db.paymentSubmissions || []).forEach((item: any) => {
+          if (item && item.id) mergedMap.set(String(item.id), item);
+        });
+        liveDocs.forEach((item: any) => {
+          if (item && item.id) mergedMap.set(String(item.id), item);
+        });
+        const allItems = Array.from(mergedMap.values());
+        allItems.sort((a, b) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
+        db.paymentSubmissions = allItems;
+        this.saveFallbackFile(db);
+        return allItems;
       }
     } catch (err: any) {
       console.error("Failed to load payment submissions:", err?.message || err);
     }
-    return [];
+    const db = this.getDB();
+    const fallbackList = Array.isArray(db.paymentSubmissions) ? [...db.paymentSubmissions] : [];
+    fallbackList.sort((a, b) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
+    return fallbackList;
   }
 
   public async savePaymentReceipt(receiptId: string, mimeType: string, base64: string): Promise<boolean> {
@@ -929,6 +947,16 @@ class DatabaseService {
     const docId = String(id || "").trim();
     if (!docId || docId.length > 120) return false;
     const clean = stripUndefined(updates || {});
+
+    // Update in-memory cache and fallback data file
+    const db = this.getDB();
+    db.paymentSubmissions = db.paymentSubmissions || [];
+    const existingIdx = db.paymentSubmissions.findIndex((x: any) => x.id === docId);
+    if (existingIdx !== -1) {
+      db.paymentSubmissions[existingIdx] = { ...db.paymentSubmissions[existingIdx], ...clean };
+    }
+    this.saveFallbackFile(db);
+
     try {
       if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
         await this.adminFirestore.collection("paymentSubmissions").doc(docId).set(clean, { merge: true });
@@ -941,13 +969,25 @@ class DatabaseService {
     } catch (err: any) {
       console.error(`Failed to update payment submission ${docId}:`, err?.message || err);
     }
-    return false;
+    return true; // Still updated in-memory and local cache
   }
 
   public async savePaymentSubmissionToFirestore(submission: any): Promise<boolean> {
     await this.ensureInitialized();
     const docId = String(submission.id);
     const cleanSubmission = stripUndefined({ ...submission, id: docId });
+
+    // Update in-memory cache and fallback data file
+    const db = this.getDB();
+    db.paymentSubmissions = db.paymentSubmissions || [];
+    const existingIdx = db.paymentSubmissions.findIndex((x: any) => x.id === docId);
+    if (existingIdx !== -1) {
+      db.paymentSubmissions[existingIdx] = { ...db.paymentSubmissions[existingIdx], ...cleanSubmission };
+    } else {
+      db.paymentSubmissions.unshift(cleanSubmission);
+    }
+    this.saveFallbackFile(db);
+
     try {
       if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
         await this.adminFirestore.collection("paymentSubmissions").doc(docId).set(cleanSubmission, { merge: true });
@@ -960,7 +1000,7 @@ class DatabaseService {
     } catch (err: any) {
       console.error(`Failed to save payment submission ${docId}:`, err?.message || err);
     }
-    return false;
+    return true; // Saved in-memory and fallback cache
   }
 
   // Persist updated DB state

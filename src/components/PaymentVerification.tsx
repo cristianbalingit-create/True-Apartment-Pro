@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { 
   CheckCircle2, Clock3, ExternalLink, Image as ImageIcon, RefreshCw, 
-  Search, XCircle, ShieldCheck, AlertCircle, Filter, FileText, Check 
+  Search, XCircle, ShieldCheck, AlertCircle, Filter, FileText, Check, Plus, Upload, X 
 } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -22,6 +22,16 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
   const [receiptSrc, setReceiptSrc] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<"pending" | "all" | "confirmed" | "rejected">("pending");
   const [confirmationNotice, setConfirmationNotice] = useState<{ title: string; desc: string } | null>(null);
+
+  // Manual payment submission modal state
+  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+  const [newTenantName, setNewTenantName] = useState("");
+  const [newRoomNumber, setNewRoomNumber] = useState("");
+  const [newMethod, setNewMethod] = useState<"GCASH" | "BANK">("GCASH");
+  const [newReference, setNewReference] = useState("");
+  const [newAmount, setNewAmount] = useState("");
+  const [newReceiptBase64, setNewReceiptBase64] = useState("");
+  const [submittingManual, setSubmittingManual] = useState(false);
 
   const authToken = token || localStorage.getItem("apartmentpro_token") || "apt_session_admin_active";
 
@@ -157,6 +167,39 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
     }
   };
 
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTenantName || !newAmount) {
+      alert("Please provide tenant name and amount.");
+      return;
+    }
+    setSubmittingManual(true);
+    try {
+      await api.submitPayment({
+        tenant_name: newTenantName,
+        room_number: newRoomNumber,
+        method: newMethod,
+        reference: newReference,
+        amount: Number(newAmount),
+        amount_due: Number(newAmount),
+        receipt_base64: newReceiptBase64 || undefined,
+        source: "admin_manual"
+      });
+      setIsSubmitModalOpen(false);
+      setNewTenantName("");
+      setNewRoomNumber("");
+      setNewReference("");
+      setNewAmount("");
+      setNewReceiptBase64("");
+      await load();
+      if (onRefresh) await onRefresh();
+    } catch (err: any) {
+      alert(err.message || "Failed to submit payment");
+    } finally {
+      setSubmittingManual(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -166,6 +209,14 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
           <p className="text-sm text-slate-600 mt-1">Review tenant payment references and receipts before posting payments to the ledger.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setIsSubmitModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-slate-900 text-white shadow-sm font-bold text-sm flex items-center gap-2 hover:bg-slate-800 transition"
+          >
+            <Plus className="w-4 h-4"/>
+            <span>Record Payment Submission</span>
+          </button>
+
           <button 
             onClick={load} 
             disabled={loading}

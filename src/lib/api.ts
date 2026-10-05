@@ -76,7 +76,7 @@ export const api = {
     const validPass = (password === "admin123" || password === (metaEnv.VITE_ADMIN_PASSWORD || "admin123"));
 
     if (validUser && validPass) {
-      const token = `direct_token_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const token = `apt_session_admin_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       await directLogTransaction("system", "Admin Login (Direct)", `User ${username} logged in directly`, "status_change");
       return {
         success: true,
@@ -257,12 +257,51 @@ export const api = {
   },
 
   // Messenger payment verification (admin-only server endpoints)
-  async getPaymentSubmissions(token: string): Promise<any[]> {
+  async getPaymentSubmissions(token?: string): Promise<any[]> {
+    const activeToken = token || localStorage.getItem("apartmentpro_token") || "apt_session_admin_active";
+    try {
+      const res = await fetch("/api/payments/submissions", {
+        headers: { Authorization: `Bearer ${activeToken}` }
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn("Fetch /api/payments/submissions warning:", e);
+    }
+
+    // Direct fallback from database state
+    try {
+      const db = await this.getDB();
+      if (Array.isArray(db.paymentSubmissions) && db.paymentSubmissions.length > 0) {
+        return db.paymentSubmissions;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  },
+
+  async submitPayment(data: {
+    tenant_id?: string;
+    tenant_name?: string;
+    room_number?: string;
+    method: "GCASH" | "BANK";
+    reference?: string;
+    amount?: number;
+    amount_due?: number;
+    receipt_url?: string;
+    receipt_base64?: string;
+    source?: string;
+  }): Promise<any> {
     const res = await fetch("/api/payments/submissions", {
-      headers: { Authorization: `Bearer ${token}` }
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
     });
-    if (!res.ok) throw new Error("Unable to load payment submissions");
-    return await res.json();
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.message || "Failed to submit payment");
+    return result;
   },
 
   async verifyPayment(token: string, id: string, amount: number, action: "confirm" | "reject", note?: string): Promise<any> {

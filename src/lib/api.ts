@@ -660,7 +660,7 @@ export const api = {
       };
     }
     return {
-      reply: "Hello! I am your ApartmentPro Resident Assistant. You can ask me about rent payments, house rules, facility maintenance, or move-in guidelines.",
+      reply: "Hello! I am your RentFlow Resident Assistant. You can ask me about rent payments, house rules, facility maintenance, or move-in guidelines.",
       suggested_replies: ["How do I pay rent?", "Report a maintenance issue", "View house rules"]
     };
   },

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Apartment, Room, Inquiry } from "../types";
 import { api, DBState } from "../lib/api";
-import { Building, MapPin, Search, Eye, MessageCircle, Star, Phone, Mail, Clock, Calendar, Check, X, Shield, ArrowRight, Heart, ChevronLeft, ChevronRight } from "lucide-react";
+import { Building, MapPin, Search, Eye, MessageCircle, Star, Phone, Mail, Clock, Calendar, Check, X, Shield, ArrowRight, Heart, ChevronLeft, ChevronRight, Users, MessageSquare, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import PropertyMap from "./PropertyMap";
 
 const ROOM_TYPE_LABELS = {
   studio: "Studio",
@@ -28,11 +29,12 @@ const APARTMENT_FALLBACK_IMAGES = [
 interface RoomCardProps {
   room: Room;
   apt: Apartment | null | undefined;
+  inquiryCount?: number;
   onSelect: (room: Room) => void;
   key?: string | number;
 }
 
-function RoomCard({ room, apt, onSelect }: RoomCardProps) {
+function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
   const roomImgs = room.image_url ? room.image_url.split(",").map(s => s.trim()).filter(Boolean) : [];
   const displayImages = roomImgs.length > 0 ? roomImgs : [ROOM_FALLBACK_IMAGES[room.room_type] || ROOM_FALLBACK_IMAGES.studio];
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -51,167 +53,184 @@ function RoomCard({ room, apt, onSelect }: RoomCardProps) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.4 }}
-      className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-md hover:shadow-xl transition-all flex flex-col group"
+      transition={{ duration: 0.3 }}
+      className="bg-white rounded-xl overflow-hidden border border-slate-200/90 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
     >
-      {/* Card Image Area with Carousel */}
-      <div 
-        className="relative aspect-[4/3] overflow-hidden bg-slate-100 cursor-grab active:cursor-grabbing select-none"
-        onTouchStart={(e) => {
-          cardSwipeStartX.current = e.touches[0].clientX;
-        }}
-        onTouchEnd={(e) => {
-          if (cardSwipeStartX.current === null) return;
-          const diff = cardSwipeStartX.current - e.changedTouches[0].clientX;
-          const minSwipeDistance = 40;
-          if (diff > minSwipeDistance) {
-            setCurrentIndex((prev) => (prev + 1) % displayImages.length);
-          } else if (diff < -minSwipeDistance) {
-            setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
-          }
-          cardSwipeStartX.current = null;
-        }}
-        onMouseDown={(e) => {
-          cardSwipeStartX.current = e.clientX;
-        }}
-        onMouseUp={(e) => {
-          if (cardSwipeStartX.current === null) return;
-          const diff = cardSwipeStartX.current - e.clientX;
-          const minSwipeDistance = 40;
-          if (diff > minSwipeDistance) {
-            setCurrentIndex((prev) => (prev + 1) % displayImages.length);
-          } else if (diff < -minSwipeDistance) {
-            setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
-          }
-          cardSwipeStartX.current = null;
-        }}
-      >
-        <AnimatePresence mode="wait">
-          <motion.img
-            key={currentIndex}
-            src={displayImages[currentIndex]}
-            alt={`Room ${room.room_number}`}
-            initial={{ opacity: 0, scale: 1.02 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            transition={{ duration: 0.3 }}
-            className="w-full h-full object-cover"
-          />
-        </AnimatePresence>
+      <div>
+        {/* Card Image Area with Carousel - Compact */}
+        <div 
+          className="relative aspect-[16/9] overflow-hidden bg-slate-100 cursor-grab active:cursor-grabbing select-none"
+          onTouchStart={(e) => {
+            cardSwipeStartX.current = e.touches[0].clientX;
+          }}
+          onTouchEnd={(e) => {
+            if (cardSwipeStartX.current === null) return;
+            const diff = cardSwipeStartX.current - e.changedTouches[0].clientX;
+            const minSwipeDistance = 40;
+            if (diff > minSwipeDistance) {
+              setCurrentIndex((prev) => (prev + 1) % displayImages.length);
+            } else if (diff < -minSwipeDistance) {
+              setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
+            }
+            cardSwipeStartX.current = null;
+          }}
+          onMouseDown={(e) => {
+            cardSwipeStartX.current = e.clientX;
+          }}
+          onMouseUp={(e) => {
+            if (cardSwipeStartX.current === null) return;
+            const diff = cardSwipeStartX.current - e.clientX;
+            const minSwipeDistance = 40;
+            if (diff > minSwipeDistance) {
+              setCurrentIndex((prev) => (prev + 1) % displayImages.length);
+            } else if (diff < -minSwipeDistance) {
+              setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
+            }
+            cardSwipeStartX.current = null;
+          }}
+        >
+          <AnimatePresence mode="wait">
+            <motion.img
+              key={currentIndex}
+              src={displayImages[currentIndex]}
+              alt={`Room ${room.room_number}`}
+              initial={{ opacity: 0, scale: 1.02 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.25 }}
+              className="w-full h-full object-cover"
+            />
+          </AnimatePresence>
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-        
-        {/* Navigation Arrows */}
-        {displayImages.length > 1 && (
-          <>
-            <button
-              onClick={prevImage}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1.5 bg-black/50 hover:bg-brand-orange text-white rounded-full transition-all opacity-0 group-hover:opacity-100 duration-300 shadow-sm z-10"
-              title="Previous Photo"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={nextImage}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 bg-black/50 hover:bg-brand-orange text-white rounded-full transition-all opacity-0 group-hover:opacity-100 duration-300 shadow-sm z-10"
-              title="Next Photo"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </>
-        )}
-
-        {/* Dots Indicator Overlay */}
-        {displayImages.length > 1 && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-10 py-1 px-2 rounded-full bg-black/30 backdrop-blur-sm">
-            {displayImages.map((_, idx) => (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+          
+          {/* Navigation Arrows */}
+          {displayImages.length > 1 && (
+            <>
               <button
-                key={idx}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentIndex(idx);
-                }}
-                className={`w-1.5 h-1.5 rounded-full transition-all ${
-                  idx === currentIndex ? "bg-brand-orange w-3" : "bg-white/60 hover:bg-white"
-                }`}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Status/New Badges */}
-        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 pointer-events-none">
-          <span className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-bold rounded-lg shadow-sm">
-            Available
-          </span>
-          {room.is_newly_available && (
-            <span className="flex items-center gap-1 px-2.5 py-1 bg-amber-500 text-white text-[11px] font-bold rounded-lg shadow-sm">
-              <Star className="w-3 h-3 fill-current" /> New
-            </span>
+                onClick={prevImage}
+                className="absolute left-1.5 top-1/2 -translate-y-1/2 p-1 bg-black/50 hover:bg-brand-orange text-white rounded-full transition-all opacity-0 group-hover:opacity-100 duration-200 shadow-xs z-10"
+                title="Previous Photo"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={nextImage}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 bg-black/50 hover:bg-brand-orange text-white rounded-full transition-all opacity-0 group-hover:opacity-100 duration-200 shadow-xs z-10"
+                title="Next Photo"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
+
+          {/* Dots Indicator Overlay */}
+          {displayImages.length > 1 && (
+            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1 z-10 py-0.5 px-1.5 rounded-full bg-black/40 backdrop-blur-xs">
+              {displayImages.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentIndex(idx);
+                  }}
+                  className={`w-1 h-1 rounded-full transition-all ${
+                    idx === currentIndex ? "bg-brand-orange w-2" : "bg-white/60 hover:bg-white"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Status/New Badges */}
+          <div className="absolute top-1.5 left-1.5 flex flex-wrap gap-0.5 pointer-events-none">
+            <span className="px-1.5 py-0.2 bg-emerald-500 text-white text-[8px] font-bold rounded shadow-xs">
+              Available
+            </span>
+            {room.is_newly_available && (
+              <span className="flex items-center gap-0.5 px-1 py-0.2 bg-amber-500 text-white text-[8px] font-bold rounded shadow-xs">
+                <Star className="w-2 h-2 fill-current" /> New
+              </span>
+            )}
+            {inquiryCount > 0 && (
+              <span className="flex items-center gap-0.5 px-1.5 py-0.2 bg-amber-600/90 text-white text-[8px] font-bold rounded shadow-xs backdrop-blur-xs">
+                <Users className="w-2 h-2" /> {inquiryCount} {inquiryCount === 1 ? "inquiry" : "inquiries"}
+              </span>
+            )}
+          </div>
+
+          {/* Room Type Pill */}
+          <span className="absolute top-1.5 right-1.5 px-1.5 py-0.2 bg-black/75 backdrop-blur-xs text-white text-[8px] font-bold rounded uppercase tracking-wider pointer-events-none">
+            {ROOM_TYPE_LABELS[room.room_type]}
+          </span>
         </div>
 
-        {/* Room Type Pill */}
-        <span className="absolute top-3 right-3 px-2.5 py-1 bg-black/70 backdrop-blur-md text-white text-[11px] font-bold rounded-lg uppercase tracking-wider pointer-events-none">
-          {ROOM_TYPE_LABELS[room.room_type]}
-        </span>
-      </div>
-
-      {/* Card Content */}
-      <div className="p-6 flex-grow flex flex-col justify-between">
-        <div>
-          {/* Price Section */}
-          <div className="flex justify-between items-baseline mb-3">
-            <h3 className="text-xl font-extrabold text-slate-900">Room {room.room_number}</h3>
-            <div className="text-brand-orange font-extrabold text-2xl">
-              ₱{Number(room.rent_amount).toLocaleString()}<span className="text-xs text-slate-400 font-medium">/mo</span>
+        {/* Card Content - Slightly bigger & comfortable */}
+        <div className="p-3 text-xs space-y-1.5">
+          {/* Price & Title Section */}
+          <div className="flex justify-between items-baseline gap-1.5">
+            <h3 className="text-sm font-black text-slate-900 truncate">Room {room.room_number}</h3>
+            <div className="text-brand-orange font-black text-sm shrink-0">
+              ₱{Number(room.rent_amount).toLocaleString()}<span className="text-[10px] text-slate-400 font-normal">/mo</span>
             </div>
           </div>
 
+          {/* Inquiry Number Counter for Room */}
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/70">
+            <Users className="w-3 h-3 text-brand-orange shrink-0" />
+            <span>
+              <strong>{inquiryCount}</strong> {inquiryCount === 1 ? "person inquired" : "people inquired"}
+            </span>
+          </div>
+
           {/* Building Name and Floor */}
-          <div className="flex items-center gap-1.5 text-slate-600 text-sm font-semibold mb-1">
-            <Building className="w-4 h-4 text-slate-400 flex-shrink-0" />
-            <span>{apt?.name || "ApartmentPro Complex"}</span>
+          <div className="flex items-center gap-1.5 text-slate-500 text-xs font-medium truncate">
+            <Building className="w-3 h-3 text-slate-400 shrink-0" />
+            <span className="truncate">{apt?.name || "RentFlow"}</span>
             <span className="text-slate-300">•</span>
-            <span className="text-slate-500">Floor {room.floor}</span>
+            <span>Flr {room.floor}</span>
           </div>
 
           {/* Address */}
-          <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-4">
-            <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            <span className="truncate">{apt?.address || "Address Not Available"}</span>
-          </div>
+          {apt?.address && (
+            <div className="flex items-center gap-1 text-slate-400 text-[11px] truncate">
+              <MapPin className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+              <span className="truncate">{apt.address}</span>
+            </div>
+          )}
 
-          {/* Description Clamp */}
-          <p className="text-slate-600 text-sm line-clamp-2 mb-4 leading-relaxed font-light">
-            {room.description}
-          </p>
-        </div>
+          {/* Description */}
+          {room.description && (
+            <p className="text-slate-500 text-[11px] line-clamp-1 leading-snug font-light">
+              {room.description}
+            </p>
+          )}
 
-        <div>
           {/* Amenities Pills */}
-          <div className="flex flex-wrap gap-1 mb-5">
-            {(room.amenities || "Aircon, Wifi").split(",").map((amenity, idx) => (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {(room.amenities || "Aircon, Wifi").split(",").slice(0, 2).map((amenity, idx) => (
               <span
                 key={idx}
-                className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-semibold rounded-md border border-slate-200/50"
+                className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-medium rounded-md border border-slate-200/50"
               >
                 {amenity.trim()}
               </span>
             ))}
           </div>
-
-          {/* Action Button */}
-          <button
-            onClick={() => onSelect(room)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 neu-btn text-slate-900 font-bold text-base rounded-xl shadow-xs transition-all"
-          >
-            <Eye className="w-4.5 h-4.5" />
-            <span>View Details & Inquire</span>
-          </button>
         </div>
+      </div>
+
+      {/* Action Button */}
+      <div className="p-3 pt-0">
+        <button
+          onClick={() => onSelect(room)}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-slate-900 hover:bg-brand-orange text-white font-bold text-xs rounded-lg shadow-xs transition-colors active:scale-95"
+        >
+          <Eye className="w-3.5 h-3.5" />
+          <span>View Room & Inquire</span>
+        </button>
       </div>
     </motion.div>
   );
@@ -288,7 +307,10 @@ export default function LandingPage() {
     return vacantRooms.filter((r) => r.apartment_id === aptId).length;
   };
 
-  const activeApartments = db?.apartments.filter((apt) => apt.status === "active") || [];
+  // Only display active apartments that currently have at least one vacant room available (hide occupied apartments)
+  const activeApartments = (db?.apartments || []).filter(
+    (apt) => apt.status === "active" && getVacantRoomCount(apt.id) > 0
+  );
 
   const filteredApartments = activeApartments.filter((apt) => {
     const matchesSearch =
@@ -320,6 +342,8 @@ export default function LandingPage() {
     return true;
   });
 
+  const selectedApt = db?.apartments.find((a) => a.id === selectedBuilding) || null;
+
   const handleInquirySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoom) return;
@@ -334,7 +358,7 @@ export default function LandingPage() {
         phone: inqPhone,
         room_id: selectedRoom.id,
         room_number: selectedRoom.room_number,
-        apartment_name: apt?.name || "ApartmentPro Complex",
+        apartment_name: apt?.name || "RentFlow Complex",
         message: inqMessage || `Inquiry about Room ${selectedRoom.room_number}.`,
         preferred_visit_date: inqDate,
         status: "new",
@@ -449,69 +473,89 @@ export default function LandingPage() {
             </div>
 
             {filteredApartments.length === 0 ? (
-              <div className="text-center py-24 bg-white border border-slate-100 rounded-2xl shadow-sm">
-                <Building className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-slate-700">No Buildings Found</h3>
-                <p className="text-slate-400 mt-1 max-w-md mx-auto">There are no active apartment buildings listed at the moment. Please contact the office or check back later.</p>
+              <div className="text-center py-20 bg-white border border-slate-100 rounded-2xl shadow-xs">
+                <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-700">No Buildings Found</h3>
+                <p className="text-slate-400 text-xs mt-1 max-w-md mx-auto">There are no active apartment buildings listed at the moment. Please contact the office or check back later.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {filteredApartments.map((apt, idx) => {
                   const vacantCount = getVacantRoomCount(apt.id);
-                  const displayImage = APARTMENT_FALLBACK_IMAGES[idx % APARTMENT_FALLBACK_IMAGES.length];
+                  const displayImage = (apt as any).image_url || APARTMENT_FALLBACK_IMAGES[idx % APARTMENT_FALLBACK_IMAGES.length];
+                  const aptRooms = (db?.rooms || []).filter((r) => r.apartment_id === apt.id);
+                  const aptRoomIdSet = new Set(aptRooms.map((r) => r.id));
+                  const aptInquiriesCount = (db?.inquiries || []).filter(
+                    (inq) => inq.apartment_name === apt.name || aptRoomIdSet.has(inq.room_id)
+                  ).length;
                   return (
                     <motion.div
                       key={apt.id}
                       layout
-                      initial={{ opacity: 0, scale: 0.95 }}
+                      initial={{ opacity: 0, scale: 0.96 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.4 }}
+                      transition={{ duration: 0.3 }}
                       onClick={() => {
                         setSelectedBuilding(apt.id);
-                        // Smooth scroll to listings container top
                         document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
                       }}
-                      className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-md hover:shadow-xl transition-all flex flex-col cursor-pointer group"
+                      className="relative rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between cursor-pointer group min-h-[240px] sm:min-h-[260px] p-4 select-none"
                     >
-                      {/* Apartment Image Area */}
-                      <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
-                        <img
-                          src={displayImage}
-                          alt={apt.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-                        
-                        {/* Vacant badge */}
-                        <span className={`absolute top-3 right-3 px-2.5 py-1 text-[11px] font-bold rounded-lg shadow-sm ${
-                          vacantCount > 0 ? "bg-emerald-500 text-white" : "bg-slate-500 text-white"
+                      {/* Apartment Photo Covering Entire Card */}
+                      <img
+                        src={displayImage}
+                        alt={apt.name}
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-black/30 group-hover:via-slate-950/70 transition-colors" />
+
+                      {/* Top Row: Vacant badge & Inquiry Counter */}
+                      <div className="relative z-10 flex items-center justify-between gap-1.5 flex-wrap">
+                        <span className={`px-2.5 py-1 text-[10px] font-bold rounded-lg shadow-xs backdrop-blur-md border ${
+                          vacantCount > 0 ? "bg-emerald-500/80 text-white border-emerald-400/40" : "bg-slate-700/80 text-slate-200 border-white/10"
                         }`}>
-                          {vacantCount > 0 ? `${vacantCount} Available Room${vacantCount > 1 ? "s" : ""}` : "Fully Occupied"}
+                          {vacantCount > 0 ? `${vacantCount} Vacant Unit${vacantCount > 1 ? "s" : ""}` : "Fully Occupied"}
                         </span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-amber-200 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-md border border-amber-400/30 flex items-center gap-1 shadow-xs">
+                            <MessageSquare className="w-3 h-3 text-brand-orange" />
+                            {aptInquiriesCount} {aptInquiriesCount === 1 ? "Inquiry" : "Inquiries"}
+                          </span>
+                          <span className="text-[10px] font-medium text-white/80 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10">
+                            {apt.total_floors} Floors
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Apartment Card Content */}
-                      <div className="p-6 flex-grow flex flex-col justify-between">
+                      {/* Bottom Content */}
+                      <div className="relative z-10 space-y-2">
                         <div>
-                          <h3 className="text-xl font-extrabold text-slate-900 group-hover:text-brand-orange transition-colors mb-2">
+                          <h3 className="text-base sm:text-lg font-black text-white group-hover:text-brand-orange transition-colors line-clamp-1 drop-shadow-xs">
                             {apt.name}
                           </h3>
                           
-                          {/* Address */}
-                          <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-3">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                          <div className="flex items-center gap-1.5 text-slate-200 text-xs mt-0.5 line-clamp-1">
+                            <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0" />
                             <span className="truncate">{apt.address}</span>
                           </div>
-
-                          <p className="text-slate-600 text-sm font-light line-clamp-2 mb-4 leading-relaxed">
-                            {apt.description}
-                          </p>
                         </div>
 
-                        <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
-                          <span className="text-xs text-slate-400 font-semibold">{apt.total_floors} Floors</span>
-                          <span className="text-brand-orange font-bold text-sm flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                            View Rooms <ArrowRight className="w-4 h-4" />
+                        {apt.description && (
+                          <p className="text-slate-300 text-xs font-light line-clamp-2 leading-snug">
+                            {apt.description}
+                          </p>
+                        )}
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-amber-200 font-semibold bg-black/40 backdrop-blur-xs px-2.5 py-0.5 rounded-md border border-white/10 w-fit">
+                          <Users className="w-3 h-3 text-brand-orange shrink-0" />
+                          <span>{aptInquiriesCount} {aptInquiriesCount === 1 ? "person has" : "people have"} inquired</span>
+                        </div>
+
+                        <div className="border-t border-white/20 pt-2 flex items-center justify-between text-xs font-bold text-white">
+                          <span className="text-[11px] text-slate-300 font-normal">Explore Units</span>
+                          <span className="text-brand-orange font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                            View Rooms <ArrowRight className="w-3.5 h-3.5" />
                           </span>
                         </div>
                       </div>
@@ -524,112 +568,172 @@ export default function LandingPage() {
         ) : (
           // ---------------- STEP 2: CHOOSE A ROOM WITHIN SELECTED BUILDING ----------------
           <>
-            {/* Elegant Apartment Detail Hero Card */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-2 mb-6">
+              <div>
+                <span className="text-[10px] font-extrabold text-brand-orange uppercase tracking-widest">Step 2: Choose Your Room</span>
+                <h3 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-0.5">Available Rooms in Building</h3>
+                <p className="text-slate-500 text-xs mt-0.5">Select a room to view details and submit an inquiry.</p>
+              </div>
+              <div className="px-3 py-1 bg-slate-100 rounded-lg text-slate-700 font-semibold text-xs">
+                {filteredRooms.length} {filteredRooms.length === 1 ? "room available" : "rooms available"}
+              </div>
+            </div>
+
+            {/* Building Info Hero Card and Rooms Grid */}
             {(() => {
               const selectedApt = db?.apartments.find((a) => a.id === selectedBuilding);
+
               return (
-                <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 mb-10 relative overflow-hidden shadow-lg">
-                  {/* Subtle building image overlay background */}
-                  <div className="absolute inset-0 opacity-10 pointer-events-none">
-                    <img
-                      src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80"
-                      alt="Apartment overlay"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  
-                  <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                    <div className="space-y-3">
-                      <button
-                        onClick={() => setSelectedBuilding("all")}
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-orange uppercase tracking-wider hover:text-orange-400 transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/5"
-                      >
-                        <ChevronLeft className="w-4 h-4" /> Back to Buildings
-                      </button>
-                      
+                <div className="space-y-5">
+                  {/* Building Info Card Banner */}
+                  <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 relative overflow-hidden shadow-md">
+                    <div className="absolute inset-0 opacity-20 pointer-events-none">
+                      <img
+                        src={(selectedApt as any)?.image_url || "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80"}
+                        alt="Apartment overlay"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+
+                    <div className="relative z-10 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => setSelectedBuilding("all")}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-orange uppercase tracking-wider hover:text-orange-400 transition-colors bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-lg border border-white/10"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Back to Buildings
+                        </button>
+                        <div className="flex items-center gap-2">
+                          {selectedApt && (
+                            <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold rounded uppercase tracking-wider flex items-center gap-1">
+                              <MessageSquare className="w-3 h-3 text-brand-orange" />
+                              {(db?.inquiries || []).filter(inq => inq.apartment_name === selectedApt.name || (filteredRooms || []).some(r => r.id === inq.room_id)).length} Inquiries
+                            </span>
+                          )}
+                          <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded uppercase tracking-wider">
+                            {filteredRooms.length} Vacant Units
+                          </span>
+                        </div>
+                      </div>
+
                       <div>
-                        <h2 className="text-2xl sm:text-3xl font-black tracking-tight">{selectedApt?.name}</h2>
+                        <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">{selectedApt?.name}</h2>
                         {selectedApt?.description && (
-                          <p className="text-slate-300 font-light text-sm max-w-3xl mt-1.5 leading-relaxed">
+                          <p className="text-slate-300 font-light text-xs mt-1 leading-snug line-clamp-2 max-w-2xl">
                             {selectedApt.description}
                           </p>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 font-semibold pt-1">
-                        <span className="flex items-center gap-1.5">
-                          <MapPin className="w-4 h-4 text-brand-orange flex-shrink-0" />
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 pt-0.5">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0" />
                           <span>{selectedApt?.address}</span>
                         </span>
-                        <span className="text-slate-600 hidden sm:inline">•</span>
-                        <span>{selectedApt?.total_floors} Floors Available</span>
+                        <span>•</span>
+                        <span>{selectedApt?.total_floors} Floors</span>
                       </div>
                     </div>
+                  </div>
 
-                    <div className="flex-shrink-0 bg-white/5 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/10 text-center flex flex-row lg:flex-col items-center justify-between lg:justify-center gap-4 lg:gap-1.5 min-w-[150px]">
-                      <div>
-                        <span className="block text-[10px] uppercase font-black tracking-widest text-orange-400 text-left lg:text-center">Available Units</span>
-                        <span className="text-3xl font-black text-white">{filteredRooms.length}</span>
+                  {/* Rooms + Exact Location Map */}
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+                    {/* Rooms Grid — intentionally 2 columns for a 2 × 2 layout */}
+                    <div>
+                      {filteredRooms.length === 0 ? (
+                        <div className="text-center py-16 bg-white border border-slate-100 rounded-xl shadow-xs">
+                          <Building className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                          <h3 className="text-sm font-bold text-slate-700">No Rooms Available</h3>
+                          <p className="text-slate-400 mt-0.5 max-w-sm mx-auto text-xs font-light">
+                            No vacant rooms are currently available in this building.
+                          </p>
+                          <div className="flex justify-center gap-2 mt-3">
+                            <button
+                              onClick={() => setSelectedBuilding("all")}
+                              className="px-3 py-1.5 bg-brand-orange text-white font-bold text-xs rounded-lg hover:bg-orange-600 transition-colors"
+                            >
+                              Browse Other Buildings
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {filteredRooms.map((room) => {
+                            const roomInqCount = (db?.inquiries || []).filter((inq) => inq.room_id === room.id).length;
+                            return (
+                              <RoomCard
+                                key={room.id}
+                                room={room}
+                                apt={getApartmentForRoom(room.id)}
+                                inquiryCount={roomInqCount}
+                                onSelect={setSelectedRoom}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Exact Apartment Location — beside the room cards */}
+                    <div className="lg:sticky lg:top-24 bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-orange-50 text-brand-orange">
+                            <MapPin className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">Apartment Location</h3>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Exact location of {selectedApt?.name || "this apartment"}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded-lg uppercase tracking-wider">
-                        Vacant
-                      </span>
+                      {selectedApt && Number.isFinite(Number(selectedApt.latitude)) && Number.isFinite(Number(selectedApt.longitude)) ? (
+                        <>
+                          <PropertyMap
+                            points={[{
+                              id: selectedApt.id,
+                              name: selectedApt.name,
+                              lat: Number(selectedApt.latitude),
+                              lng: Number(selectedApt.longitude),
+                              address: selectedApt.location_address || selectedApt.address,
+                            }]}
+                            height={360}
+                            zoom={16}
+                          />
+                          <div className="px-4 py-3 border-t border-slate-100">
+                            <p className="text-[11px] text-slate-600 flex items-start gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0 mt-0.5" />
+                              <span>{selectedApt.location_address || selectedApt.address}</span>
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="h-[360px] flex flex-col items-center justify-center text-center px-6 bg-slate-50">
+                          <MapPin className="w-9 h-9 text-slate-300 mb-2" />
+                          <h4 className="text-sm font-bold text-slate-600">Location Not Available</h4>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            The property manager has not pinned this apartment on the map yet.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               );
             })()}
-
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-10">
-              <div>
-                <span className="text-xs font-extrabold text-brand-orange uppercase tracking-widest">Step 2: Choose Your Room</span>
-                <h3 className="text-2xl font-bold text-slate-900 tracking-tight mt-1">Available Rooms in Building</h3>
-                <p className="text-slate-500 mt-1">Ready for immediate occupancy. Select a room to view details and submit an inquiry.</p>
-              </div>
-              <div className="px-4 py-2 bg-slate-100 rounded-xl text-slate-700 font-semibold text-sm">
-                {filteredRooms.length} {filteredRooms.length === 1 ? "room found" : "rooms found"}
-              </div>
-            </div>
-
-            {filteredRooms.length === 0 ? (
-              <div className="text-center py-20 bg-white border border-slate-100 rounded-2xl shadow-sm">
-                <Building className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-slate-700">No Rooms Available</h3>
-                <p className="text-slate-400 mt-1 max-w-sm mx-auto text-sm font-light">
-                  No vacant rooms are currently available in this building.
-                </p>
-                <div className="flex justify-center gap-3 mt-6">
-                  <button
-                    onClick={() => setSelectedBuilding("all")}
-                    className="px-5 py-2 bg-brand-orange text-white font-bold text-xs rounded-xl hover:bg-orange-600 transition-colors"
-                  >
-                    Browse Other Buildings
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {filteredRooms.map((room) => (
-                  <RoomCard
-                    key={room.id}
-                    room={room}
-                    apt={getApartmentForRoom(room.id)}
-                    onSelect={setSelectedRoom}
-                  />
-                ))}
-              </div>
-            )}
             
             {/* Smooth back button */}
-            <div className="mt-12 pt-8 border-t border-slate-200/60 flex justify-center">
+            <div className="mt-8 pt-4 border-t border-slate-200/60 flex justify-center">
               <button
                 onClick={() => {
                   setSelectedBuilding("all");
                   document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
                 }}
-                className="flex items-center gap-2 px-6 py-3 bg-slate-900 hover:bg-brand-orange text-white font-bold text-sm rounded-xl transition-all shadow-md hover:shadow-lg"
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-brand-orange text-white font-bold text-xs rounded-xl transition-all shadow-xs"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="w-3.5 h-3.5" />
                 <span>Choose Another Apartment Building</span>
               </button>
             </div>
@@ -644,10 +748,10 @@ export default function LandingPage() {
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-brand-orange">Seamless Living</span>
               <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mt-2 mb-6">
-                Why Lease with ApartmentPro?
+                Why Lease with RentFlow?
               </h2>
               <p className="text-slate-600 mb-6 leading-relaxed font-light">
-                We believe in simplifying the landlord-tenant connection. ApartmentPro features fully digitized rental payments, prompt repair notifications, direct developer messaging, and pristine buildings.
+                We believe in simplifying the landlord-tenant connection. RentFlow features fully digitized rental payments, prompt repair notifications, direct developer messaging, and pristine buildings.
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-8">
@@ -674,7 +778,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <img
-                src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80"
+                src={(selectedApt as any)?.image_url || "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80"}
                 alt="Living interior"
                 className="rounded-3xl shadow-xl w-full h-[400px] object-cover"
               />
@@ -750,7 +854,7 @@ export default function LandingPage() {
           </div>
 
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p>© {new Date().getFullYear()} ApartmentPro Property Management. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} RentFlow Property Management. All rights reserved.</p>
             <p className="text-xs text-[#8c6753]">Registered Corporate Property Operator. Manila, Philippines.</p>
           </div>
         </div>
@@ -769,29 +873,30 @@ export default function LandingPage() {
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             />
 
-            {/* Modal Body Container */}
+            {/* Modal Body Container - Small & Compact Card */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              className="relative bg-white w-full max-w-5xl rounded-2xl shadow-2xl z-10 overflow-hidden grid grid-cols-1 lg:grid-cols-2 max-h-[90vh]"
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[92vh] text-xs"
             >
               <button
                 onClick={() => setSelectedRoom(null)}
-                className="absolute top-4 right-4 z-20 p-2 bg-black/60 text-white hover:bg-brand-orange rounded-full shadow-md transition-colors"
+                className="absolute top-2.5 right-2.5 z-30 p-1.5 bg-black/60 text-white hover:bg-brand-orange rounded-full shadow-md transition-colors"
+                title="Close"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
 
-              {/* Left Column: Image/Status Gallery */}
+              {/* Compact Image/Status Gallery */}
               {(() => {
                 const roomImagesList = selectedRoom.image_url ? selectedRoom.image_url.split(",").map(s => s.trim()).filter(Boolean) : [];
                 const displayImages = roomImagesList.length > 0 ? roomImagesList : [ROOM_FALLBACK_IMAGES[selectedRoom.room_type] || ROOM_FALLBACK_IMAGES.studio];
                 return (
-                  <div className="relative h-[320px] lg:h-full overflow-hidden bg-slate-950 flex flex-col justify-between">
+                  <div className="relative h-44 sm:h-48 overflow-hidden bg-slate-950 shrink-0 select-none">
                     {/* Main image container */}
                     <div 
-                      className="relative flex-1 overflow-hidden h-full cursor-grab active:cursor-grabbing select-none"
+                      className="relative h-full cursor-grab active:cursor-grabbing"
                       onTouchStart={(e) => {
                         swipeStartX.current = e.touches[0].clientX;
                       }}
@@ -829,11 +934,11 @@ export default function LandingPage() {
                           initial={{ opacity: 0, scale: 1.02 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.98 }}
-                          transition={{ duration: 0.3 }}
+                          transition={{ duration: 0.25 }}
                           className="w-full h-full object-cover absolute inset-0"
                         />
                       </AnimatePresence>
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25" />
 
                       {/* Navigation Arrows if more than 1 image */}
                       {displayImages.length > 1 && (
@@ -843,163 +948,159 @@ export default function LandingPage() {
                               e.stopPropagation();
                               setActiveImageIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
                             }}
-                            className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-black/60 hover:bg-brand-orange text-white rounded-full transition-colors z-10"
+                            className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1 bg-black/60 hover:bg-brand-orange text-white rounded-full transition-colors z-10"
                             title="Previous photo"
                           >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
-                            </svg>
+                            <ChevronLeft className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setActiveImageIndex((prev) => (prev + 1) % displayImages.length);
                             }}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-black/60 hover:bg-brand-orange text-white rounded-full transition-colors z-10"
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 bg-black/60 hover:bg-brand-orange text-white rounded-full transition-colors z-10"
                             title="Next photo"
                           >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
-                            </svg>
+                            <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </>
                       )}
 
                       {/* Photo Counter */}
                       {displayImages.length > 1 && (
-                        <span className="absolute top-4 left-4 px-2 py-1 bg-black/70 backdrop-blur-md text-white text-[10px] font-bold rounded-lg font-mono z-10">
+                        <span className="absolute top-2.5 left-2.5 px-1.5 py-0.5 bg-black/70 backdrop-blur-xs text-white text-[9px] font-bold rounded font-mono z-10">
                           {activeImageIndex + 1} / {displayImages.length}
                         </span>
                       )}
 
-                      {/* Thumbnails Overlay Row */}
-                      {displayImages.length > 1 && (
-                        <div className="absolute bottom-24 left-6 right-6 flex gap-2 overflow-x-auto pb-1 z-10 no-scrollbar">
-                          {displayImages.map((img, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => setActiveImageIndex(idx)}
-                              className={`w-12 h-12 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${
-                                idx === activeImageIndex ? "border-brand-orange scale-105 shadow-md" : "border-transparent opacity-60 hover:opacity-100"
-                              }`}
-                            >
-                              <img src={img} alt="Thumbnail" className="w-full h-full object-cover" />
-                            </button>
-                          ))}
+                      {/* Info Overlay */}
+                      <div className="absolute bottom-2.5 left-3 right-3 z-10 text-white flex justify-between items-end">
+                        <div>
+                          <div className="flex gap-1 mb-1">
+                            <span className="px-1.5 py-0.2 bg-emerald-500 text-white text-[8px] font-bold rounded uppercase tracking-wide">
+                              Available
+                            </span>
+                            <span className="px-1.5 py-0.2 bg-black/70 text-white text-[8px] font-mono rounded font-bold uppercase">
+                              {ROOM_TYPE_LABELS[selectedRoom.room_type]}
+                            </span>
+                          </div>
+                          <h2 className="text-base sm:text-lg font-black text-white leading-tight">Room {selectedRoom.room_number}</h2>
+                          <p className="text-[10px] text-slate-300 font-medium truncate max-w-[200px]">
+                            {getApartmentForRoom(selectedRoom.id)?.name}
+                          </p>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Info Overlay */}
-                    <div className="absolute bottom-6 left-6 z-10 text-white">
-                      <div className="flex gap-1.5 mb-2">
-                        <span className="px-2.5 py-1 bg-emerald-500 text-white text-[10px] font-bold rounded-lg uppercase tracking-wide">
-                          Available Room
-                        </span>
-                        {selectedRoom.is_newly_available && (
-                          <span className="px-2.5 py-1 bg-amber-500 text-white text-[10px] font-bold rounded-lg uppercase tracking-wide">
-                            Newly Listed
+                        <div className="text-right">
+                          <span className="text-[9px] text-slate-300 block">Monthly Rent</span>
+                          <span className="font-black text-base text-brand-orange">
+                            ₱{Number(selectedRoom.rent_amount).toLocaleString()}
                           </span>
-                        )}
+                        </div>
                       </div>
-                      <h2 className="text-3xl font-black">Room {selectedRoom.room_number}</h2>
-                      <p className="text-slate-300 font-semibold">{getApartmentForRoom(selectedRoom.id)?.name}</p>
                     </div>
                   </div>
                 );
               })()}
 
-              {/* Right Column: Full Details & Inquiry Forms */}
-              <div className="p-6 sm:p-8 overflow-y-auto max-h-[calc(90vh-100px)] lg:max-h-[90vh] flex flex-col justify-between">
-                <div>
-                  {/* Price Banner */}
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-6">
+              {/* Scrollable Details & Inquiry Form */}
+              <div className="p-3.5 sm:p-4 overflow-y-auto space-y-3 flex-1 min-h-0">
+                {/* Room Spec Grid - Compact */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center gap-1.5">
+                    <Building className="w-3.5 h-3.5 text-brand-orange shrink-0" />
                     <div>
-                      <span className="text-slate-400 text-xs uppercase tracking-wider font-bold">Monthly Rent</span>
-                      <div className="text-brand-orange font-black text-3xl">
-                        ₱{Number(selectedRoom.rent_amount).toLocaleString()}
-                        <span className="text-sm font-light text-slate-400">/month</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-slate-400 text-xs uppercase tracking-wider font-bold">Type</span>
-                      <div className="text-slate-800 font-black text-lg">
-                        {ROOM_TYPE_LABELS[selectedRoom.room_type]}
-                      </div>
+                      <span className="block text-slate-400 text-[9px] uppercase font-bold">Floor Level</span>
+                      <span className="font-bold text-slate-700 text-[11px]">Floor {selectedRoom.floor}</span>
                     </div>
                   </div>
-
-                  {/* Room Spec Grid */}
-                  <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center gap-2">
-                      <Building className="w-5 h-5 text-brand-orange" />
-                      <div>
-                        <span className="block text-slate-400 text-[10px] uppercase font-bold">Location</span>
-                        <span className="font-bold text-slate-700">Floor {selectedRoom.floor}</span>
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-brand-orange" />
-                      <div>
-                        <span className="block text-slate-400 text-[10px] uppercase font-bold">Address</span>
-                        <span className="font-bold text-slate-700 truncate max-w-[130px] block">
-                          {getApartmentForRoom(selectedRoom.id)?.address}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Room Description */}
-                  <div className="mb-6">
-                    <h4 className="font-bold text-slate-800 mb-2 text-sm uppercase tracking-wide">Property Overview</h4>
-                    <p className="text-slate-600 text-sm leading-relaxed font-light">
-                      {selectedRoom.description}
-                    </p>
-                  </div>
-
-                  {/* Amenities List */}
-                  <div className="mb-8">
-                    <h4 className="font-bold text-slate-800 mb-2.5 text-sm uppercase tracking-wide">Included Amenities</h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(selectedRoom.amenities || "Aircon, Wifi").split(",").map((amenity, idx) => (
-                        <span
-                          key={idx}
-                          className="flex items-center gap-1 px-3 py-1 bg-orange-50 text-brand-orange border border-orange-100 text-xs font-bold rounded-lg"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>{amenity.trim()}</span>
-                        </span>
-                      ))}
+                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0" />
+                    <div className="truncate">
+                      <span className="block text-slate-400 text-[9px] uppercase font-bold">Location</span>
+                      <span className="font-bold text-slate-700 text-[11px] truncate block max-w-[140px]">
+                        {getApartmentForRoom(selectedRoom.id)?.address}
+                      </span>
                     </div>
                   </div>
                 </div>
 
+                {/* Room Description */}
+                {selectedRoom.description && (
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wide">Property Overview</h4>
+                    <p className="text-slate-600 text-xs leading-relaxed font-light mt-0.5 line-clamp-2">
+                      {selectedRoom.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Amenities List */}
+                <div>
+                  <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wide mb-1">Included Amenities</h4>
+                  <div className="flex flex-wrap gap-1">
+                    {(selectedRoom.amenities || "Aircon, Wifi").split(",").map((amenity, idx) => (
+                      <span
+                        key={idx}
+                        className="flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-brand-orange border border-orange-100 text-[10px] font-bold rounded-md"
+                      >
+                        <Check className="w-2.5 h-2.5" />
+                        <span>{amenity.trim()}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Inquiry Counter Tracker Banner */}
+                {(() => {
+                  const roomInqCount = (db?.inquiries || []).filter((inq) => inq.room_id === selectedRoom.id).length;
+                  return (
+                    <div className="p-2.5 bg-amber-50/90 border border-amber-200/80 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 bg-amber-100 rounded-lg flex items-center justify-center text-brand-orange shrink-0">
+                          <Users className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="font-extrabold text-amber-950 block text-[11px]">
+                            {roomInqCount} {roomInqCount === 1 ? "person has" : "people have"} inquired
+                          </span>
+                          <span className="text-[10px] text-amber-700">
+                            High interest in Room {selectedRoom.room_number}. Inquire now below!
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 bg-amber-500 text-white font-black text-[10px] rounded-md shrink-0 shadow-xs">
+                        Hot Unit
+                      </span>
+                    </div>
+                  );
+                })()}
+
                 {/* Inquiry Form & CTA */}
-                <div className="border-t border-slate-100 pt-6">
+                <div className="border-t border-slate-100 pt-3">
                   {inquirySuccess ? (
                     <motion.div
-                      initial={{ opacity: 0, y: 10 }}
+                      initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex items-start gap-3"
+                      className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex items-start gap-2.5"
                     >
-                      <Check className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <Check className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                       <div>
-                        <h4 className="font-bold">Inquiry Submitted Successfully!</h4>
-                        <p className="text-xs text-emerald-700 mt-1">Our property manager will review your schedule request and contact you shortly. Thank you!</p>
+                        <h4 className="font-bold text-xs">Inquiry Submitted!</h4>
+                        <p className="text-[11px] text-emerald-700 mt-0.5">Our property manager will review your schedule request and contact you shortly.</p>
                       </div>
                     </motion.div>
                   ) : (
-                    <form onSubmit={handleInquirySubmit} className="space-y-4">
-                      <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wide">Schedule a Viewing / Inquire</h4>
+                    <form onSubmit={handleInquirySubmit} className="space-y-2">
+                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wide">Schedule a Viewing / Inquire</h4>
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2">
                         <input
                           type="text"
                           required
                           placeholder="Your Full Name"
                           value={inqName}
                           onChange={(e) => setInqName(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange text-slate-800 font-medium"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"
                         />
                         <input
                           type="email"
@@ -1007,43 +1108,43 @@ export default function LandingPage() {
                           placeholder="Email Address"
                           value={inqEmail}
                           onChange={(e) => setInqEmail(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange text-slate-800 font-medium"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2">
                         <input
                           type="tel"
                           required
-                          placeholder="Phone Number (e.g., 0917...)"
+                          placeholder="Phone (0917...)"
                           value={inqPhone}
                           onChange={(e) => setInqPhone(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange text-slate-800 font-medium"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"
                         />
                         <input
                           type="date"
                           required
                           value={inqDate}
                           onChange={(e) => setInqDate(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange text-slate-800 font-medium"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"
                         />
                       </div>
 
                       <textarea
-                        rows={2}
-                        placeholder="Additional notes or questions... (optional)"
+                        rows={1}
+                        placeholder="Additional notes... (optional)"
                         value={inqMessage}
                         onChange={(e) => setInqMessage(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange text-slate-800 font-medium"
+                        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"
                       />
 
-                      <div className="pt-2">
+                      <div className="pt-1">
                         <button
                           type="submit"
                           disabled={submittingInquiry}
-                          className="w-full px-5 py-3 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white font-extrabold text-sm rounded-xl shadow-md shadow-[#8B2626]/25 active:scale-95 transition-all disabled:opacity-50"
+                          className="w-full py-2 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:opacity-90 text-white font-bold text-xs rounded-lg shadow-sm active:scale-98 transition-all disabled:opacity-50"
                         >
-                          {submittingInquiry ? "Submitting Inquiry..." : "Submit Inquiry / Schedule Viewing"}
+                          {submittingInquiry ? "Submitting..." : "Submit Inquiry / Schedule Viewing"}
                         </button>
                       </div>
                     </form>

@@ -170,7 +170,7 @@ export function buildReceiptData(tenant: Tenant, bill: BillingRecord, db?: any):
   };
 }
 
-// Generate deterministic SVG receipt template matching the ApartmentPro design reference
+// Generate deterministic SVG receipt template matching the RentFlow design reference
 export function generateReceiptSvg(data: ReceiptDataObject): string {
   const width = 800;
 
@@ -404,7 +404,7 @@ export function generateReceiptSvg(data: ReceiptDataObject): string {
       Please settle your bill on or before the due date.
     </text>
     <text x="350" y="56" text-anchor="middle" font-family="FreeSans" font-size="13" fill="#64748b">
-      Thank you! — ApartmentPro
+      Thank you! — RentFlow
     </text>
   </g>
 </svg>`;
@@ -614,7 +614,7 @@ export async function sendVisualBillToMessenger(
   const companionMessageText =
     `📋 Your monthly bill is ready.\n\n` +
     `Please review your attached statement and settle the total amount on or before the due date.\n\n` +
-    `Thank you! — ApartmentPro`;
+    `Thank you! — RentFlow`;
 
   const billQuickReplies = [
     { content_type: "text", title: "💰 View Balance", payload: "GET_BALANCE" },
@@ -657,12 +657,12 @@ export async function sendVisualBillToMessenger(
     } else {
       console.warn("Visual bill image sending failed, checking fallback:", imageSendRes.error);
       const emergencyFallbackText =
-        `🏠 ApartmentPro\n\n` +
+        `🏠 RentFlow\n\n` +
         `Your monthly bill for ${receiptData.billingPeriod} is ready.\n\n` +
         `Total Amount Due: ${formatPHP(bill.total_amount)}\n` +
         `Due Date: ${receiptData.dueDate}\n\n` +
         `View Digital Bill: ${publicImageUrl}\n\n` +
-        `Thank you! — ApartmentPro`;
+        `Thank you! — RentFlow`;
 
       textSendRes = await sendFacebookMessage(targetPsid, {
         text: emergencyFallbackText,

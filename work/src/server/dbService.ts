@@ -110,15 +110,30 @@ class DatabaseService {
   private initPromise: Promise<void> | null = null;
 
   constructor() {
-    const envProjectId = process.env.FIREBASE_PROJECT_ID;
-    const realProjectId = (envProjectId && envProjectId !== "ApartmentPro" && !envProjectId.includes(" "))
-      ? envProjectId
-      : (localConfig.projectId || "gen-lang-client-0439520113");
+    const isValidGcpProjectId = (id?: string | null): boolean => {
+      if (!id || typeof id !== "string") return false;
+      const trimmed = id.trim();
+      if (trimmed === "ApartmentPro" || trimmed === "RentFlow") return false;
+      return /^[a-z0-9][a-z0-9-]{4,28}[a-z0-9]$/.test(trimmed);
+    };
+
+    const envProjectId = (process.env.FIREBASE_PROJECT_ID || "").trim();
+    const configProjectId = (localConfig.projectId || "").trim();
+
+    const realProjectId = isValidGcpProjectId(configProjectId)
+      ? configProjectId
+      : (isValidGcpProjectId(envProjectId) ? envProjectId : "gen-lang-client-0439520113");
+
+    const envDbId = (process.env.FIREBASE_DATABASE_ID || "").trim();
+    const configDbId = (localConfig.firestoreDatabaseId || "").trim();
+    const realDatabaseId = (configDbId && configDbId !== "(default)")
+      ? configDbId
+      : (envDbId || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55");
 
     this.config = {
       apiKey: process.env.FIREBASE_API_KEY || localConfig.apiKey || "AIzaSyB-xnApP91609agpMBhPPtHPaC5MB4Sh08",
       projectId: realProjectId,
-      databaseId: process.env.FIREBASE_DATABASE_ID || localConfig.firestoreDatabaseId || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55",
+      databaseId: realDatabaseId,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET || localConfig.storageBucket || "gen-lang-client-0439520113.firebasestorage.app",
       appId: process.env.FIREBASE_APP_ID || localConfig.appId || "1:444816417263:web:ece8278909a1cfce47161a",
       messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || localConfig.messagingSenderId || "444816417263",

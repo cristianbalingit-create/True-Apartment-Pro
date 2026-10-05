@@ -114,15 +114,30 @@ class DatabaseService {
   private initPromise: Promise<void> | null = null;
 
   constructor() {
-    const envProjectId = process.env.FIREBASE_PROJECT_ID;
-    const realProjectId = (envProjectId && envProjectId !== "ApartmentPro" && !envProjectId.includes(" "))
-      ? envProjectId
-      : (localConfig.projectId || "gen-lang-client-0439520113");
+    const isValidGcpProjectId = (id?: string | null): boolean => {
+      if (!id || typeof id !== "string") return false;
+      const trimmed = id.trim();
+      if (trimmed === "ApartmentPro" || trimmed === "RentFlow") return false;
+      return /^[a-z0-9][a-z0-9-]{4,28}[a-z0-9]$/.test(trimmed);
+    };
+
+    const envProjectId = (process.env.FIREBASE_PROJECT_ID || "").trim();
+    const configProjectId = (localConfig.projectId || "").trim();
+
+    const realProjectId = isValidGcpProjectId(configProjectId)
+      ? configProjectId
+      : (isValidGcpProjectId(envProjectId) ? envProjectId : "gen-lang-client-0439520113");
+
+    const envDbId = (process.env.FIREBASE_DATABASE_ID || "").trim();
+    const configDbId = (localConfig.firestoreDatabaseId || "").trim();
+    const realDatabaseId = (configDbId && configDbId !== "(default)")
+      ? configDbId
+      : (envDbId || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55");
 
     this.config = {
       apiKey: process.env.FIREBASE_API_KEY || localConfig.apiKey || "AIzaSyB-xnApP91609agpMBhPPtHPaC5MB4Sh08",
       projectId: realProjectId,
-      databaseId: process.env.FIREBASE_DATABASE_ID || localConfig.firestoreDatabaseId || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55",
+      databaseId: realDatabaseId,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET || localConfig.storageBucket || "gen-lang-client-0439520113.firebasestorage.app",
       appId: process.env.FIREBASE_APP_ID || localConfig.appId || "1:444816417263:web:ece8278909a1cfce47161a",
       messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || localConfig.messagingSenderId || "444816417263",
@@ -385,6 +400,28 @@ class DatabaseService {
       }
     });
 
+    // Room occupancy integrity:
+    // a room is occupied only when it has an active tenant assigned to it.
+    // Any room without an active tenant is normalized to vacant so stale
+    // occupied/maintenance states cannot appear as an available tenancy.
+    const activeTenantsByRoom = new Map<string, Tenant>();
+    state.tenants.forEach((tenant) => {
+      if (tenant.status === "active" && tenant.room_id) {
+        activeTenantsByRoom.set(String(tenant.room_id), tenant);
+      }
+    });
+
+    state.rooms.forEach((room) => {
+      const activeTenant = activeTenantsByRoom.get(String(room.id));
+      if (activeTenant) {
+        room.status = "occupied";
+        room.tenant_id = activeTenant.id;
+      } else {
+        room.status = "vacant";
+        delete room.tenant_id;
+      }
+    });
+
     return state;
   }
 
@@ -448,8 +485,47 @@ class DatabaseService {
         return this.syncFromFirestore();
       }
 
+      const rawRooms = Array.isArray((newState as any).rooms)
+        ? (newState as any).rooms.map((room: any) => ({ ...room }))
+        : [];
       this.inMemoryCache = this.sanitizeDBState(newState);
       this.saveFallbackFile(this.inMemoryCache);
+
+      // Persist only room occupancy corrections discovered during sync so the
+      // Firestore source of truth matches the normalized state after reloads.
+      const normalizedRooms = this.inMemoryCache.rooms || [];
+      const changedRooms = normalizedRooms.filter((room, index) => {
+        const raw = rawRooms[index];
+        return raw && (
+          raw.status !== room.status ||
+          String(raw.tenant_id || "") !== String(room.tenant_id || "")
+        );
+      });
+      if (changedRooms.length > 0 && this.isConnectedToFirestore) {
+        try {
+          if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+            const batch = this.adminFirestore.batch();
+            changedRooms.forEach((room) => {
+              const ref = this.adminFirestore!.collection("rooms").doc(String(room.id));
+              const data: any = { status: room.status };
+              if (room.tenant_id) data.tenant_id = room.tenant_id;
+              else data.tenant_id = null;
+              batch.set(ref, data, { merge: true });
+            });
+            await batch.commit();
+          } else if (this.clientFirestore) {
+            const batch = clientWriteBatch(this.clientFirestore);
+            changedRooms.forEach((room) => {
+              const ref = clientDoc(this.clientFirestore!, "rooms", String(room.id));
+              batch.set(ref, { status: room.status, tenant_id: room.tenant_id || null }, { merge: true });
+            });
+            await batch.commit();
+          }
+        } catch (normalizeErr: any) {
+          console.warn("Room occupancy normalization persistence warning:", normalizeErr?.message || normalizeErr);
+        }
+      }
+
       return this.inMemoryCache;
     } catch (err: any) {
       console.error("Error reading collections from Firestore:", err.message);

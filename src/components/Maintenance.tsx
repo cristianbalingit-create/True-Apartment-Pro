@@ -20,7 +20,7 @@ interface MaintenanceProps {
 
 export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
   // Show Reports and Graphs first by default
-  const [activeSubTab, setActiveSubTab] = useState<"reports" | "tickets">("reports");
+  const [activeSubTab, setActiveSubTab] = useState<"reports" | "tickets" | "archives">("reports");
   const [loading, setLoading] = useState(false);
   
   // Filters
@@ -81,7 +81,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
 
   // Sorted tickets list - Newest first so freshly added tickets always appear at the top
   const tickets = useMemo(() => {
-    const list = [...liveMaintenanceRequests];
+    const list = liveMaintenanceRequests.filter((t: any) => !t.archived);
     return list.sort((a, b) => {
       const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
       const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
@@ -93,6 +93,14 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
   const activeSelectedTicket = selectedTicketForViewer 
     ? (tickets.find((t) => (t.id === selectedTicketForViewer.id || (t.ticketId && t.ticketId === selectedTicketForViewer.id))) || selectedTicketForViewer)
     : null;
+
+  const archivedTickets = useMemo(() => {
+    return [...liveMaintenanceRequests.filter((t: any) => !!t.archived)].sort((a, b) => {
+      const timeA = new Date(a.updated_at || a.updatedAt || a.created_at || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updated_at || b.updatedAt || b.created_at || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [liveMaintenanceRequests]);
 
   // Filtered maintenance requests with Search & Priority filter (supports both snake_case and camelCase aliases)
   const filteredTickets = useMemo(() => {
@@ -206,19 +214,18 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
     }
   };
 
-  const handleDeleteTicket = async (id: string) => {
-    if (!confirm(`Are you sure you want to delete maintenance ticket ${id}?`)) return;
+
+
+  const handleArchiveTicket = async (id: string) => {
     try {
       setLoading(true);
-      await api.deleteMaintenanceRequest(id);
-      if (selectedTicketForViewer?.id === id) {
-        setSelectedTicketForViewer(null);
-      }
-      onRefresh();
+      await api.updateMaintenanceRequest(id, { archived: true });
+      if (selectedTicketForViewer?.id === id) setSelectedTicketForViewer(null);
+      await onRefresh();
       await refreshLiveMaintenance();
     } catch (e) {
       console.error(e);
-      alert("Failed to delete ticket.");
+      alert("Failed to archive ticket.");
     } finally {
       setLoading(false);
     }
@@ -277,6 +284,18 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
             >
               <Wrench className={`w-4 h-4 ${activeSubTab === "tickets" ? "!text-white" : ""}`} />
               <span>Maintenance Tickets ({tickets.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab("archives")}
+              className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
+                activeSubTab === "archives"
+                  ? "active !bg-slate-700 !text-white !border-slate-800 shadow-md font-black"
+                  : "neu-btn text-slate-900 hover:text-slate-700"
+              }`}
+            >
+              <Clock className={`w-4 h-4 ${activeSubTab === "archives" ? "!text-white" : ""}`} />
+              <span>Archives ({archivedTickets.length})</span>
             </button>
           </div>
 
@@ -476,7 +495,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
           </div>
 
           {/* Report Cards Grid - Neumorphic Style */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {filteredTickets.length === 0 ? (
               <div className="col-span-full neu-pressed text-center py-14 px-5 rounded-2xl text-slate-500 space-y-2.5">
                 <Wrench className="w-10 h-10 mx-auto text-slate-400" />
@@ -512,141 +531,86 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                 const isNewlyCreated = (recentlyCreatedId && (ticket.id === recentlyCreatedId || ticket.ticketId === recentlyCreatedId));
 
                 return (
-                  <div 
-                    key={ticket.id} 
-                    className={`maintenance-ticket-card neu-card p-5 transition-all flex flex-col justify-between gap-4 ${
-                      isNewlyCreated 
-                        ? "border-2 border-[#EF6905] ring-4 ring-[#EF6905]/20 shadow-lg scale-[1.01]" 
-                        : isCritical 
-                          ? "border-2 border-[#8B2626] shadow-[0_0_18px_rgba(139,38,38,0.28)]" 
-                          : (ticket.status === "pending" && ((ticket.priority || ticket.severity || "").toLowerCase() === "high") )
-                            ? "border-2 border-[#EF6905] shadow-[0_0_14px_rgba(239,105,5,0.20)]"
-                            : ticket.status === "pending"
-                              ? "border-2 border-[#F1E5A1] shadow-[0_0_10px_rgba(241,229,161,0.45)]"
-                              : ""
-                    }`}
+                  <div
+                    key={ticket.id}
+                    className={`maintenance-ticket-card rounded-xl p-2.5 transition-all flex flex-col justify-between gap-2 border-2 ${
+                      isNewlyCreated ? "ring-4 ring-[#EF6905]/20 shadow-lg scale-[1.01]" : "shadow-sm hover:shadow-md"
+                    } ${(() => {
+                      const p = (ticket.priority || ticket.severity || "medium").toLowerCase();
+                      if (p === "critical") return "bg-red-100 border-red-500";
+                      if (p === "high") return "bg-orange-100 border-orange-500";
+                      if (p === "medium") return "bg-amber-100 border-amber-500";
+                      return "bg-emerald-100 border-emerald-500";
+                    })()}`}
                   >
-                    <div className="space-y-3.5">
-                      
-                      {/* 1. Priority Banner at Top of Card */}
-                      <div className="flex flex-wrap justify-between items-center gap-2">
-                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${prio.badgeClass}`}>
+                    <div className="space-y-1.5">
+                      {/* Priority is intentionally the most prominent detail. */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 ${prio.badgeClass}`}>
                           <span>{prio.icon}</span>
                           <span>{prio.label}</span>
                         </div>
-
-                        {/* Current Status Badge */}
-                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase flex items-center gap-1.5 ${stat.badgeClass}`}>
-                          <span>{stat.label}</span>
-                        </div>
                       </div>
 
-                      {/* 2. Ticket ID & Category */}
-                      <div className="border-b border-slate-300/50 pb-2.5 space-y-0.5">
-                        <span className="font-mono text-xs font-bold text-slate-500 block">
-                          {ticketIdDisplay}
-                        </span>
-                        <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-snug">
-                          {ticket.category || "General Maintenance"}
-                        </h2>
+                      {/* 1. Status */}
+                      <div className="flex items-center justify-between gap-2 py-1 border-b border-slate-300/50">
+                        <span className="text-[10px] font-bold text-slate-600">Status</span>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${stat.badgeClass}`}>{stat.label}</span>
                       </div>
 
-                      {/* 3. Tenant Name & Room Number */}
-                      <div className="neu-pressed p-3 rounded-xl space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs sm:text-sm">
-                          <span className="text-slate-500 font-medium flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-brand-orange" />
-                            Tenant:
-                          </span>
-                          <strong className="text-slate-900 font-bold truncate" title={tenantDisplayName}>
-                            {tenantDisplayName}
-                          </strong>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs sm:text-sm border-t border-slate-300/40 pt-1.5">
-                          <span className="text-slate-500 font-medium flex items-center gap-1.5">
-                            <Building className="w-3.5 h-3.5 text-brand-orange" />
-                            Room:
-                          </span>
-                          <strong className="text-slate-900 font-bold">
-                            {roomFormatted}
-                          </strong>
-                        </div>
+                      {/* 2. Ticket ID */}
+                      <div className="flex items-center justify-between gap-2 py-1 border-b border-slate-300/50">
+                        <span className="text-[10px] font-bold text-slate-600">Ticket ID</span>
+                        <span className="font-mono text-[10px] font-black text-slate-900">{ticketIdDisplay}</span>
                       </div>
 
-                      {/* 4. Status & Reported Date */}
-                      <div className="space-y-1 text-xs sm:text-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-slate-500 font-medium">Status:</span>
-                          <span className="text-slate-900 font-bold uppercase">
-                            {ticket.status === "pending" && "⏳ PENDING"}
-                            {ticket.status === "in_progress" && "🔧 IN PROGRESS"}
-                            {ticket.status === "completed" && "✅ COMPLETED"}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-slate-500 font-medium">Reported:</span>
-                          <span className="text-slate-800 font-medium">
-                            {dateDisplay}
-                          </span>
-                        </div>
+                      {/* 3. Maintenance Category */}
+                      <div className="flex items-center justify-between gap-2 py-1 border-b border-slate-300/50">
+                        <span className="text-[10px] font-bold text-slate-600">Maintenance Category</span>
+                        <strong className="text-[11px] font-bold text-slate-900 text-right">{ticket.category || "General Maintenance"}</strong>
                       </div>
 
-                      {/* 5. Description Preview */}
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                          Problem Description:
-                        </span>
-                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-normal neu-pressed p-2.5 rounded-xl line-clamp-2">
-                          {descDisplay}
-                        </p>
+                      {/* 4. Room */}
+                      <div className="flex items-center justify-between gap-2 py-1 border-b border-slate-300/50">
+                        <span className="text-[10px] font-bold text-slate-600 flex items-center gap-1.5"><Building className="w-3.5 h-3.5" />Room</span>
+                        <strong className="text-[11px] font-bold text-slate-900">{roomFormatted}</strong>
                       </div>
 
-                      {/* Photo indicator if attached */}
-                      {photoUrl && (
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-brand-orange neu-pressed p-2 rounded-lg">
-                          <ImageIcon className="w-4 h-4" />
-                          <span>📷 Tenant Attached A Photo</span>
-                        </div>
-                      )}
+                      {/* 5. Tenant */}
+                      <div className="flex items-center justify-between gap-3 py-1.5">
+                        <span className="text-[10px] font-bold text-slate-600 flex items-center gap-1.5"><User className="w-3.5 h-3.5" />Tenant</span>
+                        <strong className="text-[11px] font-bold text-slate-900 truncate max-w-[58%]" title={tenantDisplayName}>{tenantDisplayName}</strong>
+                      </div>
                     </div>
 
                     {/* Card Actions: "VIEW FULL REPORT" & Status Controls */}
-                    <div className="border-t border-slate-300/50 pt-3.5 space-y-2.5">
+                    <div className="border-t border-slate-300/50 pt-2 space-y-1.5">
                       
                       {/* Main Action Button */}
                       <button
                         onClick={() => setSelectedTicketForViewer(ticket)}
-                        className="w-full py-2.5 px-4 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
+                        className="w-full py-1.5 px-3 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:from-[#f04e2f] hover:to-[#fc7917] text-white text-[10px] sm:text-xs font-extrabold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
                       >
-                        <Eye className="w-4 h-4 text-white" />
+                        <Eye className="w-3 h-3 text-white" />
                         <span>[ VIEW FULL REPORT ]</span>
-                        <ArrowRight className="w-3.5 h-3.5 text-white" />
+                        <ArrowRight className="w-3 h-3 text-white" />
                       </button>
 
                       {/* Status Quick Changer */}
-                      <div className="neu-pressed p-2.5 rounded-xl space-y-1.5">
+                      <div className="neu-pressed p-2 rounded-lg space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600">
                             Quick Change Status:
                           </span>
-                          <button
-                            onClick={() => handleDeleteTicket(ticket.id)}
-                            className="text-[11px] font-medium text-rose-500 hover:text-rose-700 flex items-center gap-1 transition-colors p-0.5"
-                            title="Delete Ticket"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                          </button>
+
                         </div>
 
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <div className="grid grid-cols-3 gap-1">
                           <button
                             type="button"
                             disabled={loading || ticket.status === "pending"}
                             onClick={() => handleUpdateMaintStatus(ticket.id, "pending")}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                            className={`py-1 px-1.5 rounded-md text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
                               ticket.status === "pending"
                                 ? "bg-blue-600 text-white shadow-sm font-extrabold"
                                 : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
@@ -660,7 +624,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                             type="button"
                             disabled={loading || ticket.status === "in_progress"}
                             onClick={() => handleUpdateMaintStatus(ticket.id, "in_progress")}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                            className={`py-1 px-1.5 rounded-md text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
                               ticket.status === "in_progress"
                                 ? "bg-amber-600 text-white shadow-sm font-extrabold"
                                 : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
@@ -674,7 +638,7 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                             type="button"
                             disabled={loading || ticket.status === "completed"}
                             onClick={() => handleUpdateMaintStatus(ticket.id, "completed")}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                            className={`py-1 px-1.5 rounded-md text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
                               ticket.status === "completed"
                                 ? "bg-emerald-600 text-white shadow-sm font-extrabold"
                                 : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
@@ -684,6 +648,16 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
                             {ticket.status === "completed" && <span>✓</span>}
                           </button>
                         </div>
+                        {ticket.status === "completed" && (
+                          <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() => handleArchiveTicket(ticket.id)}
+                            className="w-full mt-1.5 py-1.5 rounded-md bg-slate-700 hover:bg-slate-800 text-white text-[10px] font-bold transition-all"
+                          >
+                            MOVE TO ARCHIVES
+                          </button>
+                        )}
                       </div>
 
                     </div>
@@ -701,8 +675,45 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
           ticket={activeSelectedTicket}
           onClose={() => setSelectedTicketForViewer(null)}
           onUpdateStatus={handleUpdateMaintStatus}
-          onDelete={handleDeleteTicket}
         />
+      )}
+
+      {/* Archived Maintenance Tickets */}
+      {activeSubTab === "archives" && (
+        <div className="space-y-4">
+          <div className="neu-card p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black text-slate-900">Maintenance Archives</h2>
+                <p className="text-xs text-slate-500 mt-1">Completed tickets moved here for record keeping. Archived tickets are not shown in the active ticket list.</p>
+              </div>
+              <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">{archivedTickets.length} Archived</span>
+            </div>
+          </div>
+          {archivedTickets.length === 0 ? (
+            <div className="neu-card p-10 text-center text-slate-500">No completed tickets have been archived yet.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {archivedTickets.map((ticket) => (
+                <div key={ticket.id} className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Completed</div>
+                      <div className="font-mono font-black text-slate-900 text-sm mt-1">{ticket.id}</div>
+                    </div>
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div className="mt-3 space-y-1 text-xs text-slate-700">
+                    <div><span className="font-bold">Category:</span> {ticket.category}</div>
+                    <div><span className="font-bold">Room:</span> {ticket.room_number || ticket.roomNumber || "N/A"}</div>
+                    <div><span className="font-bold">Tenant:</span> {ticket.tenant_name || ticket.tenantName || "N/A"}</div>
+                  </div>
+                  <button onClick={() => setSelectedTicketForViewer(ticket)} className="mt-4 w-full py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">VIEW FULL REPORT</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Quick Add Maintenance Report Modal */}

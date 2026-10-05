@@ -7,10 +7,16 @@
     <meta name="description" content="A complete rental property management web application featuring a public-facing room browsing landing page and a robust private property manager dashboard." />
     <meta property="og:title" content="ApartmentPro - Property Management & Tenant Portal" />
     <meta property="og:description" content="A complete rental property management web application featuring a public-facing room browsing landing page and a robust private property manager dashboard." />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <style>
+      .rentflow-map-label{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:3px 7px;font-weight:700;font-size:11px;color:#0f172a;box-shadow:0 2px 8px rgba(15,23,42,.12)}.rentflow-map-label:before{display:none}
+      .leaflet-marker-icon, .leaflet-marker-shadow { transition: none !important; }
+      .leaflet-marker-icon:hover { outline: none !important; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

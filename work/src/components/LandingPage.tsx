@@ -288,7 +288,10 @@ export default function LandingPage() {
     return vacantRooms.filter((r) => r.apartment_id === aptId).length;
   };
 
-  const activeApartments = db?.apartments.filter((apt) => apt.status === "active") || [];
+  // Only display active apartments that currently have at least one vacant room available (hide occupied apartments)
+  const activeApartments = (db?.apartments || []).filter(
+    (apt) => apt.status === "active" && getVacantRoomCount(apt.id) > 0
+  );
 
   const filteredApartments = activeApartments.filter((apt) => {
     const matchesSearch =

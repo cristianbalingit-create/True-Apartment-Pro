@@ -1,4 +1,4 @@
-// Core Facebook Webhook Logic for ApartmentPro
+// Core Facebook Webhook Logic for RentFlow
 // Bundled into dist/facebookWebhook.cjs for production Vercel serverless execution
 import {
   handleMessengerWebhookEvent,
@@ -143,7 +143,7 @@ export default async function handler(req: any, res: any) {
           const webhookPageId = entry.id;
           const messagingEvents = entry.messaging || [];
           for (const webhook_event of messagingEvents) {
-            // Process incoming message with unified ApartmentPro Maintenance & Chatbot Service
+            // Process incoming message with unified RentFlow Maintenance & Chatbot Service
             await handleMessengerWebhookEvent(webhook_event, webhookPageId);
           }
         }

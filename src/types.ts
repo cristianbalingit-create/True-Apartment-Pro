@@ -5,6 +5,10 @@ export interface Apartment {
   total_floors: number;
   description: string;
   status: 'active' | 'inactive';
+  latitude?: number;
+  longitude?: number;
+  location_address?: string;
+  image_url?: string;
 }
 
 export interface Room {
@@ -129,6 +133,7 @@ export interface MaintenanceRequest {
   createdAt?: string;
   updated_at?: string;
   updatedAt?: string;
+  archived?: boolean;
 }
 
 export interface Announcement {

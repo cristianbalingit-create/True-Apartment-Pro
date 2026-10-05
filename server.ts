@@ -992,6 +992,14 @@ app.post("/api/rooms", (req, res) => {
     id: `room-${Date.now()}`,
     ...req.body
   };
+
+  // A room without an active tenant must always start as vacant.
+  const assignedTenant = db.tenants.find((t: any) => t.id === newRoom.tenant_id && t.status === "active");
+  if (!assignedTenant) {
+    newRoom.status = "vacant";
+    delete newRoom.tenant_id;
+  }
+
   db.rooms.push(newRoom);
   logTransaction(db, {
     category: "room",
@@ -1011,6 +1019,18 @@ app.put("/api/rooms/:id", (req, res) => {
   const index = db.rooms.findIndex((r: any) => r.id === id);
   if (index !== -1) {
     db.rooms[index] = { ...db.rooms[index], ...req.body };
+
+    // Keep room status consistent with tenant assignment.
+    const assignedTenant = db.tenants.find(
+      (t: any) => t.id === db.rooms[index].tenant_id && t.status === "active"
+    );
+    if (!assignedTenant) {
+      db.rooms[index].status = "vacant";
+      delete db.rooms[index].tenant_id;
+    } else {
+      db.rooms[index].tenant_id = assignedTenant.id;
+    }
+
     logTransaction(db, {
       category: "room",
       action: "update",

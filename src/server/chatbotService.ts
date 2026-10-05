@@ -4,11 +4,11 @@ import { GoogleGenAI } from "@google/genai";
 import { dbService } from "./dbService";
 import type { MaintenanceRequest } from "../types";
 
-// Meta App ID & Official Facebook Page for ApartmentPro
-// Note: 1298546226679849 is the verified Facebook Page ID for ApartmentPro.
+// Meta App ID & Official Facebook Page for RentFlow
+// Note: 1298546226679849 is the verified Facebook Page ID for RentFlow.
 // 3246715018859879 is the Meta Application ID (App ID).
 export const OFFICIAL_APP_ID = "3246715018859879";
-export const OFFICIAL_PAGE_NAME = "ApartmentPro";
+export const OFFICIAL_PAGE_NAME = "RentFlow";
 export const OFFICIAL_PAGE_ID = (() => {
   const envId = (process.env.FACEBOOK_PAGE_ID || process.env.PAGE_ID || "").trim();
   if (envId && envId !== OFFICIAL_APP_ID) return envId;
@@ -861,7 +861,7 @@ export function analyzeMaintenanceIntent(rawText: string): MaintenanceAnalysis {
       priority: "MEDIUM",
       description: text,
       needs_clarification: true,
-      clarification_question: "🔧 **ApartmentPro Maintenance Assistance**\n\nCould you please specify what is broken or which equipment needs repair? (For example: *'My aircon is leaking water'*, *'The toilet is clogged'*, or *'The light in my room is flickering'*).\n\nOnce you describe the problem, I will immediately log your ticket and notify our administration!",
+      clarification_question: "🔧 **RentFlow Maintenance Assistance**\n\nCould you please specify what is broken or which equipment needs repair? (For example: *'My aircon is leaking water'*, *'The toilet is clogged'*, or *'The light in my room is flickering'*).\n\nOnce you describe the problem, I will immediately log your ticket and notify our administration!",
       safety_risk: false
     };
   }
@@ -1254,7 +1254,7 @@ export async function createMaintenanceTicketRecord(
   const sanitizedOccurred = (occurredAt || "Recently").replace(/<[^>]*>?/gm, "").trim();
 
   // Generate a unique maintenance ticket ID. Every submission gets a new ticket.
-  // AP-XXXXXX is the canonical ApartmentPro maintenance ticket format.
+  // AP-XXXXXX is the canonical RentFlow maintenance ticket format.
   const existingTickets = await dbService.getLiveMaintenanceRequests();
   let ticketId = "";
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -1476,13 +1476,13 @@ async function persistPaymentReceipt(attachmentUrl: string): Promise<string> {
 
 function paymentMethodDetails(method: "GCASH" | "BANK"): string {
   if (method === "GCASH") {
-    const name = process.env.APARTMENTPRO_GCASH_NAME || "ApartmentPro Property Management";
+    const name = process.env.APARTMENTPRO_GCASH_NAME || "RentFlow Property Management";
     const number = process.env.APARTMENTPRO_GCASH_NUMBER || "NOT CONFIGURED";
     return `📱 *GCASH PAYMENT*\n\n*Account Name:* ${name}\n*GCash Number:* ${number}\n\nPlease double-check the recipient details before sending.\n\nAfter payment, reply with either:\n• 🧾 your *transaction/reference number*, or\n• 📸 a *screenshot/photo of your payment receipt*.\n\n⚠️ Your payment will remain *PENDING VERIFICATION* until management confirms it.`;
   }
 
   const bank = process.env.APARTMENTPRO_BANK_NAME || "BANK NAME NOT CONFIGURED";
-  const accountName = process.env.APARTMENTPRO_BANK_ACCOUNT_NAME || "ApartmentPro Property Management";
+  const accountName = process.env.APARTMENTPRO_BANK_ACCOUNT_NAME || "RentFlow Property Management";
   const accountNumber = process.env.APARTMENTPRO_BANK_ACCOUNT_NUMBER || "NOT CONFIGURED";
   return `🏦 *BANK TRANSFER*\n\n*Bank:* ${bank}\n*Account Name:* ${accountName}\n*Account Number:* ${accountNumber}\n\nPlease double-check the recipient details before sending.\n\nAfter payment, reply with either:\n• 🧾 your *transaction/reference number*, or\n• 📸 a *screenshot/photo of your payment receipt*.\n\n⚠️ Your payment will remain *PENDING VERIFICATION* until management confirms it.`;
 }
@@ -1520,7 +1520,7 @@ async function recordPaymentAdminNotice(submission: any): Promise<void> {
   });
 }
 
-// Core ApartmentPro Chatbot Engine
+// Core RentFlow Chatbot Engine
 export async function processChatbotMessage(
   messageText: string,
   tenantId: string | null,
@@ -1539,7 +1539,7 @@ export async function processChatbotMessage(
   let nextDueDate = "No active dues";
   let nextDueMonth = "";
   let roomNum = "N/A";
-  let aptName = "ApartmentPro";
+  let aptName = "RentFlow";
 
   if (tenantId) {
     // SECURITY: resolve authenticated tenant from live Firestore, not the stale/local
@@ -1557,7 +1557,7 @@ export async function processChatbotMessage(
       const room = (db.rooms || []).find((r: any) => r.id === tenantObj.room_id);
       roomNum = room ? room.room_number : "N/A";
       const apt = (db.apartments || []).find((a: any) => a.id === tenantObj.apartment_id);
-      aptName = apt ? apt.name : "ApartmentPro";
+      aptName = apt ? apt.name : "RentFlow";
 
       const tenantBills = (db.billingRecords || []).filter((b: any) => b.tenant_id === tenantId);
       const unpaidBills = tenantBills.filter((b: any) => b.payment_status === "unpaid" || b.payment_status === "overdue");
@@ -2055,7 +2055,7 @@ Tenant Profile:
 
     if (isPaymentMethodSelection) {
       if (!tenantObj) {
-        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, you must link your ApartmentPro tenant account before submitting a payment.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, you must link your RentFlow tenant account before submitting a payment.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
       }
 
       const method: "GCASH" | "BANK" = textLower === "pay_bank" || textLower === "bank" || textLower === "bank transfer" ? "BANK" : "GCASH";
@@ -2220,7 +2220,7 @@ Tenant Profile:
     // 2. SEND PAYMENT — require the tenant to choose a payment method first.
     if (text === "send_payment" || text === "pay" || text === "💳 send payment" || text.includes("how to pay") || text.includes("payment method") || text.includes("pay rent")) {
       if (!tenantObj) {
-        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, please link your ApartmentPro tenant account before accessing payment instructions.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
+        return `🔒 *ACCOUNT VERIFICATION REQUIRED*\n\nFor your financial security, please link your RentFlow tenant account before accessing payment instructions.\n\nType: *link <contact_number>*\nExample: *link 09171234567*`;
       }
       return {
         text: `💳 *HOW WOULD YOU LIKE TO PAY?*\n\n👤 *Tenant:* ${tenantObj.name} (Room ${roomNum})\n💵 *Current Amount Due:* ₱${Number(outstandingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}\n📅 *Due Date:* ${nextDueDate}\n\nPlease choose your payment method:`,
@@ -2306,7 +2306,7 @@ Tenant Profile:
     const rulesSummary = rulesList.map((r: any) => `- Rule: ${r.rule_text}`).join("\n");
     const annSummary = announcementsList.map((a: any) => `- [${a.title}]: ${a.content} (Posted: ${a.created_at})`).join("\n");
 
-    const systemPrompt = `You are "ApartmentPro Assistant", a highly polished, helpful, and professional virtual property assistant for the ApartmentPro property management system.
+    const systemPrompt = `You are "RentFlow Assistant", a highly polished, helpful, and professional virtual property assistant for the RentFlow property management system.
 You are assisting tenants and guests via Facebook Messenger.
 
 Current Context:
@@ -2610,7 +2610,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
-        text: `Sorry, we couldn't find an ApartmentPro tenant account for that number.\n\nPlease enter your registered mobile number again.`,
+        text: `Sorry, we couldn't find an RentFlow tenant account for that number.\n\nPlease enter your registered mobile number again.`,
         quick_replies: []
       }, webhookPageId);
     }
@@ -2640,13 +2640,13 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   // tenant functions until the Messenger PSID is linked to an active tenant.
   if (!linkedTenant) {
     await sendFacebookMessage(senderPsid, {
-      text: "Hi! Welcome to ApartmentPro!\n\nApartmentPro helps tenants manage their apartment services, including maintenance reports, payments, transaction history, and account balances.\n\nIf you are already an ApartmentPro tenant, please enter your registered mobile number to link your account.",
+      text: "Hi! Welcome to RentFlow!\n\nRentFlow helps tenants manage their apartment services, including maintenance reports, payments, transaction history, and account balances.\n\nIf you are already an RentFlow tenant, please enter your registered mobile number to link your account.",
       quick_replies: []
     }, webhookPageId);
     return;
   }
 
-  // 4. Process chatbot message through the real ApartmentPro AI Engine
+  // 4. Process chatbot message through the real RentFlow AI Engine
   try {
     const botReply = await processChatbotMessage(
       messageText,

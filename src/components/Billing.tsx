@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { DBState, api } from "../lib/api";
 import { BillingRecord, Tenant, Room } from "../types";
-import { FileText, CheckCircle2, Check, AlertTriangle, AlertCircle, Clock, Search, Plus, Calendar, Download, Eye, X, FileSpreadsheet, Wand2, Building, ChevronDown, ChevronUp, DollarSign, History, Calculator, Zap, Droplet, Send, MessageCircle, Share2, Copy, ExternalLink } from "lucide-react";
+import { FileText, CheckCircle2, Check, AlertTriangle, AlertCircle, Clock, Search, Plus, Calendar, Download, Eye, X, FileSpreadsheet, Wand2, Building, ChevronDown, ChevronUp, DollarSign, History, Calculator, Zap, Droplet, Send, MessageCircle, Share2, Copy, ExternalLink, TrendingUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface BillingProps {
@@ -15,6 +15,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   const [dueDateFilter, setDueDateFilter] = useState("");
   const [activeSubTab, setActiveSubTab] = useState<"billing_statements" | "utility_calculator" | "advance_deposit_ledger">("billing_statements");
   const [expandedTenantId, setExpandedTenantId] = useState<string | null>(null);
+  const [expandedApartmentName, setExpandedApartmentName] = useState<string | null>(null);
 
   // Second Confirmation States for Marking Statement as Paid
   const [billToConfirmPaid, setBillToConfirmPaid] = useState<BillingRecord | null>(null);
@@ -140,7 +141,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     const room = db.rooms.find(r => r.id === tenant.room_id);
     const apt = db.apartments.find(a => a.id === tenant.apartment_id);
     const roomNum = room ? room.room_number : "N/A";
-    const aptName = apt ? apt.name : "ApartmentPro Plaza";
+    const aptName = apt ? apt.name : "RentFlow Plaza";
     
     const typeLabels: Record<string, string> = {
       deposit_payment: "Security Deposit Payment (Added)",
@@ -566,14 +567,14 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `ApartmentPro_Billing_Export_${Date.now()}.csv`);
+    link.setAttribute("download", `RentFlow_Billing_Export_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const getApartmentName = (id: string) => {
-    return db.apartments.find((a) => a.id === id)?.name || "ApartmentPro Plaza";
+    return db.apartments.find((a) => a.id === id)?.name || "RentFlow Plaza";
   };
 
   // Filtering list
@@ -702,6 +703,25 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               </div>
             </div>
 
+            {/* Total Receivables & Collection Rate - Making use of the space at the end */}
+            <div className="neu-card p-5 flex items-center justify-between">
+              <div>
+                <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block">Total Receivables</span>
+                <span className="text-xl font-black text-slate-900 block mt-1">₱{sumAmount(db.billingRecords).toLocaleString()}</span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] text-slate-500 font-medium">{db.billingRecords.length} statements</span>
+                  {db.billingRecords.length > 0 && (
+                    <span className="text-[10px] text-emerald-700 font-extrabold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      {Math.round((paidBills.length / db.billingRecords.length) * 100)}% paid
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="w-11 h-11 neu-pressed flex items-center justify-center text-brand-orange rounded-xl">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+            </div>
+
           </div>
 
           {/* Deployment Feedback Banner */}
@@ -806,37 +826,68 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                 <p className="text-xs mt-1 text-slate-400 font-light">Modify query criteria or add statements.</p>
               </div>
             ) : (
-              Object.entries(billsByApartment).map(([aptName, bills]) => (
+              Object.entries(billsByApartment).map(([aptName, bills]) => {
+                const isExpanded = expandedApartmentName === aptName;
+                const apartment = db.apartments.find((a) => a.name === aptName);
+                return (
                 <div key={aptName} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                  {/* Header */}
-                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <Building className="w-4 h-4 text-slate-400" />
-                      <h3 className="font-extrabold text-slate-800">{aptName}</h3>
+                  {/* Apartment selector / dropdown */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedApartmentName(isExpanded ? null : aptName)}
+                    className="w-full bg-slate-50 hover:bg-slate-100 px-4 py-2.5 flex items-center justify-between text-left transition-colors border-b border-slate-100"
+                    aria-expanded={isExpanded}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-brand-orange/10 flex items-center justify-center shrink-0">
+                        <Building className="w-3.5 h-3.5 text-brand-orange" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-extrabold text-slate-800 truncate">{aptName}</h3>
+                        {apartment?.address && (
+                          <p className="text-[10px] text-slate-500 truncate mt-0.5">{apartment.address}</p>
+                        )}
+                      </div>
                     </div>
-                    <span className="px-2.5 py-0.5 bg-brand-orange/10 text-brand-orange text-xs font-bold rounded-lg font-mono">
-                      {bills.length} Invoices
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="px-2 py-0.5 bg-brand-orange/10 text-brand-orange text-[10px] font-bold rounded-md font-mono">
+                        {bills.length} Invoices
+                      </span>
+                      {isExpanded ? (
+                        <ChevronUp className="w-4 h-4 text-slate-500" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-slate-500" />
+                      )}
+                    </div>
+                  </button>
 
-                  {/* Table */}
+                  {/* Invoice dropdown */}
+                  <AnimatePresence initial={false}>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-bold uppercase tracking-wider bg-slate-50/20">
-                          <th className="py-3 px-6">Tenant & Room</th>
-                          <th className="py-3 px-6">Rent portion</th>
-                          <th className="py-3 px-6">Power (usage kwh)</th>
-                          <th className="py-3 px-6">Water (usage m³)</th>
-                          <th className="py-3 px-6 font-black text-slate-900">Total Statement</th>
-                          <th className="py-3 px-6">Due Date</th>
-                          <th className="py-3 px-6">Status</th>
+                          <th className="py-2 px-4">Tenant & Room</th>
+                          <th className="py-2 px-4">Rent portion</th>
+                          <th className="py-2 px-4">Power (usage kwh)</th>
+                          <th className="py-2 px-4">Water (usage m³)</th>
+                          <th className="py-2 px-4 font-black text-slate-900">Total Statement</th>
+                          <th className="py-2 px-4">Due Date</th>
+                          <th className="py-2 px-4">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs">
                         {bills.map((bill) => (
                           <tr key={bill.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="py-3.5 px-6">
+                            <td className="py-2.5 px-4">
                               <div>
                                 <div className="font-bold text-slate-900">{bill.tenant_name || "Unassigned"}</div>
                                 <div className="text-[10px] font-bold text-slate-500 mt-0.5">Room {bill.room_number || "N/A"}</div>
@@ -855,7 +906,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                               ₱{(Number(bill.total_amount) || 0).toLocaleString()}
                             </td>
                             <td className="py-3.5 px-6 font-mono text-slate-600 font-semibold">{bill.due_date || "N/A"}</td>
-                            <td className="py-3.5 px-6">
+                            <td className="py-2.5 px-4">
                               {bill.payment_status === "paid" ? (
                                 <span className="font-bold text-slate-900 text-sm">Paid</span>
                               ) : confirmPaidBillId === bill.id ? (
@@ -902,8 +953,12 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                       </tbody>
                     </table>
                   </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </>
@@ -1249,8 +1304,8 @@ export default function Billing({ db, onRefresh }: BillingProps) {
       ) : (
         <div className="space-y-6">
           {/* Summary Stats cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
+            <div className="bg-white p-5 rounded-2xl h-full min-h-[132px] border border-slate-100 shadow-sm flex items-center justify-between">
               <div>
                 <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block">Security Deposits Held</span>
                 <span className="text-2xl font-bold text-emerald-600 block mt-1">
@@ -1263,7 +1318,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between h-full min-h-[132px]">
               <div>
                 <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block">Advance Rent Balance</span>
                 <span className="text-2xl font-bold text-blue-600 block mt-1">
@@ -1276,7 +1331,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between h-full min-h-[132px]">
               <div>
                 <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block">Recorded Transactions</span>
                 <span className="text-2xl font-bold text-slate-800 block mt-1">
@@ -1310,11 +1365,11 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-bold uppercase tracking-wider bg-slate-50/20">
-                    <th className="py-3 px-6">Tenant & Room</th>
-                    <th className="py-3 px-6">Base Rent / Contract</th>
-                    <th className="py-3 px-6">Initial Sec Deposit</th>
+                    <th className="py-2 px-4">Tenant & Room</th>
+                    <th className="py-2 px-4">Base Rent / Contract</th>
+                    <th className="py-2 px-4">Initial Sec Deposit</th>
                     <th className="py-3 px-6 text-emerald-600 font-bold">Current Deposit Bal</th>
-                    <th className="py-3 px-6">Initial Advance Pay</th>
+                    <th className="py-2 px-4">Initial Advance Pay</th>
                     <th className="py-3 px-6 text-blue-600 font-bold">Current Advance Bal</th>
                     <th className="py-3 px-6 text-right">Actions</th>
                   </tr>
@@ -1332,10 +1387,10 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                     return (
                       <React.Fragment key={tenant.id}>
                         <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3.5 px-6">
+                          <td className="py-2.5 px-4">
                             <div className="font-bold text-slate-900">{tenant.name}</div>
                             <div className="text-[10px] font-bold text-slate-500 mt-0.5">
-                              Room {matchedRoom?.room_number || "N/A"} ({matchedApt?.name || "ApartmentPro Plaza"})
+                              Room {matchedRoom?.room_number || "N/A"} ({matchedApt?.name || "RentFlow Plaza"})
                             </div>
                           </td>
                           <td className="py-3.5 px-6 font-semibold text-slate-700">₱{Number(tenant.rent_amount).toLocaleString()}</td>
@@ -1402,14 +1457,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                     <History className="w-4 h-4 text-brand-orange" />
                                     <span>Ledger Transaction History for {tenant.name}</span>
                                   </h4>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenPostLedger(tenant.id)}
-                                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold rounded-lg flex items-center gap-1 shadow-xs active:scale-95"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>Post Transaction for {tenant.name.split(' ')[0]}</span>
-                                  </button>
+
                                 </div>
                                 {ledgerEntries.length === 0 ? (
                                   <p className="text-xs text-slate-400 font-medium py-2">

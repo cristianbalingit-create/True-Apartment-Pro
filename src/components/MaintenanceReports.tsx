@@ -94,6 +94,7 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false, 
     const currentMonth = now.getMonth();
 
     return rawTickets.filter((ticket) => {
+      if ((ticket as any).archived) return false;
       // 1. Status Filter
       if (statusFilter !== "all" && ticket.status !== statusFilter) {
         return false;
@@ -330,7 +331,7 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false, 
       </div>
 
       {/* Real Statistics Metrics Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
         <div className="neu-card p-4">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
             Total Reports
@@ -343,18 +344,6 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false, 
           </span>
         </div>
 
-        <div className="neu-card p-4">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block flex items-center gap-1">
-            <Clock className="w-3 h-3 text-blue-500" />
-            Open Reports
-          </span>
-          <span className="text-xl sm:text-2xl font-black text-blue-900 block mt-1">
-            {stats.pending}
-          </span>
-          <span className="text-[11px] text-slate-500 block mt-0.5">
-            Awaiting action
-          </span>
-        </div>
 
         <div className="neu-card p-4">
           <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 block flex items-center gap-1">
@@ -382,7 +371,7 @@ export default function MaintenanceReports({ db, onRefresh, standalone = false, 
           </span>
         </div>
 
-        <div className="neu-card p-4 col-span-2 sm:col-span-1">
+        <div className="neu-card p-4">
           <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 block flex items-center gap-1">
             <AlertTriangle className="w-3 h-3 text-rose-500" />
             Critical Reports

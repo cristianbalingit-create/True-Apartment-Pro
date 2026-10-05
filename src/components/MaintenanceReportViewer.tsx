@@ -135,6 +135,21 @@ export default function MaintenanceReportViewer({
   const roomClean = rawRoom 
     ? (String(rawRoom).toLowerCase().includes("room") ? String(rawRoom) : `Room ${rawRoom}`) 
     : "Room N/A";
+
+  const handleDelete = async () => {
+    if (!onDelete || !ticket) return;
+    if (!confirm(`Are you sure you want to delete maintenance ticket ${ticket.id}?`)) return;
+    try {
+      setUpdating(true);
+      await onDelete(ticket.id);
+      onClose();
+    } catch (err) {
+      console.error("Failed to delete ticket:", err);
+      alert("Failed to delete ticket.");
+    } finally {
+      setUpdating(false);
+    }
+  };
   const tenantDisplayName = ticket.tenant_name || ticket.tenantName || "Guest Visitor";
   const descDisplay = ticket.issue_description || ticket.description || "No description provided.";
   const occurredAtDisplay = ticket.occurred_at || ticket.occurredAt || ticket.when || formatSubmittedDate(ticket.created_at || ticket.createdAt);
@@ -154,20 +169,7 @@ export default function MaintenanceReportViewer({
     }
   };
 
-  const handleDelete = async () => {
-    if (!onDelete) return;
-    if (!confirm(`Are you sure you want to delete maintenance ticket ${ticket.id}?`)) return;
-    try {
-      setUpdating(true);
-      await onDelete(ticket.id);
-      onClose();
-    } catch (err) {
-      console.error("Failed to delete ticket:", err);
-      alert("Failed to delete ticket.");
-    } finally {
-      setUpdating(false);
-    }
-  };
+
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto text-xs sm:text-sm">

@@ -549,38 +549,9 @@ button:disabled,
 @media(max-width:850px){.privacy-layout{grid-template-columns:1fr}.privacy-toc{position:static;display:none}.privacy-main{padding:24px 14px 45px}.privacy-hero{padding:24px;gap:16px}.privacy-hero h1{font-size:1.9rem}.privacy-section{grid-template-columns:1fr;padding:24px}.privacy-section-number{width:34px;height:34px;border-radius:10px}.privacy-header-inner{padding:12px 14px}.privacy-back{font-size:.78rem}.privacy-footer a{margin-left:0;width:100%}}
 @media(max-width:520px){.privacy-hero{display:block}.privacy-hero-icon{margin-bottom:16px}.privacy-section-body p,.privacy-list li{font-size:.95rem}.privacy-table-wrap{margin-left:-4px;margin-right:-4px}.privacy-deletion-box,.privacy-contact-box{display:block}.privacy-deletion-box>svg,.privacy-contact-box>svg{margin-bottom:10px}}
 
-/* RentFlow map theme: warm cream, orange, deep red, and green accents.
-   The base OpenStreetMap tiles remain readable while the tile layer is gently
-   warmed to harmonize with the application palette. */
-.rentflow-map-theme {
-  background: #F1E5A1 !important;
-  border-color: #e5d8b2 !important;
-}
-.rentflow-map-theme .leaflet-tile-pane {
-  filter: sepia(0.16) saturate(0.88) hue-rotate(-8deg) brightness(1.03) contrast(1.02);
-}
-.rentflow-map-theme .leaflet-control-zoom a {
-  color: #8B2626 !important;
-  background: #ffffff !important;
-  border-color: #e5d8b2 !important;
-}
-.rentflow-map-theme .leaflet-control-zoom a:hover {
-  color: #ffffff !important;
-  background: #EF6905 !important;
-}
-.rentflow-map-theme .leaflet-popup-content-wrapper,
-.rentflow-map-theme .leaflet-popup-tip {
-  background: #fffdf7 !important;
-}
-.rentflow-map-theme .rentflow-map-label {
-  background: #8B2626 !important;
-  border: 1px solid #6f1e1e !important;
-  color: #ffffff !important;
-  font-weight: 700;
-  border-radius: 7px;
-  padding: 3px 7px !important;
-  box-shadow: 0 2px 8px rgba(139,38,38,.18);
-}
-.rentflow-map-theme .rentflow-map-label::before {
-  border-top-color: #8B2626 !important;
-}
+/* ---- Landing page map pins ---- */
+.ap-pin-wrap{background:none;border:0}
+.ap-pin{position:relative;width:30px;height:30px;border-radius:50% 50% 50% 0;background:#8B2626;border:2px solid #fff;box-shadow:0 3px 8px rgba(35,20,14,.35);transform:rotate(-45deg);transition:transform .15s ease,background-color .15s ease}
+.ap-pin span{position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:50%;background:#F1E5A1}
+.ap-pin--active{background:#EF6905;transform:rotate(-45deg) scale(1.25)}
+@media (prefers-reduced-motion:reduce){.ap-pin{transition:none}}

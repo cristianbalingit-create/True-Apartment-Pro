@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { DBState, api } from "../lib/api";
 import { Apartment, Room } from "../types";
-import { Building, Plus, Home, Edit3, Trash2, Eye, QrCode, Sparkles, X, Check, MapPin, Layers, DollarSign, Image, Download, Star, Info, User } from "lucide-react";
+import { Building, Plus, Home, Edit3, Trash2, QrCode, Sparkles, X, Check, MapPin, Layers, DollarSign, Image, Download, Star, Info, User } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface ApartmentsProps {

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { DBState, api } from "../lib/api";
 import { Apartment, Room } from "../types";
-import { Building, Plus, Home, Edit3, Trash2, Eye, QrCode, Sparkles, X, Check, MapPin, Layers, DollarSign, Image as ImageIcon, Download, Star, Info, User, UploadCloud } from "lucide-react";
+import { Building, Plus, Home, Edit3, Trash2, QrCode, Sparkles, X, Check, MapPin, Layers, DollarSign, Image as ImageIcon, Download, Star, Info, User, UploadCloud } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import PropertyMap from "./PropertyMap";
 
@@ -498,25 +498,14 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                       </div>
                     </div>
 
-                    {/* Actions foot - View & Edit only (NO QR code) */}
+                    {/* Actions foot - Edit only (NO QR code) */}
                     <div className="p-2 border-t border-slate-100 bg-slate-50/70 flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setViewingRoom(room);
-                        }}
-                        className="flex-1 py-1.5 px-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-1 active:scale-95 shadow-2xs"
-                        title="View Room Details"
-                      >
-                        <Eye className="w-3 h-3 text-slate-500" />
-                        <span>View</span>
-                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleOpenEditRoom(room);
                         }}
-                        className="flex-1 py-1.5 px-2 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:opacity-90 text-white font-bold text-xs rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 active:scale-95"
+                        className="w-full py-1.5 px-2 bg-gradient-to-r from-[#8B2626] to-[#EF6905] hover:opacity-90 text-white font-bold text-xs rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 active:scale-95"
                         title="Edit Room"
                       >
                         <Edit3 className="w-3 h-3 text-white" />
@@ -715,14 +704,10 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                 {/* Auto Generate Rooms: Simplified without RoomType and Rent Amount */}
                 {!editingApt && (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                    <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
-                      Auto-Generate Rooms (Optional)
-                    </span>
-                    <p className="text-[10px] text-slate-500 leading-tight">
-                      Creates initial vacant room units. You can configure room types, rates, and amenities afterwards.
-                    </p>
+                   
+                   
                     <div className="pt-1">
-                      <label className="block text-slate-700 font-bold mb-1 text-[11px]">Number of Units to Create</label>
+                      <label className="block text-slate-700 font-bold mb-1 text-[11px]">Number of Units</label>
                       <input
                         type="number"
                         min={0}
@@ -1081,13 +1066,6 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                       <img src={rImg} alt={`Room ${viewingRoom.room_number}`} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
 
-                      <button
-                        onClick={() => setViewingRoom(null)}
-                        className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors z-10"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-
                       <div className="absolute top-2 left-2 flex gap-1">
                         <span className={`px-1.5 py-0.5 text-[8px] font-bold uppercase rounded ${
                           viewingRoom.status === "vacant"
@@ -1167,13 +1145,6 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
 
                       {/* Actions */}
                       <div className="flex gap-1.5 pt-2 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => setViewingRoom(null)}
-                          className="flex-1 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-lg text-xs transition-all"
-                        >
-                          Close
-                        </button>
                         <button
                           type="button"
                           onClick={() => {

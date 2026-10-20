@@ -408,14 +408,6 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
     return db.rooms.find((r) => r.id === id)?.room_number || "N/A";
   };
 
-  const getTenantFinalBalance = (tenantId: string) => {
-    const bills = db.billingRecords.filter((b) => b.tenant_id === tenantId);
-    return bills.reduce(
-      (sum, b) => sum + Math.max(0, Number(b.total_amount || 0) - Number(b.paid_amount || (b.payment_status === "paid" ? b.total_amount : 0))),
-      0
-    );
-  };
-
   // Search filter - newest registered tenants first
   const filteredTenants = [...db.tenants]
     .sort((a, b) => {
@@ -425,8 +417,8 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
       return 0;
     })
     .filter((tenant) => {
-      const aptName = getApartmentName(tenant.apartment_id || tenant.previous_apartment_id);
-      const roomNum = getRoomNumber(tenant.room_id || tenant.previous_room_id);
+      const aptName = getApartmentName(tenant.apartment_id);
+      const roomNum = getRoomNumber(tenant.room_id);
       const matchesSearch =
         tenant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         tenant.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -434,9 +426,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
         (tenant.messenger_psid && tenant.messenger_psid.toLowerCase().includes(searchQuery.toLowerCase())) ||
         aptName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         roomNum.includes(searchQuery);
-      const matchesApartment = apartmentFilter === "all"
-        || tenant.apartment_id === apartmentFilter
-        || tenant.previous_apartment_id === apartmentFilter;
+      const matchesApartment = apartmentFilter === "all" || tenant.apartment_id === apartmentFilter;
       const matchesStatus = statusFilter === "all"
         || (statusFilter === "active" && tenant.status === "active")
         || (statusFilter === "moved_out" && tenant.status === "moved_out");
@@ -448,30 +438,14 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Tenant Directories</h1>
-            {statusFilter === "moved_out" && (
-              <span className="px-2.5 py-1 bg-amber-50 text-amber-800 text-xs font-bold rounded-lg border border-amber-200">
-                Former Tenants Archive
-              </span>
-            )}
-          </div>
-          <p className="text-slate-500 mt-0.5 text-sm">
-            {statusFilter === "moved_out"
-              ? "Viewing former and moved-out tenant records with complete preserved history."
-              : "Review rental accounts, configure lease properties, and record checkouts."}
-          </p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Tenant Directories</h1>
+          <p className="text-slate-500 mt-0.5 text-sm">Review rental accounts, configure lease properties, and record checkouts.</p>
         </div>
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setStatusFilter(statusFilter === "moved_out" ? "active" : "moved_out")}
-            className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm rounded-xl transition-all shadow-xs ${
-              statusFilter === "moved_out"
-                ? "bg-[#EF6905] text-white shadow-md active font-extrabold"
-                : "neu-btn text-slate-900 hover:text-[#EF6905]"
-            }`}
-            title={statusFilter === "moved_out" ? "Switch back to Active Tenants" : "Open Former Tenants Archive"}
-            aria-label={statusFilter === "moved_out" ? "Switch back to Active Tenants" : "Open Former Tenants Archive"}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl transition-all"
+            aria-label={statusFilter === "moved_out" ? "Return to active tenants" : "Open tenant archive"}
           >
             <Archive className="w-4.5 h-4.5" />
             <span>{statusFilter === "moved_out" ? "Active Tenants" : "Archive"}</span>
@@ -487,24 +461,24 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
       </div>
 
       {/* Table search filters */}
-      <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+      <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col lg:flex-row gap-3 lg:items-center">
         <div className="relative w-full lg:flex-1 lg:max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4.5 h-4.5" />
           <input
             type="text"
-            placeholder={statusFilter === "moved_out" ? "Search former tenants by name, email, phone, room..." : "Search tenant name, email, phone, room number..."}
+            placeholder="Search tenant name, email, phone, room number..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange focus:bg-white transition-all text-sm font-medium text-slate-800"
           />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
           <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
             <Building className="w-4 h-4 text-slate-400" />
             <select
               value={apartmentFilter}
               onChange={(e) => setApartmentFilter(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange text-sm font-semibold min-w-[200px]"
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange text-sm font-semibold min-w-[190px]"
               aria-label="Filter by apartment"
             >
               <option value="all">All Apartments</option>
@@ -516,6 +490,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
               ))}
             </select>
           </label>
+
         </div>
       </div>
 
@@ -526,9 +501,9 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-bold uppercase tracking-wider">
                 <th className="py-4 px-6">Tenant Information</th>
-                <th className="py-4 px-6">{statusFilter === "moved_out" ? "Previous Space" : "Assigned Space"}</th>
-                <th className="py-4 px-6">{statusFilter === "moved_out" ? "Move-In / Move-Out" : "Move-In Details"}</th>
-                <th className="py-4 px-6">{statusFilter === "moved_out" ? "Final Balance & Rent" : "Billing Terms"}</th>
+                <th className="py-4 px-6">Assigned Space</th>
+                <th className="py-4 px-6">Move-In Details</th>
+                <th className="py-4 px-6">Billing Terms</th>
                 <th className="py-4 px-6">Lease Status</th>
                 <th className="py-4 px-6 text-right">Actions</th>
               </tr>
@@ -563,35 +538,17 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       )}
                     </td>
                     <td className="py-4 px-6">
-                      <div className="font-bold text-slate-700">Room {getRoomNumber(tenant.room_id || tenant.previous_room_id)}</div>
-                      <div className="text-xs text-slate-500 font-medium mt-0.5">{getApartmentName(tenant.apartment_id || tenant.previous_apartment_id)}</div>
+                      <div className="font-bold text-slate-700">Room {getRoomNumber(tenant.room_id)}</div>
+                      <div className="text-xs text-slate-500 font-medium mt-0.5">{getApartmentName(tenant.apartment_id)}</div>
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-slate-600">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        <span>In: {tenant.move_in_date || "N/A"}</span>
+                        <span>{tenant.move_in_date}</span>
                       </div>
-                      {tenant.move_out_date && (
-                        <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-amber-700 mt-1">
-                          <LogOut className="w-3 h-3 text-amber-500" />
-                          <span>Out: {tenant.move_out_date}</span>
-                        </div>
-                      )}
                     </td>
-                    <td className="py-4 px-6">
-                      {tenant.status === "moved_out" ? (
-                        <div>
-                          <div className="font-black text-slate-900 text-sm">
-                            ₱{getTenantFinalBalance(tenant.id).toLocaleString()}
-                            <span className="text-[10px] text-slate-400 font-normal ml-1">balance</span>
-                          </div>
-                          <div className="text-xs text-slate-400 font-medium mt-0.5">
-                            Rate: ₱{Number(tenant.rent_amount || 0).toLocaleString()}/mo
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="font-extrabold text-brand-orange">₱{Number(tenant.rent_amount).toLocaleString()}/mo</div>
-                      )}
+                     <td className="py-4 px-6">
+                      <div className="font-extrabold text-brand-orange">₱{Number(tenant.rent_amount).toLocaleString()}/mo</div>
                     </td>
                     <td className="py-4 px-6">
                       {tenant.status === "active" ? (
@@ -603,8 +560,8 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                           Suspended
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-800 text-xs font-bold rounded-lg border border-amber-200">
-                          Former Tenant
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg border border-slate-200">
+                          Moved Out
                         </span>
                       )}
                     </td>
@@ -612,20 +569,17 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => { setViewTenant(tenant); setHistoryTab("overview"); }}
-                          className="px-3 py-2 neu-btn text-slate-900 hover:text-brand-orange rounded-xl transition-all shadow-xs flex items-center gap-1.5 font-bold text-xs"
-                          title="View Tenant Details & Complete History"
-                          aria-label="View Tenant Details & Complete History"
+                          className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
+                          title="View Tenant History"
                         >
-                          <Eye className="w-4 h-4 text-brand-orange" />
-                          <span>View</span>
+                          <Eye className="w-4.5 h-4.5" />
                         </button>
                         <button
                           onClick={() => handleOpenEdit(tenant)}
                           className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
                           title="Edit Tenant"
-                          aria-label="Edit Tenant"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          <Edit2 className="w-4.5 h-4.5" />
                         </button>
                         {tenant.status === "active" && (
                           <button
@@ -633,11 +587,10 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                               setUseAdvanceForSettlement(true);
                               setCheckoutReceiptTenant(tenant);
                             }}
-                            className="p-2 neu-btn text-slate-900 hover:text-red-600 rounded-xl transition-all shadow-xs"
+                            className="p-2 neu-btn text-slate-900 rounded-xl transition-all shadow-xs"
                             title="Register Move-Out"
-                            aria-label="Register Move-Out"
                           >
-                            <LogOut className="w-4 h-4 text-slate-700 hover:text-red-600" />
+                            <LogOut className="w-4.5 h-4.5" />
                           </button>
                         )}
                       </div>
@@ -659,17 +612,15 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
           const tenantTransactions = (db.transactionLogs || []).filter((t: any) => t.tenant_id === tenant.id).sort((a: any, b: any) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
           const tenantMaintenance = (db.maintenanceRequests || []).filter((m: any) => String(m.tenant_id || m.tenantId || "") === tenant.id).sort((a: any, b: any) => String(b.created_at || b.createdAt || "").localeCompare(String(a.created_at || a.createdAt || "")));
           const tenantLedger = (db.depositLedger || []).filter((e) => e.tenant_id === tenant.id).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-          const apartmentName = getApartmentName(tenant.apartment_id || tenant.previous_apartment_id);
-          const roomNumber = getRoomNumber(tenant.room_id || tenant.previous_room_id);
-          const finalBalance = getTenantFinalBalance(tenant.id);
+          const apartmentName = getApartmentName(tenant.apartment_id);
+          const roomNumber = getRoomNumber(tenant.room_id);
+          const finalBalance = tenantBills.reduce((sum, b) => sum + Math.max(0, Number(b.total_amount || 0) - Number(b.paid_amount || (b.payment_status === "paid" ? b.total_amount : 0))), 0);
           const tabs = [
             ["overview", "Overview"],
-            ["payments", "Payment History"],
-            ["billing", "Billing History"],
+            ["payments", "Billing & Payment History"],
             ["transactions", "Advance & Deposit Transactions"],
             ["maintenance", "Maintenance History"]
           ] as const;
-
           return (
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setViewTenant(null)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -682,9 +633,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                         <h2 className="text-xl font-black text-slate-900">{tenant.name}</h2>
                         <p className="text-sm text-slate-500 font-medium">{apartmentName} · Room {roomNumber}</p>
                       </div>
-                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${tenant.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-amber-50 text-amber-800 border-amber-200"}`}>
-                        {tenant.status === "active" ? "Active Lease" : "Former Tenant"}
-                      </span>
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${tenant.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-100 text-slate-600 border-slate-200"}`}>{tenant.status === "active" ? "Active Lease" : "Former Tenant"}</span>
                     </div>
                   </div>
                   <button onClick={() => setViewTenant(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500" title="Close"><X className="w-5 h-5" /></button>
@@ -697,418 +646,40 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                   </div>
                 </div>
                 <div className="p-6 overflow-y-auto space-y-5">
-                  {/* TAB 1: OVERVIEW */}
                   {historyTab === "overview" && (
                     <>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                          <div className="text-xs font-bold uppercase text-slate-400">Monthly Rent</div>
-                          <div className="mt-1 text-lg font-black text-brand-orange">₱{Number(tenant.rent_amount || 0).toLocaleString()}/mo</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                          <div className="text-xs font-bold uppercase text-slate-400">Current Balance</div>
-                          <div className="mt-1 text-lg font-black text-slate-900">₱{finalBalance.toLocaleString()}</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                          <div className="text-xs font-bold uppercase text-slate-400">Deposit Balance</div>
-                          <div className="mt-1 text-lg font-black text-slate-900">₱{Number(tenant.deposit_balance ?? tenant.deposit ?? 0).toLocaleString()}</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                          <div className="text-xs font-bold uppercase text-slate-400">Advance Balance</div>
-                          <div className="mt-1 text-lg font-black text-slate-900">₱{Number(tenant.advance_balance ?? tenant.advance_payment ?? 0).toLocaleString()}</div>
-                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="text-xs font-bold uppercase text-slate-400">Monthly Rent</div><div className="mt-1 text-lg font-black text-brand-orange">₱{Number(tenant.rent_amount || 0).toLocaleString()}/mo</div></div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="text-xs font-bold uppercase text-slate-400">Outstanding</div><div className="mt-1 text-lg font-black text-slate-900">₱{finalBalance.toLocaleString()}</div></div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="text-xs font-bold uppercase text-slate-400">Deposit Balance</div><div className="mt-1 text-lg font-black text-slate-900">₱{Number(tenant.deposit_balance ?? tenant.deposit ?? 0).toLocaleString()}</div></div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="text-xs font-bold uppercase text-slate-400">Advance Balance</div><div className="mt-1 text-lg font-black text-slate-900">₱{Number(tenant.advance_balance ?? tenant.advance_payment ?? 0).toLocaleString()}</div></div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <div className="border border-slate-100 rounded-xl p-5 space-y-3">
-                          <h3 className="font-black text-slate-900">Tenant Overview</h3>
-                          <div className="text-sm"><span className="text-slate-400">Full Name:</span> <span className="font-bold text-slate-800">{tenant.name}</span></div>
-                          <div className="text-sm"><span className="text-slate-400">Email:</span> <span className="font-semibold text-slate-700">{tenant.email || "N/A"}</span></div>
-                          <div className="text-sm"><span className="text-slate-400">Phone:</span> <span className="font-semibold text-slate-700">{tenant.contact || "N/A"}</span></div>
-                          <div className="text-sm">
-                            <span className="text-slate-400">Messenger / Facebook Account:</span>{" "}
-                            {tenant.messenger_psid ? (
-                              <span className="font-semibold text-blue-600 break-all inline-flex items-center gap-1.5 ml-1">
-                                <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">Linked</span>
-                                {tenant.messenger_psid.replace(/^https?:\/\/(www\.)?(messenger|facebook)\.com\/(t\/)?/, "").replace(/^@/, "")}
-                              </span>
-                            ) : (
-                              <span className="font-medium text-slate-400">Not linked</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="border border-slate-100 rounded-xl p-5 space-y-3">
-                          <h3 className="font-black text-slate-900">Lease Overview</h3>
-                          <div className="text-sm"><span className="text-slate-400">Property:</span> <span className="font-semibold text-slate-700">{apartmentName}</span></div>
-                          <div className="text-sm"><span className="text-slate-400">Assigned Unit:</span> <span className="font-semibold text-slate-700">Room {roomNumber}</span></div>
-                          <div className="text-sm"><span className="text-slate-400">Move-in Date:</span> <span className="font-semibold text-slate-700">{tenant.move_in_date || "N/A"}</span></div>
-                          {tenant.move_out_date && (
-                            <div className="text-sm"><span className="text-slate-400">Move-out Date:</span> <span className="font-bold text-amber-700">{tenant.move_out_date}</span></div>
-                          )}
-                          <div className="text-sm"><span className="text-slate-400">Status:</span> <span className={`font-bold ml-1 ${tenant.status === "active" ? "text-emerald-700" : "text-amber-700"}`}>{tenant.status === "active" ? "Active Lease" : "Former Tenant (Moved Out)"}</span></div>
-                        </div>
+                        <div className="border border-slate-100 rounded-xl p-5 space-y-3"><h3 className="font-black text-slate-900">Tenant Information</h3><div className="text-sm"><span className="text-slate-400">Email:</span> <span className="font-semibold text-slate-700">{tenant.email || "N/A"}</span></div><div className="text-sm"><span className="text-slate-400">Phone:</span> <span className="font-semibold text-slate-700">{tenant.contact || "N/A"}</span></div><div className="text-sm"><span className="text-slate-400">Facebook name / Messenger:</span> <span className="font-semibold text-slate-700 break-all">{tenant.messenger_psid ? tenant.messenger_psid.replace(/^https?:\/\/(www\.)?(messenger|facebook)\.com\/(t\/)?/, "").replace(/^@/, "") : "Not linked"}</span></div></div>
+                        <div className="border border-slate-100 rounded-xl p-5 space-y-3"><h3 className="font-black text-slate-900">Lease Information</h3><div className="text-sm"><span className="text-slate-400">Apartment:</span> <span className="font-semibold text-slate-700">{apartmentName}</span></div><div className="text-sm"><span className="text-slate-400">Room:</span> <span className="font-semibold text-slate-700">Room {roomNumber}</span></div><div className="text-sm"><span className="text-slate-400">Move-in:</span> <span className="font-semibold text-slate-700">{tenant.move_in_date || "N/A"}</span></div>{tenant.move_out_date && <div className="text-sm"><span className="text-slate-400">Move-out:</span> <span className="font-semibold text-slate-700">{tenant.move_out_date}</span></div>}</div>
                       </div>
                     </>
                   )}
-
-                  {/* TAB 2: PAYMENT HISTORY */}
-                  {historyTab === "payments" && (() => {
-                    const paymentRows: Array<{
-                      id: string;
-                      date: string;
-                      period: string;
-                      description: string;
-                      amount: number;
-                      methodRef: string;
-                      status: string;
-                      isVerified: boolean;
-                    }> = [];
-
-                    // Add payments from db.paymentSubmissions
-                    (db.paymentSubmissions || [])
-                      .filter((p: any) => p.tenant_id === tenant.id)
-                      .forEach((p: any) => {
-                        const rawDate = p.submitted_at || p.created_at || "";
-                        const formattedDate = rawDate
-                          ? new Date(rawDate).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })
-                          : "N/A";
-                        const matchingBill = db.billingRecords.find((b) => b.id === p.billing_id);
-                        const period = matchingBill?.billing_month || p.billing_period || "Monthly Rent";
-                        const amount = Number(p.verified_amount ?? p.amount_due ?? 0);
-                        const methodRef = `${p.method || "GCash"}${p.reference ? ` · Ref: ${p.reference}` : ""}`;
-                        const isVerified = p.status === "verified";
-                        paymentRows.push({
-                          id: `sub-${p.id}`,
-                          date: formattedDate,
-                          period,
-                          description: p.notes || "Rent & Utility Payment",
-                          amount,
-                          methodRef,
-                          status: isVerified ? "Verified" : p.status === "rejected" ? "Rejected" : "Pending",
-                          isVerified,
-                        });
-                      });
-
-                    // Add paid bills from db.billingRecords if not already listed
-                    tenantBills
-                      .filter((b) => b.payment_status === "paid" || Number(b.paid_amount || 0) > 0)
-                      .forEach((b) => {
-                        const alreadyInList = paymentRows.some((r) => r.period === b.billing_month);
-                        if (!alreadyInList) {
-                          const rawDate = b.paid_at || b.due_date || "";
-                          const formattedDate = rawDate
-                            ? new Date(rawDate).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })
-                            : "N/A";
-                          const amount = Number(b.paid_amount || b.total_amount || 0);
-                          const method = b.last_payment_method || (b as any).payment_method;
-                          const ref = b.last_payment_reference || (b as any).payment_reference;
-                          const methodRef = method
-                            ? `${method}${ref ? ` · Ref: ${ref}` : ""}`
-                            : "Official Direct Settlement";
-                          paymentRows.push({
-                            id: `bill-${b.id}`,
-                            date: formattedDate,
-                            period: b.billing_month || "Monthly Rent",
-                            description: "Monthly Rent & Utility Settlement",
-                            amount,
-                            methodRef,
-                            status: "Verified",
-                            isVerified: true,
-                          });
-                        }
-                      });
-
-                    return (
-                      <div className="space-y-4">
-                        <div className="border border-slate-100 rounded-xl overflow-hidden bg-white shadow-xs">
-                          <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div>
-                              <h3 className="font-black text-slate-900 text-base">Payment History</h3>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                Complete review of all verified tenant payment receipts and verified transactions.
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>{paymentRows.filter(p => p.isVerified).length} Verified Payments</span>
-                              </span>
-                            </div>
-                          </div>
-
-                          {paymentRows.length === 0 ? (
-                            <div className="p-12 text-center text-slate-400">
-                              <Receipt className="w-10 h-10 text-slate-200 mx-auto mb-2" />
-                              <p className="font-bold text-slate-600 text-sm">No Payment Records Found</p>
-                              <p className="text-xs text-slate-400 mt-1">
-                                There are no payment submissions or verified settlements recorded for this tenant yet.
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left text-sm border-collapse">
-                                <thead className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-400">
-                                  <tr>
-                                    <th className="py-3 px-4">Date</th>
-                                    <th className="py-3 px-4">Billing Period</th>
-                                    <th className="py-3 px-4">Payment Description</th>
-                                    <th className="py-3 px-4 text-right">Amount</th>
-                                    <th className="py-3 px-4">Payment Method / Ref</th>
-                                    <th className="py-3 px-4 text-center">Verification Status</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {paymentRows.map((payment) => (
-                                    <tr key={payment.id} className="hover:bg-slate-50/50 transition-colors">
-                                      <td className="py-3.5 px-4 font-medium text-slate-700 whitespace-nowrap">
-                                        {payment.date}
-                                      </td>
-                                      <td className="py-3.5 px-4 font-bold text-slate-800 whitespace-nowrap">
-                                        {payment.period}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-slate-600">
-                                        {payment.description}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-right font-black text-brand-orange whitespace-nowrap">
-                                        ₱{payment.amount.toLocaleString()}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">
-                                        {payment.methodRef}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg border ${
-                                          payment.isVerified
-                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                            : payment.status === "Rejected"
-                                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                                            : "bg-amber-50 text-amber-700 border-amber-200"
-                                        }`}>
-                                          {payment.isVerified && <Check className="w-3.5 h-3.5 text-emerald-600" />}
-                                          {payment.status}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* TAB 3: BILLING HISTORY */}
-                  {historyTab === "billing" && (
-                    <div className="space-y-4">
-                      <div className="border border-slate-100 rounded-xl overflow-hidden bg-white shadow-xs">
-                        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <h3 className="font-black text-slate-900 text-base">Billing History</h3>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              Record of all issued bills, monthly utility calculations, and payment balances.
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="px-3 py-1 bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-xs font-bold">
-                              Total Statements: {tenantBills.length}
-                            </span>
-                          </div>
-                        </div>
-
-                        {tenantBills.length === 0 ? (
-                          <div className="p-12 text-center text-slate-400">
-                            <FileText className="w-10 h-10 text-slate-200 mx-auto mb-2" />
-                            <p className="font-bold text-slate-600 text-sm">No Bills Issued</p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              No billing statements have been created for this tenant.
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm border-collapse">
-                              <thead className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-400">
-                                <tr>
-                                  <th className="py-3 px-4">Billing Month</th>
-                                  <th className="py-3 px-4">Due Date</th>
-                                  <th className="py-3 px-4 text-right">Rent</th>
-                                  <th className="py-3 px-4 text-right">Utilities</th>
-                                  <th className="py-3 px-4 text-right">Total Bill</th>
-                                  <th className="py-3 px-4 text-right">Paid</th>
-                                  <th className="py-3 px-4 text-right">Balance</th>
-                                  <th className="py-3 px-4 text-center">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {tenantBills.map((b) => {
-                                  const paid = Number(b.paid_amount ?? (b.payment_status === "paid" ? b.total_amount : 0));
-                                  const balance = Math.max(0, Number(b.total_amount || 0) - paid);
-                                  const utilities = Number(b.electricity_amount || 0) + Number(b.water_amount || 0);
-                                  return (
-                                    <tr key={`bill-${b.id}`} className="hover:bg-slate-50/50 transition-colors">
-                                      <td className="py-3.5 px-4 font-bold text-slate-800 whitespace-nowrap">
-                                        {b.billing_month || "Current"}
-                                      </td>
-                                      <td className="py-3.5 px-4 font-medium text-slate-600 whitespace-nowrap">
-                                        {b.due_date || "N/A"}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
-                                        ₱{Number(b.rent_amount || 0).toLocaleString()}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-right text-slate-600 whitespace-nowrap">
-                                        ₱{utilities.toLocaleString()}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-right font-black text-slate-900 whitespace-nowrap">
-                                        ₱{Number(b.total_amount || 0).toLocaleString()}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-right font-bold text-emerald-700 whitespace-nowrap">
-                                        ₱{paid.toLocaleString()}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-right font-bold text-rose-600 whitespace-nowrap">
-                                        ₱{balance.toLocaleString()}
-                                      </td>
-                                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg border ${
-                                          b.payment_status === "paid"
-                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                            : b.payment_status === "overdue"
-                                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                                            : "bg-amber-50 text-amber-700 border-amber-200"
-                                        }`}>
-                                          {b.payment_status === "paid" ? "Paid" : b.payment_status === "overdue" ? "Overdue" : "Pending"}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* TAB 4: ADVANCE & DEPOSIT TRANSACTIONS */}
-                  {historyTab === "transactions" && (
+                  {historyTab === "payments" && (
                     <div className="space-y-5">
-                      <div className="border border-slate-100 rounded-xl overflow-hidden bg-white shadow-xs">
-                        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <h3 className="font-black text-slate-900 text-base">Advance & Deposit Transactions</h3>
-                            <p className="text-xs text-slate-400 mt-0.5">Exclusively showing security deposit and advance rental payment records.</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <span className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700">
-                              Deposit: ₱{Number(tenant.deposit_balance ?? tenant.deposit ?? 0).toLocaleString()}
-                            </span>
-                            <span className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700">
-                              Advance: ₱{Number(tenant.advance_balance ?? tenant.advance_payment ?? 0).toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                        {tenantLedger.length === 0 ? (
-                          <div className="p-10 text-center text-slate-400">
-                            No advance or deposit transactions recorded.
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-slate-50 text-xs uppercase text-slate-400">
-                                <tr>
-                                  <th className="p-4 text-left">Type</th>
-                                  <th className="p-4 text-left">Date</th>
-                                  <th className="p-4 text-left">Description</th>
-                                  <th className="p-4 text-right">Amount</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {tenantLedger.map((entry) => {
-                                  const isNegative = ["deposit_deduction", "advance_use", "deposit_refund", "advance_refund"].includes(entry.type);
-                                  const typeLabels: Record<string, { label: string; badge: string }> = {
-                                    deposit_payment: { label: "Deposit Payment", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-                                    deposit_refund: { label: "Deposit Refund", badge: "bg-blue-50 text-blue-700 border-blue-200" },
-                                    deposit_deduction: { label: "Deposit Deduction", badge: "bg-rose-50 text-rose-700 border-rose-200" },
-                                    advance_payment: { label: "Advance Payment", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-                                    advance_use: { label: "Advance Rent Applied", badge: "bg-amber-50 text-amber-700 border-amber-200" },
-                                    advance_refund: { label: "Advance Refund", badge: "bg-blue-50 text-blue-700 border-blue-200" }
-                                  };
-                                  const badgeInfo = typeLabels[entry.type] || { label: entry.type.replace(/_/g, " "), badge: "bg-slate-50 text-slate-700 border-slate-200" };
-
-                                  return (
-                                    <tr key={entry.id}>
-                                      <td className="p-4">
-                                        <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${badgeInfo.badge}`}>
-                                          {badgeInfo.label}
-                                        </span>
-                                      </td>
-                                      <td className="p-4 text-slate-600 font-medium">
-                                        {entry.created_at ? new Date(entry.created_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "N/A"}
-                                      </td>
-                                      <td className="p-4 font-semibold text-slate-800">
-                                        {entry.description}
-                                      </td>
-                                      <td className={`p-4 text-right font-black ${isNegative ? "text-rose-600" : "text-emerald-700"}`}>
-                                        {isNegative ? "-" : "+"}₱{Number(entry.amount || 0).toLocaleString()}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                      <div className="border border-slate-100 rounded-xl overflow-hidden">
+                        <div className="p-5 border-b border-slate-100"><h3 className="font-black text-slate-900">Billing & Payment History</h3><p className="text-xs text-slate-400 mt-1">Bills and submitted payment records in one place.</p></div>
+                        {tenantBills.length === 0 && tenantPayments.length === 0 ? <div className="p-10 text-center text-slate-400">No billing or payment records recorded.</div> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr><th className="p-4 text-left">Type</th><th className="p-4 text-left">Date / Period</th><th className="p-4 text-left">Details</th><th className="p-4 text-right">Amount</th><th className="p-4 text-left">Status</th></tr></thead><tbody className="divide-y divide-slate-100">
+                          {tenantBills.map((b) => <tr key={`bill-${b.id}`}><td className="p-4"><span className="rounded-lg bg-orange-50 text-orange-700 px-2 py-1 text-xs font-bold">Bill</span></td><td className="p-4">{b.billing_month || b.due_date || "N/A"}</td><td className="p-4">Due {b.due_date || "N/A"}</td><td className="p-4 text-right font-black">₱{Number(b.total_amount || 0).toLocaleString()}</td><td className="p-4 font-bold">{b.payment_status || "N/A"} · Paid ₱{Number(b.paid_amount ?? (b.payment_status === "paid" ? b.total_amount : 0)).toLocaleString()}</td></tr>)}
+                          {tenantPayments.map((p: any) => <tr key={`payment-${p.id}`}><td className="p-4"><span className="rounded-lg bg-emerald-50 text-emerald-700 px-2 py-1 text-xs font-bold">Payment</span></td><td className="p-4">{p.submitted_at || "N/A"}</td><td className="p-4">{p.method || "N/A"}{p.reference ? ` · Ref: ${p.reference}` : ""}</td><td className="p-4 text-right font-black">₱{Number(p.verified_amount ?? p.amount_due ?? 0).toLocaleString()}</td><td className="p-4 font-bold">{p.status || "N/A"}</td></tr>)}
+                        </tbody></table></div>}
                       </div>
                     </div>
                   )}
-
-                  {/* TAB 5: MAINTENANCE HISTORY */}
-                  {historyTab === "maintenance" && (
-                    <div className="space-y-3">
-                      {tenantMaintenance.length === 0 ? (
-                        <div className="p-10 text-center text-slate-400 border border-slate-100 rounded-xl bg-white">
-                          No maintenance requests reported by this tenant.
-                        </div>
-                      ) : (
-                        tenantMaintenance.map((m: any) => {
-                          const photoUrl = m.photo_url || m.photoUrl || m.photo || "";
-                          return (
-                            <div key={m.id || m.ticketId} className="border border-slate-100 rounded-xl p-4 bg-white shadow-xs">
-                              <div className="flex justify-between items-start gap-3">
-                                <div>
-                                  <div className="font-black text-slate-900">{m.category || "Maintenance"}</div>
-                                  <div className="text-xs text-slate-400 mt-0.5">{m.created_at || m.createdAt || "N/A"}</div>
-                                </div>
-                                <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
-                                  m.status === "completed" || m.status === "resolved"
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                    : m.status === "in_progress"
-                                    ? "bg-blue-50 text-blue-700 border-blue-200"
-                                    : "bg-amber-50 text-amber-700 border-amber-200"
-                                }`}>
-                                  {m.status || "Pending"}
-                                </span>
-                              </div>
-                              <div className="text-sm text-slate-700 mt-2 font-medium">
-                                {m.issue_description || m.description || "No description provided."}
-                              </div>
-                              {photoUrl && (
-                                <div className="mt-3">
-                                  <img
-                                    src={photoUrl}
-                                    alt="Maintenance attachment"
-                                    className="w-24 h-24 object-cover rounded-xl border border-slate-200 shadow-xs cursor-pointer hover:opacity-90"
-                                    onClick={() => window.open(photoUrl, "_blank")}
-                                    onError={(e) => {
-                                      (e.currentTarget as HTMLElement).style.display = "none";
-                                    }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
+                  {historyTab === "transactions" && (
+                    <div className="border border-slate-100 rounded-xl p-5">
+                      <h3 className="font-black text-slate-900 mb-3">Advance & Deposit Transactions</h3>
+                      <p className="text-xs text-slate-400 mb-4">Only security-deposit and advance-payment ledger entries are shown here.</p>
+                      {tenantLedger.length === 0 ? <div className="text-sm text-slate-400">No advance or deposit transactions recorded.</div> : <div className="space-y-2">{tenantLedger.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-4 text-sm border-b border-slate-50 pb-2"><div><div className="font-bold text-slate-700">{entry.description}</div><div className="text-xs text-slate-400">{entry.created_at}</div></div><div className="font-black text-slate-800">₱{Number(entry.amount || 0).toLocaleString()}</div></div>)}</div>}
                     </div>
+                  )}
+                  {historyTab === "maintenance" && (
+                    <div className="space-y-3">{tenantMaintenance.length === 0 ? <div className="p-10 text-center text-slate-400 border border-slate-100 rounded-xl">No maintenance history recorded.</div> : tenantMaintenance.map((m: any) => <div key={m.id || m.ticketId} className="border border-slate-100 rounded-xl p-4"><div className="flex justify-between gap-3"><div className="font-black text-slate-800">{m.category || "Maintenance"}</div><span className="text-xs font-bold px-2 py-1 rounded-lg bg-slate-100 text-slate-600">{m.status || "pending"}</span></div><div className="text-sm text-slate-600 mt-2">{m.issue_description || m.description || "No description"}</div><div className="text-xs text-slate-400 mt-2">{m.created_at || m.createdAt || "N/A"}</div></div>)}</div>
                   )}
                 </div>
               </motion.div>

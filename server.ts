@@ -1130,20 +1130,11 @@ app.post("/api/tenants/:id/move-out", (req, res) => {
   const { id } = req.params;
   const tenantIdx = db.tenants.findIndex((t: any) => t.id === id);
   if (tenantIdx !== -1) {
-    const currentRoomId = db.tenants[tenantIdx].room_id;
-    const currentApartmentId = db.tenants[tenantIdx].apartment_id;
-    if (currentRoomId) {
-      db.tenants[tenantIdx].previous_room_id = currentRoomId;
-    }
-    if (currentApartmentId) {
-      db.tenants[tenantIdx].previous_apartment_id = currentApartmentId;
-    }
     db.tenants[tenantIdx].status = "moved_out";
     db.tenants[tenantIdx].move_out_date = new Date().toISOString().split("T")[0];
-    db.tenants[tenantIdx].room_id = "";
     
     // Set associated room to vacant
-    const roomId = currentRoomId;
+    const roomId = db.tenants[tenantIdx].room_id;
     const roomIdx = db.rooms.findIndex((r: any) => r.id === roomId);
     let roomNum = "N/A";
     if (roomIdx !== -1) {
@@ -1410,122 +1401,8 @@ app.delete("/api/ledger/:id", (req, res) => {
 });
 
 // 5.5 AUTOMATED THREE-DAY RENT DUE REMINDERS
-// Uses Asia/Manila calendar dates. Handles both active bills due in 3 days and recurring tenant lease due dates.
-async function processThreeDayRentReminders(db: any) {
-  const now = new Date();
-  const manilaToday = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"
-  }).format(now);
-  const todayUtc = new Date(`${manilaToday}T00:00:00Z`);
-  const targetDate = new Date(todayUtc.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const targetDay = Number(targetDate.split("-")[2]);
-
-  const activeTenants = (db.tenants || []).filter((t: any) => t.status === "active");
-  const activeTenantMap = new Map<string, any>(activeTenants.map((t: any) => [t.id, t]));
-  const remindedTenants = new Set<string>();
-  const results: any[] = [];
-  let dbModified = false;
-
-  for (const tenant of activeTenants) {
-    if (remindedTenants.has(tenant.id)) continue;
-
-    // Check if tenant has an unpaid bill due on targetDate
-    const matchingBill = (db.billingRecords || []).find((b: any) =>
-      b.tenant_id === tenant.id &&
-      String(b.due_date || "") === targetDate &&
-      b.payment_status !== "paid"
-    );
-
-    // Check if tenant's recurring monthly rent due date corresponds to targetDay
-    const tenantMoveInDay = tenant.move_in_date ? Number(String(tenant.move_in_date).split("-")[2]) : NaN;
-    const isRecurringLeaseDue = !isNaN(tenantMoveInDay) && tenantMoveInDay === targetDay;
-
-    // Should we remind this tenant?
-    const alreadyRemindedBill = matchingBill && matchingBill.reminder_3_day_sent_for === targetDate;
-    const alreadyRemindedTenant = tenant.reminder_3_day_sent_for === targetDate;
-
-    if ((matchingBill && !alreadyRemindedBill) || (!matchingBill && isRecurringLeaseDue && !alreadyRemindedTenant)) {
-      remindedTenants.add(tenant.id);
-      const psid = String(tenant.facebook_psid || tenant.messenger_psid || "").trim();
-      const isValidPsid = /^\d+$/.test(psid);
-      const message = `Hello, ${tenant.name}! This is a reminder that your rent is due in the next 3 days (${targetDate}). Your bill will be sent soon. Please prepare your payment accordingly. — RentFlow`;
-
-      let messengerSuccess = false;
-      if (isValidPsid) {
-        try {
-          const sendResult = await sendFacebookMessage(psid, { text: message });
-          messengerSuccess = !!sendResult.success;
-        } catch (e: any) {
-          console.warn("Messenger 3-day reminder error for tenant", tenant.id, e.message);
-        }
-      }
-
-      // Mark records so reminder isn't duplicated
-      if (matchingBill) {
-        const billIdx = db.billingRecords.findIndex((b: any) => b.id === matchingBill.id);
-        if (billIdx !== -1) {
-          db.billingRecords[billIdx].reminder_3_day_sent_for = targetDate;
-          db.billingRecords[billIdx].reminder_3_day_sent_at = new Date().toISOString();
-        }
-      }
-      const tIdx = db.tenants.findIndex((t: any) => t.id === tenant.id);
-      if (tIdx !== -1) {
-        db.tenants[tIdx].reminder_3_day_sent_for = targetDate;
-        db.tenants[tIdx].reminder_3_day_sent_at = new Date().toISOString();
-      }
-
-      // Record in-app notification
-      db.notifications = db.notifications || [];
-      db.notifications.unshift({
-        id: `notif-reminder-${Date.now()}-${tenant.id}`,
-        tenant_id: tenant.id,
-        tenant_name: tenant.name,
-        billing_id: matchingBill ? matchingBill.id : undefined,
-        message,
-        type: "reminder",
-        status: "sent",
-        channel: messengerSuccess ? "messenger" : "in_app",
-        created_at: new Date().toISOString()
-      });
-
-      // Log transaction
-      const room = db.rooms.find((r: any) => r.id === (tenant.room_id || tenant.previous_room_id));
-      logTransaction(db, {
-        category: "billing",
-        action: "status_change",
-        title: "3-Day Rent Reminder Sent",
-        details: `Three-day rent due reminder sent to ${tenant.name} for due date ${targetDate}. Bill will be sent soon.`,
-        tenant_id: tenant.id,
-        tenant_name: tenant.name,
-        room_number: room ? room.room_number : "N/A",
-      });
-
-      dbModified = true;
-      results.push({
-        tenant_id: tenant.id,
-        tenant_name: tenant.name,
-        target_date: targetDate,
-        messenger_delivered: messengerSuccess,
-        channel: messengerSuccess ? "messenger" : "in_app"
-      });
-    }
-  }
-
-  if (dbModified) {
-    writeDB(db);
-  }
-
-  return {
-    success: true,
-    date: manilaToday,
-    reminder_date: targetDate,
-    reminders_sent: results.length,
-    results
-  };
-}
-
-// Cron / Scheduled Endpoint
-app.all("/api/cron/rent-reminders", async (req, res) => {
+// Intended for a daily scheduler (e.g. Vercel Cron). Uses Asia/Manila calendar dates.
+app.get("/api/cron/rent-reminders", async (req, res) => {
   const configuredSecret = (process.env.CRON_SECRET || "").trim();
   const authHeader = String(req.headers.authorization || "");
   const suppliedSecret = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
@@ -1534,15 +1411,79 @@ app.all("/api/cron/rent-reminders", async (req, res) => {
   }
 
   const db = readDB();
-  const summary = await processThreeDayRentReminders(db);
-  return res.json(summary);
-});
+  const now = new Date();
+  const manilaToday = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(now);
+  const todayUtc = new Date(`${manilaToday}T00:00:00Z`);
+  const targetDate = new Date(todayUtc.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-// Admin manual trigger for 3-day reminders
-app.post("/api/billing/trigger-3day-reminders", async (req, res) => {
-  const db = readDB();
-  const summary = await processThreeDayRentReminders(db);
-  return res.json(summary);
+  const activeTenants = new Set((db.tenants || []).filter((t: any) => t.status === "active").map((t: any) => t.id));
+  const candidates = (db.billingRecords || []).filter((b: any) =>
+    activeTenants.has(b.tenant_id) &&
+    String(b.due_date || "") === targetDate &&
+    b.payment_status !== "paid" &&
+    b.reminder_3_day_sent_for !== targetDate
+  );
+
+  const results: any[] = [];
+  const remindedTenants = new Set<string>();
+
+  for (const bill of candidates) {
+    // If a tenant has multiple bills with the same due date, send only one reminder.
+    if (remindedTenants.has(bill.tenant_id)) continue;
+    const tenant = db.tenants.find((t: any) => t.id === bill.tenant_id);
+    if (!tenant) continue;
+    const psid = String(tenant.facebook_psid || tenant.messenger_psid || "").trim();
+    const isValidPsid = /^\d+$/.test(psid);
+    const message = `Hello, ${tenant.name}! This is a reminder that your rent is due in the next 3 days (${targetDate}). Your bill will be sent soon. Please prepare your payment accordingly. — RentFlow`;
+
+    if (!isValidPsid) {
+      results.push({ tenant_id: tenant.id, status: "not_sent", reason: "messenger_not_linked" });
+      continue;
+    }
+
+    try {
+      const sendResult = await sendFacebookMessage(psid, { text: message });
+      const billIdx = db.billingRecords.findIndex((b: any) => b.id === bill.id);
+      if (sendResult.success) {
+        if (billIdx !== -1) {
+          db.billingRecords[billIdx].reminder_3_day_sent_for = targetDate;
+          db.billingRecords[billIdx].reminder_3_day_sent_at = new Date().toISOString();
+        }
+        db.notifications = db.notifications || [];
+        db.notifications.unshift({
+          id: `notif-reminder-${Date.now()}-${tenant.id}`,
+          tenant_id: tenant.id,
+          tenant_name: tenant.name,
+          billing_id: bill.id,
+          message,
+          type: "reminder",
+          status: "sent",
+          channel: "messenger",
+          created_at: new Date().toISOString()
+        });
+        logTransaction(db, {
+          category: "billing",
+          action: "status_change",
+          title: "3-Day Rent Reminder Sent",
+          details: `Three-day rent due reminder sent to ${tenant.name} for billing due ${targetDate}.`,
+          tenant_id: tenant.id,
+          tenant_name: tenant.name,
+          room_number: db.rooms.find((r: any) => r.id === tenant.room_id)?.room_number || "N/A",
+        });
+        remindedTenants.add(tenant.id);
+        results.push({ tenant_id: tenant.id, status: "sent" });
+      } else {
+        results.push({ tenant_id: tenant.id, status: "failed", error: sendResult.error || "Messenger send failed" });
+      }
+    } catch (err: any) {
+      results.push({ tenant_id: tenant.id, status: "failed", error: err?.message || "Messenger send failed" });
+    }
+  }
+
+  if (candidates.length > 0) writeDB(db);
+  return res.json({ success: true, date: manilaToday, reminder_date: targetDate, candidates: candidates.length, results });
 });
 
 // 6. BILLING RECORDS CRUD & Auto Tenant Notification
@@ -1613,248 +1554,77 @@ app.put("/api/billing/:id", (req, res) => {
   }
 });
 
-// Mark as Paid, Partially Paid, or Settle with Security Deposit & Issue Official Receipt to Tenant
+// Mark as Paid & Issue Official Receipt to Tenant
 app.post("/api/billing/:id/pay", async (req, res) => {
   const db = readDB();
   const { id } = req.params;
   const index = db.billingRecords.findIndex((b: any) => b.id === id);
-  if (index === -1) {
-    return res.status(404).json({ message: "Billing record not found" });
-  }
+  if (index !== -1) {
+    db.billingRecords[index].payment_status = "paid";
+    db.billingRecords[index].paid_at = new Date().toISOString();
+    const bill = db.billingRecords[index];
 
-  const bill = db.billingRecords[index];
-  const billTotal = Number(bill.total_amount || 0);
+    const receiptNo = `RCPT-${Date.now().toString().slice(-6)}`;
+    const paidDate = new Date().toLocaleDateString("en-PH", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
 
-  // Recalculate authoritative historical settlements from database records
-  const prevPaid = Number(bill.paid_amount || 0);
-  const prevDepositApplied = Number(bill.deposit_applied || 0);
-  const outstandingBefore = Math.max(0, Number((billTotal - prevPaid - prevDepositApplied).toFixed(2)));
+    const tenant = db.tenants.find((t: any) => t.id === bill.tenant_id);
 
-  // If request has explicit payment parameters from new partial payment / deposit deduction modal:
-  const isCustomPayment = req.body && (
-    req.body.actual_payment !== undefined ||
-    req.body.payment_amount !== undefined ||
-    req.body.deposit_deduction !== undefined ||
-    req.body.status !== undefined
-  );
+    // 1. Send receipt notification to tenant
+    const receiptNotice = `🧾 OFFICIAL PAYMENT RECEIPT\n` +
+      `Receipt No: ${receiptNo}\n` +
+      `Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
+      `Billing Month: ${bill.billing_month}\n` +
+      `Amount Paid: ₱${Number(bill.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+      `Date Settled: ${paidDate}\n` +
+      `Status: FULLY PAID & SETTLED\n` +
+      `Breakdown: Rent ₱${Number(bill.rent_amount || 0).toLocaleString()}, Power ₱${Number(bill.electricity_amount || 0).toLocaleString()}, Water ₱${Number(bill.water_amount || 0).toLocaleString()}\n\n` +
+      `Thank you! Your official payment receipt has been issued and saved to your account.`;
 
-  let newActualPayment = 0;
-  let newDepositDeduction = 0;
-  let paymentMethod = (req.body?.payment_method || "CASH").toString().trim();
-  let paymentReference = (req.body?.payment_reference || "").toString().trim();
-
-  // Find tenant
-  const tenant = db.tenants.find((t: any) => t.id === bill.tenant_id);
-  const availableDeposit = tenant
-    ? (tenant.deposit_balance !== undefined ? Number(tenant.deposit_balance || 0) : Number(tenant.deposit || 0))
-    : 0;
-
-  if (isCustomPayment) {
-    const rawActual = req.body.actual_payment !== undefined ? req.body.actual_payment : req.body.payment_amount;
-    const rawDeposit = req.body.deposit_deduction;
-    const requestedStatus = req.body.status; // 'unpaid' | 'partial' | 'paid'
-
-    if (rawActual !== undefined && rawActual !== null) {
-      newActualPayment = Number(rawActual);
-      if (isNaN(newActualPayment) || newActualPayment < 0) {
-        return res.status(400).json({ message: "Actual payment amount must be a non-negative number." });
-      }
-    }
-
-    if (rawDeposit !== undefined && rawDeposit !== null) {
-      newDepositDeduction = Number(rawDeposit);
-      if (isNaN(newDepositDeduction) || newDepositDeduction < 0) {
-        return res.status(400).json({ message: "Deposit deduction amount must be a non-negative number." });
-      }
-    }
-
-    // Round to 2 decimal places to prevent floating-point inaccuracies
-    newActualPayment = Number(newActualPayment.toFixed(2));
-    newDepositDeduction = Number(newDepositDeduction.toFixed(2));
-
-    // When requestedStatus === 'unpaid' with 0 payment and 0 deposit:
-    if (requestedStatus === "unpaid" && newActualPayment === 0 && newDepositDeduction === 0) {
-      // Revert / set unpaid if allowed
-      bill.payment_status = "unpaid";
-      writeDB(db);
-      return res.json(bill);
-    }
-
-    // Validate that at least some settlement amount is provided
-    const totalNewSettlement = Number((newActualPayment + newDepositDeduction).toFixed(2));
-    if (totalNewSettlement <= 0) {
-      return res.status(400).json({ message: "Settlement amount must be greater than ₱0.00." });
-    }
-
-    // Rule: Actual payment cannot exceed the outstanding balance before settlement
-    if (newActualPayment > outstandingBefore) {
-      return res.status(400).json({
-        message: `Actual payment of ₱${newActualPayment.toLocaleString()} exceeds outstanding balance of ₱${outstandingBefore.toLocaleString()}.`
-      });
-    }
-
-    // Remaining after actual payment
-    const remainingAfterCash = Math.max(0, Number((outstandingBefore - newActualPayment).toFixed(2)));
-
-    // Rule: Deposit deduction cannot exceed remaining balance after actual payment
-    if (newDepositDeduction > remainingAfterCash) {
-      return res.status(400).json({
-        message: `Deposit deduction of ₱${newDepositDeduction.toLocaleString()} cannot exceed remaining balance after payment (₱${remainingAfterCash.toLocaleString()}).`
-      });
-    }
-
-    // Rule: Deposit deduction cannot exceed tenant's available security deposit
-    if (newDepositDeduction > availableDeposit) {
-      return res.status(400).json({
-        message: `Deposit deduction of ₱${newDepositDeduction.toLocaleString()} exceeds tenant's available security deposit of ₱${availableDeposit.toLocaleString()}.`
-      });
-    }
-  } else {
-    // Default legacy full payment: covers the outstanding balance completely with cash
-    if (outstandingBefore <= 0) {
-      return res.status(400).json({ message: "This invoice is already fully paid and settled." });
-    }
-    newActualPayment = outstandingBefore;
-    newDepositDeduction = 0;
-  }
-
-  // Calculate new balances with high precision
-  const finalPaidAmount = Number((prevPaid + newActualPayment).toFixed(2));
-  const finalDepositApplied = Number((prevDepositApplied + newDepositDeduction).toFixed(2));
-  const finalRemainingBalance = Math.max(0, Number((billTotal - finalPaidAmount - finalDepositApplied).toFixed(2)));
-
-  // Invoice status is Paid only when remaining balance equals zero
-  const finalStatus: "paid" | "partial" | "unpaid" = finalRemainingBalance === 0
-    ? "paid"
-    : (finalPaidAmount > 0 || finalDepositApplied > 0 ? "partial" : "unpaid");
-
-  const nowIso = new Date().toISOString();
-  const receiptNo = `RCPT-${Date.now().toString().slice(-6)}`;
-  const formattedDate = new Date().toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-
-  // 1. Process Security Deposit Deduction if applicable
-  let depositLedgerEntry: any = null;
-  if (newDepositDeduction > 0 && tenant) {
-    tenant.deposit_balance = Math.max(0, Number((availableDeposit - newDepositDeduction).toFixed(2)));
-    
-    depositLedgerEntry = {
-      id: `ledger-dep-deduct-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      billing_id: bill.id,
-      invoice_number: bill.invoice_number || bill.id,
-      type: "deposit_deduction",
-      amount: newDepositDeduction,
-      description: `Security deposit applied to ${bill.billing_month} Invoice ${bill.invoice_number || bill.id} (Deduction: ₱${newDepositDeduction.toLocaleString()}, Remaining Deposit: ₱${tenant.deposit_balance.toLocaleString()})`,
-      created_at: nowIso
-    };
-
-    db.depositLedger = db.depositLedger || [];
-    db.depositLedger.unshift(depositLedgerEntry);
-
-    // Audit log for security deposit deduction
-    logTransaction(db, {
-      category: "deposit",
-      action: "update",
-      title: "Security Deposit Applied to Invoice",
-      details: `₱${newDepositDeduction.toLocaleString('en-US', { minimumFractionDigits: 2 })} deducted from security deposit for ${bill.tenant_name} to settle Invoice #${bill.invoice_number || bill.id}. New available deposit balance: ₱${tenant.deposit_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`,
-      amount: newDepositDeduction,
+    const receiptNotif = {
+      id: `notif-rcpt-${Date.now()}`,
       tenant_id: bill.tenant_id,
       tenant_name: bill.tenant_name,
-      room_number: bill.room_number,
-      performed_by: "Admin User"
+      billing_id: bill.id,
+      message: `🧾 Official Payment Receipt [${receiptNo}]: ₱${Number(bill.total_amount).toLocaleString()} for ${bill.billing_month} marked as PAID. Receipt issued.`,
+      type: "billing" as const,
+      status: "sent" as const,
+      channel: "in_app" as const,
+      created_at: new Date().toISOString()
+    };
+    db.notifications = db.notifications || [];
+    db.notifications.unshift(receiptNotif);
+
+    // 2. Dispatch to Messenger if tenant is connected
+    if (tenant?.messenger_psid) {
+      try {
+        await sendMessengerTextMessage(tenant.messenger_psid, receiptNotice);
+      } catch (mErr) {
+        console.warn("Could not send Messenger receipt:", mErr);
+      }
+    }
+
+    logTransaction(db, {
+      category: "payment",
+      action: "payment",
+      title: "Rent & Utilities Payment Settled (Receipt Sent)",
+      details: `Payment of ₱${Number(bill.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} for ${bill.billing_month} statement was received and marked as PAID for ${bill.tenant_name} (Room ${bill.room_number}). Official receipt ${receiptNo} sent to tenant.`,
+      amount: Number(bill.total_amount),
+      tenant_id: bill.tenant_id,
+      tenant_name: bill.tenant_name,
+      room_number: bill.room_number
     });
+
+    writeDB(db);
+    res.json(db.billingRecords[index]);
+  } else {
+    res.status(404).json({ message: "Billing record not found" });
   }
-
-  // 2. Update the Invoice Record
-  bill.paid_amount = finalPaidAmount;
-  bill.deposit_applied = finalDepositApplied;
-  bill.remaining_balance = finalRemainingBalance;
-  bill.payment_status = finalStatus;
-  if (finalStatus === "paid") {
-    bill.paid_at = nowIso;
-  }
-  if (newActualPayment > 0) {
-    bill.last_payment_method = paymentMethod;
-    if (paymentReference) {
-      bill.last_payment_reference = paymentReference;
-    }
-    bill.last_payment_verified_at = nowIso;
-  }
-
-  const existingNotes = bill.notes ? `${bill.notes}\n` : "";
-  const settlementSummaryNote = `[${formattedDate}] Settled ₱${(newActualPayment + newDepositDeduction).toLocaleString('en-US', { minimumFractionDigits: 2 })} (Cash/Bank: ₱${newActualPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}${newDepositDeduction > 0 ? `, Deposit Deducted: ₱${newDepositDeduction.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : ""}). Remaining Balance: ₱${finalRemainingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Status: ${finalStatus.toUpperCase()}.`;
-  bill.notes = `${existingNotes}${settlementSummaryNote}`.trim();
-
-  // 3. Audit Log for Actual Payment / Settlement
-  logTransaction(db, {
-    category: "payment",
-    action: "payment",
-    title: finalStatus === "paid" ? "Invoice Fully Settled & Paid" : "Invoice Partial Payment Recorded",
-    details: `Settlement of ₱${(newActualPayment + newDepositDeduction).toLocaleString('en-US', { minimumFractionDigits: 2 })} recorded for ${bill.tenant_name} (${bill.billing_month} Invoice ${bill.invoice_number || bill.id}). Actual payment: ₱${newActualPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}, Deposit applied: ₱${newDepositDeduction.toLocaleString('en-US', { minimumFractionDigits: 2 })}, Remaining balance: ₱${finalRemainingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Status: ${finalStatus.toUpperCase()}.`,
-    amount: newActualPayment + newDepositDeduction,
-    tenant_id: bill.tenant_id,
-    tenant_name: bill.tenant_name,
-    room_number: bill.room_number,
-    performed_by: "Admin User"
-  });
-
-  // 4. Send Notifications
-  const receiptNotice = `🧾 OFFICIAL PAYMENT RECEIPT\n` +
-    `Receipt No: ${receiptNo}\n` +
-    `Tenant: ${bill.tenant_name} (Room ${bill.room_number})\n` +
-    `Billing Month: ${bill.billing_month}\n` +
-    `Invoice Total: ₱${billTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-    `Payment Received: ₱${newActualPayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-    (newDepositDeduction > 0 ? `Security Deposit Applied: ₱${newDepositDeduction.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` : '') +
-    `Total Settled Today: ₱${(newActualPayment + newDepositDeduction).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-    `Total Cumulative Paid: ₱${finalPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-    `Remaining Balance: ₱${finalRemainingBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-    `Status: ${finalStatus === "paid" ? "FULLY PAID & SETTLED" : "PARTIALLY PAID"}\n` +
-    `Date Settled: ${formattedDate}\n\n` +
-    `Thank you! Your payment transaction has been recorded.`;
-
-  db.notifications = db.notifications || [];
-  db.notifications.unshift({
-    id: `notif-rcpt-${Date.now()}`,
-    tenant_id: bill.tenant_id,
-    tenant_name: bill.tenant_name,
-    billing_id: bill.id,
-    message: `🧾 Official Payment Receipt [${receiptNo}]: ₱${(newActualPayment + newDepositDeduction).toLocaleString()} recorded for ${bill.billing_month}. Remaining: ₱${finalRemainingBalance.toLocaleString()}. Status: ${finalStatus.toUpperCase()}.`,
-    type: "billing" as const,
-    status: "sent" as const,
-    channel: "in_app" as const,
-    created_at: nowIso
-  });
-
-  if (tenant?.messenger_psid) {
-    try {
-      await sendFacebookMessage(tenant.messenger_psid, { text: receiptNotice });
-    } catch (mErr) {
-      console.warn("Could not send Messenger receipt:", mErr);
-    }
-  }
-
-  // Atomically commit database updates
-  writeDB(db);
-
-  return res.json({
-    success: true,
-    bill,
-    tenant,
-    newActualPayment,
-    newDepositDeduction,
-    finalRemainingBalance,
-    finalStatus,
-    depositLedgerEntry,
-    receiptNo
-  });
 });
 
 // Dynamic Visual Bill Image endpoints (Serving high-contrast, professional receipt image)
@@ -2032,7 +1802,6 @@ app.post("/api/inquiries", (req, res) => {
   // Create In-App notification so admin sees inquiry immediately
   const inqNotif = {
     id: `notif-inq-${Date.now()}`,
-    tenant_id: "guest",
     tenant_name: newInq.name || "Guest",
     message: `📬 Inquiry from ${newInq.name || 'Guest'}: Interested in Room ${newInq.room_number || 'Unit'} (${newInq.apartment_name || 'Apartment'}) - "${newInq.message || 'Viewing schedule request'}" (Phone: ${newInq.phone || 'N/A'})`,
     type: "general" as const,
@@ -2797,16 +2566,6 @@ async function setupServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`ApartmentPro backend server is actively listening on http://0.0.0.0:${PORT}`);
-    
-    // Automated 3-day rent due reminder background worker (runs every 6 hours)
-    setInterval(async () => {
-      try {
-        const db = readDB();
-        await processThreeDayRentReminders(db);
-      } catch (e: any) {
-        console.warn("Background 3-day rent reminder check error:", e?.message);
-      }
-    }, 6 * 60 * 60 * 1000);
   });
 }
 

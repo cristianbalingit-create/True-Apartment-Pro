@@ -14,6 +14,7 @@ import {
   setDoc as clientSetDoc,
   deleteDoc as clientDeleteDoc,
   writeBatch as clientWriteBatch,
+  runTransaction as clientRunTransaction,
   query as clientQuery,
   where as clientWhere,
   limit as clientLimit,
@@ -630,7 +631,75 @@ class DatabaseService {
   }
 
   /**
-   * Persists tenant Messenger PSID directly to Cloud Firestore.
+   * Securely links a Messenger PSID to a tenant with one-to-one constraints.
+   * Existing links are never overwritten, and the tenant collection is checked
+   * inside a transaction to prevent conflicting concurrent link attempts.
+   */
+  public async linkTenantPsidSecurely(tenantId: string, psid: string): Promise<{ success: boolean; reason?: "tenant_already_linked" | "psid_already_linked" | "not_found" | "storage_unavailable" }> {
+    await this.ensureInitialized();
+    const cleanPsid = String(psid || "").trim();
+    if (!tenantId || !cleanPsid) return { success: false, reason: "storage_unavailable" };
+
+    try {
+      if (this.connectionMode === "admin_sdk" && this.adminFirestore) {
+        const tenants = this.adminFirestore.collection("tenants");
+        const targetRef = tenants.doc(tenantId);
+        const result = await this.adminFirestore.runTransaction(async (tx) => {
+          const targetSnap = await tx.get(targetRef);
+          if (!targetSnap.exists) return { success: false as const, reason: "not_found" as const };
+          const target = targetSnap.data() || {};
+          const existingPsids = [target.facebook_psid, target.messenger_psid].map(value => String(value || "").trim()).filter(Boolean);
+          if (existingPsids.some(existing => existing !== cleanPsid)) return { success: false as const, reason: "tenant_already_linked" as const };
+          const allTenants = await tx.get(tenants);
+          const duplicate = allTenants.docs.find((doc) => doc.id !== tenantId && [doc.get("facebook_psid"), doc.get("messenger_psid")].some(value => String(value || "").trim() === cleanPsid));
+          if (duplicate) return { success: false as const, reason: "psid_already_linked" as const };
+          tx.set(targetRef, { facebook_psid: cleanPsid, messenger_psid: cleanPsid }, { merge: true });
+          return { success: true as const };
+        });
+        if (result.success) this.updateCachedTenantPsid(tenantId, cleanPsid);
+        return result;
+      }
+
+      if (this.clientFirestore) {
+        const tenants = clientCollection(this.clientFirestore, "tenants");
+        const targetRef = clientDoc(this.clientFirestore, "tenants", tenantId);
+        const result = await clientRunTransaction(this.clientFirestore, async (tx) => {
+          const targetSnap = await tx.get(targetRef);
+          if (!targetSnap.exists()) return { success: false as const, reason: "not_found" as const };
+          const target = targetSnap.data() || {};
+          const existingPsids = [target.facebook_psid, target.messenger_psid].map(value => String(value || "").trim()).filter(Boolean);
+          if (existingPsids.some(existing => existing !== cleanPsid)) return { success: false as const, reason: "tenant_already_linked" as const };
+          const allTenants = await tx.get(tenants);
+          const duplicate = allTenants.docs.find((doc) => doc.id !== tenantId && [doc.get("facebook_psid"), doc.get("messenger_psid")].some(value => String(value || "").trim() === cleanPsid));
+          if (duplicate) return { success: false as const, reason: "psid_already_linked" as const };
+          tx.set(targetRef, { facebook_psid: cleanPsid, messenger_psid: cleanPsid }, { merge: true });
+          return { success: true as const };
+        });
+        if (result.success) this.updateCachedTenantPsid(tenantId, cleanPsid);
+        return result;
+      }
+
+      // Do not silently fall back to an unsafe write when Firestore is unavailable.
+      return { success: false, reason: "storage_unavailable" };
+    } catch (err: any) {
+      console.error("Secure Messenger linking transaction failed:", err?.message || "unknown error");
+      return { success: false, reason: "storage_unavailable" };
+    }
+  }
+
+  private updateCachedTenantPsid(tenantId: string, psid: string): void {
+    const db = this.getDB();
+    const tenant = (db.tenants || []).find(item => item.id === tenantId);
+    if (tenant) {
+      tenant.facebook_psid = psid;
+      tenant.messenger_psid = psid;
+      this.saveFallbackFile(db);
+    }
+  }
+
+  /**
+   * Legacy PSID writer retained for compatibility with existing internal callers.
+   * New account-linking flows must use linkTenantPsidSecurely instead.
    */
   public async updateTenantPsidInFirestore(tenantId: string, psid: string): Promise<boolean> {
     await this.ensureInitialized();

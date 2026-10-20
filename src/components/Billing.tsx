@@ -17,26 +17,15 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   const [expandedTenantId, setExpandedTenantId] = useState<string | null>(null);
   const [expandedApartmentName, setExpandedApartmentName] = useState<string | null>(null);
 
-  // Second Confirmation States for Marking Statement as Paid / Partial Payment Modal
+  // Second Confirmation States for Marking Statement as Paid
   const [billToConfirmPaid, setBillToConfirmPaid] = useState<BillingRecord | null>(null);
   const [confirmPaidBillId, setConfirmPaidBillId] = useState<string | null>(null);
   const [isConfirmingPaid, setIsConfirmingPaid] = useState(false);
   const [receiptModalBill, setReceiptModalBill] = useState<BillingRecord | null>(null);
   const [receiptCopied, setReceiptCopied] = useState(false);
 
-  // Partial Payment & Security Deposit Deduction Modal States
-  const [payModalStatus, setPayModalStatus] = useState<"paid" | "partial" | "unpaid">("paid");
-  const [payModalActualAmount, setPayModalActualAmount] = useState<string>("");
-  const [payModalDeductDeposit, setPayModalDeductDeposit] = useState<boolean>(false);
-  const [payModalDepositAmount, setPayModalDepositAmount] = useState<string>("");
-  const [payModalMethod, setPayModalMethod] = useState<string>("CASH");
-  const [payModalReference, setPayModalReference] = useState<string>("");
-  const [payModalError, setPayModalError] = useState<string | null>(null);
-  const [showPayConfirmationSummary, setShowPayConfirmationSummary] = useState<boolean>(false);
-
   // Dialog States
   const [showBillDialog, setShowBillDialog] = useState(false);
-  const [editingBill, setEditingBill] = useState<BillingRecord | null>(null); // null = Add mode
 
   // Form States
   const [formTenantId, setFormTenantId] = useState("");
@@ -47,7 +36,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   const [formWaterUsage, setFormWaterUsage] = useState(0);
   const [formBillingMonth, setFormBillingMonth] = useState("June 2026");
   const [formDueDate, setFormDueDate] = useState("");
-  const [formPaymentStatus, setFormPaymentStatus] = useState<"unpaid" | "paid" | "overdue" | "partial">("unpaid");
+  const [formPaymentStatus, setFormPaymentStatus] = useState<"unpaid" | "paid" | "overdue">("unpaid");
   const [formNotes, setFormNotes] = useState("");
   const [formBillImageUrl, setFormBillImageUrl] = useState("");
 
@@ -432,7 +421,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   const paidBills = db.billingRecords.filter((b) => b.payment_status === "paid");
   const unpaidBills = db.billingRecords.filter((b) => b.payment_status === "unpaid" || !b.payment_status);
   const overdueBills = db.billingRecords.filter((b) => b.payment_status === "overdue");
-  const partialBills = db.billingRecords.filter((b) => b.payment_status === "partial");
 
   const sumAmount = (list: BillingRecord[]) => list.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
@@ -446,7 +434,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
   };
 
   const handleOpenAdd = () => {
-    setEditingBill(null);
     const activeTenants = db.tenants.filter((t) => t.status === "active");
     if (activeTenants.length > 0) {
       setFormTenantId(activeTenants[0].id);
@@ -467,21 +454,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     setShowBillDialog(true);
   };
 
-  const handleOpenEdit = (bill: BillingRecord) => {
-    setEditingBill(bill);
-    setFormTenantId(bill.tenant_id);
-    setFormRentAmount(bill.rent_amount);
-    setFormElectricityAmount(bill.electricity_amount);
-    setFormElectricityUsage(bill.electricity_usage);
-    setFormWaterAmount(bill.water_amount || 0);
-    setFormWaterUsage(bill.water_usage || 0);
-    setFormBillingMonth(bill.billing_month);
-    setFormDueDate(bill.due_date);
-    setFormPaymentStatus(bill.payment_status);
-    setFormNotes(bill.notes);
-    setFormBillImageUrl(bill.bill_image_url || "");
-    setShowBillDialog(true);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -512,11 +484,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     };
 
     try {
-      if (editingBill) {
-        await api.updateBilling(editingBill.id, payload);
-      } else {
-        await api.createBilling(payload);
-      }
+      await api.createBilling(payload);
       setShowBillDialog(false);
       onRefresh();
     } catch (err) {
@@ -526,149 +494,25 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     }
   };
 
-  // Open Payment & Deposit Deduction Modal
-  const handleOpenPayModal = (bill: BillingRecord) => {
-    setBillToConfirmPaid(bill);
-    setConfirmPaidBillId(null);
-    setPayModalError(null);
-    setShowPayConfirmationSummary(false);
-
-    // Calculate current outstanding balance
-    const billTotal = Number(bill.total_amount || 0);
-    const paidSoFar = Number(bill.paid_amount || 0);
-    const depositAppliedSoFar = Number(bill.deposit_applied || 0);
-    const outstanding = Math.max(0, Number((billTotal - paidSoFar - depositAppliedSoFar).toFixed(2)));
-
-    // Defaults
-    if (bill.payment_status === "partial") {
-      setPayModalStatus("partial");
-      setPayModalActualAmount(outstanding > 0 ? outstanding.toString() : "");
-    } else {
-      setPayModalStatus("paid");
-      setPayModalActualAmount(outstanding > 0 ? outstanding.toString() : "");
-    }
-
-    setPayModalDeductDeposit(false);
-    setPayModalDepositAmount("");
-    setPayModalMethod(bill.last_payment_method || "CASH");
-    setPayModalReference("");
-  };
-
-  const handleSaveInvoicePayment = async () => {
-    if (!billToConfirmPaid) return;
-    setPayModalError(null);
-
-    const bill = billToConfirmPaid;
-    const billTotal = Number(bill.total_amount || 0);
-    const prevPaid = Number(bill.paid_amount || 0);
-    const prevDepositApplied = Number(bill.deposit_applied || 0);
-    const outstandingBefore = Math.max(0, Number((billTotal - prevPaid - prevDepositApplied).toFixed(2)));
-
-    // Tenant info & available deposit
-    const tenant = db.tenants.find((t) => t.id === bill.tenant_id);
-    const availableDeposit = tenant
-      ? (tenant.deposit_balance !== undefined ? Number(tenant.deposit_balance) : Number(tenant.deposit || 0))
-      : 0;
-
-    let actualAmt = 0;
-    let depositAmt = 0;
-
-    if (payModalStatus === "unpaid") {
-      // Reverting to unpaid
-      actualAmt = 0;
-      depositAmt = 0;
-    } else if (payModalStatus === "paid") {
-      // Admin desires to fully settle the invoice
-      if (payModalDeductDeposit) {
-        actualAmt = Number(payModalActualAmount || 0);
-        depositAmt = Number(payModalDepositAmount || 0);
-      } else {
-        actualAmt = outstandingBefore;
-        depositAmt = 0;
-      }
-    } else {
-      // Partially Paid
-      actualAmt = Number(payModalActualAmount || 0);
-      if (payModalDeductDeposit) {
-        depositAmt = Number(payModalDepositAmount || 0);
-      } else {
-        depositAmt = 0;
-      }
-    }
-
-    // Validation rules
-    if (payModalStatus !== "unpaid") {
-      if (actualAmt < 0 || isNaN(actualAmt)) {
-        setPayModalError("Amount received must be greater than ₱0.");
-        return;
-      }
-      if (payModalStatus === "partial" && actualAmt <= 0 && depositAmt <= 0) {
-        setPayModalError("For Partially Paid invoices, enter an actual amount received greater than ₱0.");
-        return;
-      }
-      if (actualAmt > outstandingBefore) {
-        setPayModalError(`Amount received (₱${actualAmt.toLocaleString()}) cannot exceed the outstanding balance (₱${outstandingBefore.toLocaleString()}).`);
-        return;
-      }
-
-      if (payModalDeductDeposit) {
-        if (depositAmt < 0 || isNaN(depositAmt)) {
-          setPayModalError("Deposit deduction amount cannot be negative.");
-          return;
-        }
-        const remainingAfterCash = Math.max(0, Number((outstandingBefore - actualAmt).toFixed(2)));
-        if (depositAmt > remainingAfterCash) {
-          setPayModalError(`Deposit deduction (₱${depositAmt.toLocaleString()}) cannot exceed remaining balance after payment (₱${remainingAfterCash.toLocaleString()}).`);
-          return;
-        }
-        if (depositAmt > availableDeposit) {
-          setPayModalError(`Deposit deduction (₱${depositAmt.toLocaleString()}) cannot exceed available security deposit (₱${availableDeposit.toLocaleString()}).`);
-          return;
-        }
-      }
-
-      // Check for Paid status validation rule:
-      // "Do not allow the admin to mark an invoice as Paid while an outstanding amount remains unless that amount is covered by an authorized security deposit deduction."
-      const calculatedRemaining = Math.max(0, Number((outstandingBefore - actualAmt - depositAmt).toFixed(2)));
-      if (payModalStatus === "paid" && calculatedRemaining > 0) {
-        setPayModalError(`Cannot mark as Paid while ₱${calculatedRemaining.toLocaleString()} remains outstanding. Select Partially Paid or cover the remaining balance with a security deposit deduction.`);
-        return;
-      }
-    }
-
-    // Submit to server
+  const handleConfirmPaid = async (targetBill?: BillingRecord) => {
+    const bill = targetBill || billToConfirmPaid;
+    if (!bill) return;
     setIsConfirmingPaid(true);
     setLoading(true);
     try {
-      const res = await api.payBilling(bill.id, {
-        actual_payment: actualAmt,
-        deposit_deduction: depositAmt,
-        status: payModalStatus,
-        payment_method: payModalMethod,
-        payment_reference: payModalReference
-      });
-
-      const updatedBill = res.bill || {
-        ...bill,
-        payment_status: res.finalStatus || (outstandingBefore - actualAmt - depositAmt <= 0 ? "paid" : "partial"),
-        paid_amount: prevPaid + actualAmt,
-        deposit_applied: prevDepositApplied + depositAmt,
-        remaining_balance: Math.max(0, outstandingBefore - actualAmt - depositAmt),
-        paid_at: new Date().toISOString()
-      };
-
+      await api.payBilling(bill.id);
       setBillToConfirmPaid(null);
-      setShowPayConfirmationSummary(false);
-      setReceiptModalBill(updatedBill);
+      setConfirmPaidBillId(null);
+      setReceiptModalBill({ ...bill, payment_status: "paid", paid_at: new Date().toISOString() });
       onRefresh();
-    } catch (err: any) {
-      console.error("handleSaveInvoicePayment error:", err);
-      setPayModalError(err.message || "Failed to save invoice payment transaction.");
+    } catch (err) {
+      console.error("handleConfirmPaid error:", err);
     } finally {
       setIsConfirmingPaid(false);
       setLoading(false);
     }
   };
+
 
   // CSV Export
   const handleCSVExport = () => {
@@ -1018,10 +862,8 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                           <th className="py-2 px-4">Power (usage kwh)</th>
                           <th className="py-2 px-4">Water (usage m³)</th>
                           <th className="py-2 px-4 font-black text-slate-900">Total Statement</th>
-                          <th className="py-2 px-4">Paid / Deposit Applied</th>
-                          <th className="py-2 px-4 font-black text-slate-900">Remaining Balance</th>
                           <th className="py-2 px-4">Due Date</th>
-                          <th className="py-2 px-4">Status & Action</th>
+                          <th className="py-2 px-4">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs">
@@ -1045,85 +887,63 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                             <td className="py-3.5 px-6 font-extrabold text-slate-900 text-sm">
                               ₱{(Number(bill.total_amount) || 0).toLocaleString()}
                             </td>
-                            <td className="py-3.5 px-6 text-slate-700">
-                              <div className="font-semibold text-emerald-800">
-                                ₱{(Number(bill.paid_amount) || (bill.payment_status === "paid" ? Number(bill.total_amount) : 0)).toLocaleString()}
-                              </div>
-                              {Number(bill.deposit_applied || 0) > 0 && (
-                                <div className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/60 inline-flex items-center gap-1 mt-0.5">
-                                  <span>🛡️ ₱{Number(bill.deposit_applied).toLocaleString()} deposit</span>
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-3.5 px-6 font-mono font-extrabold text-sm">
-                              {(() => {
-                                const total = Number(bill.total_amount || 0);
-                                const paid = Number(bill.paid_amount || (bill.payment_status === "paid" ? total : 0));
-                                const dep = Number(bill.deposit_applied || 0);
-                                const rem = bill.remaining_balance !== undefined
-                                  ? Number(bill.remaining_balance)
-                                  : Math.max(0, total - paid - dep);
-                                return (
-                                  <span className={rem > 0 ? "text-rose-600 font-black" : "text-emerald-600 font-bold"}>
-                                    ₱{rem.toLocaleString()}
-                                  </span>
-                                );
-                              })()}
-                            </td>
                             <td className="py-3.5 px-6 font-mono text-slate-600 font-semibold">{bill.due_date || "N/A"}</td>
                             <td className="py-2.5 px-4">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                {bill.payment_status === "paid" ? (
+                              {bill.payment_status === "paid" ? (
+                                <div className="flex items-center gap-1.5">
                                   <span className="font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-xs">
                                     Paid
                                   </span>
-                                ) : bill.payment_status === "partial" ? (
-                                  <span className="font-extrabold text-amber-700 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded text-xs flex items-center gap-1">
-                                    <Clock className="w-3 h-3 text-amber-600" />
-                                    <span>Partially Paid</span>
-                                  </span>
-                                ) : bill.payment_status === "overdue" ? (
-                                  <span className="font-extrabold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded text-xs">
-                                    Overdue
-                                  </span>
-                                ) : (
-                                  <span className="font-extrabold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-xs">
-                                    Unpaid
-                                  </span>
-                                )}
-
-                                {bill.payment_status === "paid" ? (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => setReceiptModalBill(bill)}
-                                      className="neu-btn px-2 py-1 text-[11px] font-bold rounded-lg shadow-xs transition-all hover:text-[#EF6905] flex items-center gap-1"
-                                      title="View Official Receipt"
-                                    >
-                                      <Receipt className="w-3 h-3 text-[#EF6905]" />
-                                      <span>Receipt</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenPayModal(bill)}
-                                      className="px-2 py-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 rounded hover:bg-slate-100"
-                                      title="Adjust or record additional settlement"
-                                    >
-                                      Edit
-                                    </button>
-                                  </div>
-                                ) : (
                                   <button
                                     type="button"
-                                    onClick={() => handleOpenPayModal(bill)}
-                                    className="px-2.5 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-lg shadow-xs transition-all flex items-center gap-1"
-                                    title="Record payment or deduct security deposit"
+                                    onClick={() => setReceiptModalBill(bill)}
+                                    className="neu-btn px-2 py-1 text-[11px] font-bold rounded-lg shadow-xs transition-all hover:text-[#EF6905] flex items-center gap-1"
+                                    title="View Official Receipt Sent to Tenant"
                                   >
-                                    <DollarSign className="w-3 h-3" />
-                                    <span>{bill.payment_status === "partial" ? "Add Payment" : "Record Payment"}</span>
+                                    <Receipt className="w-3 h-3 text-[#EF6905]" />
+                                    <span>Receipt</span>
                                   </button>
-                                )}
-                              </div>
+                                </div>
+                              ) : confirmPaidBillId === bill.id ? (
+                                <div className="flex items-center gap-1.5 animate-fadeIn">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConfirmPaid(bill)}
+                                    disabled={isConfirmingPaid}
+                                    className="px-2.5 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-[#EF6905] rounded-lg shadow-xs transition-all flex items-center gap-1 disabled:opacity-50"
+                                    title="Click to confirm marking invoice as Paid"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>{isConfirmingPaid ? "Saving..." : "Confirm Paid?"}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmPaidBillId(null);
+                                      setBillToConfirmPaid(null);
+                                    }}
+                                    disabled={isConfirmingPaid}
+                                    className="px-2 py-1 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all"
+                                    title="Cancel"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1.5 min-w-[118px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmPaidBillId(bill.id);
+                                      setBillToConfirmPaid(bill);
+                                    }}
+                                    className="neu-btn px-3 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all hover:text-[#EF6905]"
+                                    title="Mark invoice as fully paid after confirming"
+                                  >
+                                    Mark as Paid
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -1713,7 +1533,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
               <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-5">
                 <div>
                   <h3 className="text-lg font-black text-slate-900">
-                    {editingBill ? "Edit Billing Invoice" : "Create Statement of Account"}
+                    Create Statement of Account
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">Rent + power billing utilities statement.</p>
                 </div>
@@ -1728,13 +1548,13 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                   <label className="block text-slate-600 font-semibold mb-1">Select Tenant</label>
                   <select
                     required
-                    disabled={!!editingBill}
+                    
                     value={formTenantId}
                     onChange={(e) => handleTenantSelect(e.target.value)}
                     className="w-full px-3.5 py-2.5 border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 disabled:opacity-50"
                   >
                     <option value="">-- Choose Leaseholder --</option>
-                    {db.tenants.filter(t => t.status === "active" || (editingBill && t.id === formTenantId)).map((t) => (
+                    {db.tenants.filter(t => t.status === "active").map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name} (Room {db.rooms.find(r => r.id === t.room_id)?.room_number || "N/A"})
                       </option>
@@ -1833,7 +1653,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                       <option value="unpaid">Unpaid Statement</option>
                       <option value="paid">Settled Paid</option>
                       <option value="overdue">Overdue Outstanding</option>
-                      <option value="partial">Partial Collected</option>
                     </select>
                   </div>
                 </div>
@@ -1884,7 +1703,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                     disabled={loading}
                     className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-md transition-all active:scale-98 disabled:opacity-50"
                   >
-                    {loading ? "Creating..." : editingBill ? "Save Changes" : "Create Statement"}
+                    {loading ? "Creating..." : "Create Statement"}
                   </button>
                 </div>
               </form>
@@ -2082,499 +1901,112 @@ export default function Billing({ db, onRefresh }: BillingProps) {
           </div>
         )}
 
-        {/* Invoice Payment & Security Deposit Deduction Modal */}
-        {billToConfirmPaid && (() => {
-          const bill = billToConfirmPaid;
-          const billTotal = Number(bill.total_amount || 0);
-          const prevPaid = Number(bill.paid_amount || 0);
-          const prevDepositApplied = Number(bill.deposit_applied || 0);
-          const outstandingBefore = Math.max(0, Number((billTotal - prevPaid - prevDepositApplied).toFixed(2)));
-
-          const tenant = db.tenants.find((t) => t.id === bill.tenant_id);
-          const availableDeposit = tenant
-            ? (tenant.deposit_balance !== undefined ? Number(tenant.deposit_balance) : Number(tenant.deposit || 0))
-            : 0;
-
-          // Parse current user inputs
-          const actualVal = payModalStatus === "unpaid" ? 0 : Number(payModalActualAmount || 0);
-          const depositVal = (payModalStatus !== "unpaid" && payModalDeductDeposit) ? Number(payModalDepositAmount || 0) : 0;
-
-          // Calculations
-          const remainingAfterCash = Math.max(0, Number((outstandingBefore - actualVal).toFixed(2)));
-          const depositBalanceAfter = Math.max(0, Number((availableDeposit - depositVal).toFixed(2)));
-          const finalInvoiceBalance = Math.max(0, Number((outstandingBefore - actualVal - depositVal).toFixed(2)));
-          const calculatedStatus = finalInvoiceBalance === 0 ? "Paid" : (actualVal > 0 || depositVal > 0 || prevPaid > 0 || prevDepositApplied > 0 ? "Partially Paid" : "Unpaid");
-
-          return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => {
-                  if (!isConfirmingPaid) {
+        {/* Second Confirmation Modal for Marking Statement as Paid */}
+        {billToConfirmPaid && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isConfirmingPaid) {
+                  setBillToConfirmPaid(null);
+                  setConfirmPaidBillId(null);
+                }
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 z-10 border border-slate-200 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900">Confirm Payment Status</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Second Confirmation</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
                     setBillToConfirmPaid(null);
-                    setShowPayConfirmationSummary(false);
-                  }
-                }}
-                className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 z-10 border border-slate-200 space-y-4 my-8"
-              >
-                {/* Modal Header */}
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-                      <DollarSign className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-extrabold text-slate-900">
-                        Record Invoice Payment
-                      </h3>
-                      <p className="text-xs text-slate-500 font-semibold">
-                        {bill.tenant_name} &bull; Room {bill.room_number} &bull; {bill.invoice_number || bill.id}
-                      </p>
-                    </div>
+                    setConfirmPaidBillId(null);
+                  }}
+                  disabled={isConfirmingPaid}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2 py-1">
+                <p className="text-sm text-slate-700 leading-relaxed font-medium">
+                  Are you sure you want to mark the statement for{" "}
+                  <strong className="text-slate-950 font-bold">{billToConfirmPaid.tenant_name || "Tenant"}</strong> (Room{" "}
+                  {billToConfirmPaid.room_number || "N/A"}) totaling{" "}
+                  <strong className="text-slate-950 font-bold">
+                    ₱{(Number(billToConfirmPaid.total_amount) || 0).toLocaleString()}
+                  </strong>{" "}
+                  as <strong className="text-emerald-700 font-bold">Paid</strong>?
+                </p>
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-xs space-y-1 text-slate-600">
+                  <div className="flex justify-between">
+                    <span className="font-medium">Rent Portion:</span>
+                    <span className="font-mono font-bold text-slate-900">₱{(Number(billToConfirmPaid.rent_amount) || 0).toLocaleString()}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBillToConfirmPaid(null);
-                      setShowPayConfirmationSummary(false);
-                    }}
-                    disabled={isConfirmingPaid}
-                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex justify-between">
+                    <span className="font-medium">Utilities (Power & Water):</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      ₱{(Number(billToConfirmPaid.electricity_amount || 0) + Number(billToConfirmPaid.water_amount || 0)).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-200 pt-1 font-bold text-slate-900">
+                    <span>Total Amount Settled:</span>
+                    <span className="font-mono text-emerald-700">₱{(Number(billToConfirmPaid.total_amount) || 0).toLocaleString()}</span>
+                  </div>
                 </div>
+              </div>
 
-                {payModalError && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-start gap-2"
-                  >
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <div className="flex-1">{payModalError}</div>
-                  </motion.div>
-                )}
-
-                {!showPayConfirmationSummary ? (
-                  /* Form View */
-                  <div className="space-y-4 text-xs">
-                    {/* Invoice Financial Summary Box */}
-                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2 text-slate-700">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-semibold text-slate-600">Total Invoice Amount:</span>
-                        <span className="font-mono font-black text-slate-900 text-sm">₱{billTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs text-slate-600">
-                        <span>Current Amount Paid (Cash/Bank):</span>
-                        <span className="font-mono font-bold text-emerald-700">₱{prevPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      {prevDepositApplied > 0 && (
-                        <div className="flex justify-between items-center text-xs text-amber-700">
-                          <span>Previous Deposit Deductions Applied:</span>
-                          <span className="font-mono font-bold">₱{prevDepositApplied.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center text-xs border-t border-slate-200/80 pt-1.5 font-bold">
-                        <span className="text-slate-800">Outstanding Balance:</span>
-                        <span className="font-mono text-base font-black text-[#EF6905]">₱{outstandingBefore.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                    </div>
-
-                    {/* Section 1: Payment Status Selector */}
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Payment Status</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPayModalStatus("unpaid");
-                            setPayModalActualAmount("");
-                            setPayModalDeductDeposit(false);
-                            setPayModalDepositAmount("");
-                            setPayModalError(null);
-                          }}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
-                            payModalStatus === "unpaid"
-                              ? "bg-slate-900 text-white border-slate-900 shadow-xs"
-                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          Unpaid
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPayModalStatus("partial");
-                            // Default actual amount to half or prompt
-                            if (!payModalActualAmount || Number(payModalActualAmount) >= outstandingBefore) {
-                              setPayModalActualAmount((Math.round(outstandingBefore * 0.75)).toString());
-                            }
-                            setPayModalError(null);
-                          }}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
-                            payModalStatus === "partial"
-                              ? "bg-amber-600 text-white border-amber-600 shadow-xs"
-                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          Partially Paid
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPayModalStatus("paid");
-                            setPayModalActualAmount(outstandingBefore.toString());
-                            setPayModalDeductDeposit(false);
-                            setPayModalDepositAmount("");
-                            setPayModalError(null);
-                          }}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
-                            payModalStatus === "paid"
-                              ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          Paid
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Section 2: Actual Payment Received Input */}
-                    {payModalStatus !== "unpaid" && (
-                      <div className="space-y-3 bg-white border border-slate-200 p-3.5 rounded-xl shadow-xs">
-                        <div className="flex items-center justify-between">
-                          <label className="font-bold text-slate-800">
-                            Actual Payment Received (Cash/Bank/GCash)
-                          </label>
-                          <span className="text-[10px] text-slate-500 font-medium">Max: ₱{outstandingBefore.toLocaleString()}</span>
-                        </div>
-
-                        <div className="relative">
-                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-500 text-sm">₱</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max={outstandingBefore}
-                            value={payModalActualAmount}
-                            onChange={(e) => {
-                              setPayModalActualAmount(e.target.value);
-                              setPayModalError(null);
-                            }}
-                            placeholder="0.00"
-                            className="w-full pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                          />
-                        </div>
-
-                        {/* Payment Method & Reference */}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Method</label>
-                            <select
-                              value={payModalMethod}
-                              onChange={(e) => setPayModalMethod(e.target.value)}
-                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 bg-white"
-                            >
-                              <option value="CASH">Cash</option>
-                              <option value="GCASH">GCash</option>
-                              <option value="BANK">Bank Transfer</option>
-                              <option value="CHECK">Check</option>
-                              <option value="OTHER">Other</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Reference / Note (Optional)</label>
-                            <input
-                              type="text"
-                              value={payModalReference}
-                              onChange={(e) => setPayModalReference(e.target.value)}
-                              placeholder="e.g. Ref #12345"
-                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-800"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Remaining balance after cash payment */}
-                        <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-100 font-semibold text-slate-600">
-                          <span>Invoice Balance After Cash Payment:</span>
-                          <span className="font-mono font-bold text-slate-900">₱{remainingAfterCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Section 3: Deduct Remaining Balance From Security Deposit Option */}
-                    {payModalStatus !== "unpaid" && remainingAfterCash > 0 && (
-                      <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3.5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <label className="font-bold text-slate-900 flex items-center gap-1.5">
-                              <span>🛡️ Deduct Remaining Balance From Security Deposit?</span>
-                            </label>
-                            <p className="text-[11px] text-slate-600 mt-0.5">
-                              Available Security Deposit: <strong className="font-mono font-bold text-emerald-800">₱{availableDeposit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPayModalDeductDeposit(false);
-                                setPayModalDepositAmount("");
-                                setPayModalError(null);
-                              }}
-                              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                                !payModalDeductDeposit
-                                  ? "bg-slate-800 text-white shadow-xs"
-                                  : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-                              }`}
-                            >
-                              No
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPayModalDeductDeposit(true);
-                                // Pre-fill with the minimum of remaining invoice balance and available security deposit
-                                const autoDeduct = Math.min(remainingAfterCash, availableDeposit);
-                                setPayModalDepositAmount(autoDeduct.toString());
-                                setPayModalError(null);
-                              }}
-                              disabled={availableDeposit <= 0}
-                              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                                payModalDeductDeposit
-                                  ? "bg-[#EF6905] text-white shadow-xs"
-                                  : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-                              } disabled:opacity-40 disabled:cursor-not-allowed`}
-                            >
-                              Yes
-                            </button>
-                          </div>
-                        </div>
-
-                        {availableDeposit <= 0 && (
-                          <p className="text-[11px] text-amber-800 bg-amber-100/70 p-2 rounded-lg">
-                            ⚠️ This tenant has ₱0.00 available security deposit balance.
-                          </p>
-                        )}
-
-                        {payModalDeductDeposit && availableDeposit > 0 && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            className="space-y-2.5 pt-1 border-t border-amber-200/70"
-                          >
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="font-semibold text-slate-700">Amount to Deduct from Deposit:</span>
-                              <span className="text-[10px] text-slate-500 font-medium">
-                                Max allowable: ₱{Math.min(remainingAfterCash, availableDeposit).toLocaleString()}
-                              </span>
-                            </div>
-
-                            <div className="relative">
-                              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-500 text-sm">₱</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max={Math.min(remainingAfterCash, availableDeposit)}
-                                value={payModalDepositAmount}
-                                onChange={(e) => {
-                                  setPayModalDepositAmount(e.target.value);
-                                  setPayModalError(null);
-                                }}
-                                placeholder="0.00"
-                                className="w-full pl-8 pr-4 py-2 border border-amber-300 bg-white rounded-lg text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#EF6905]"
-                              />
-                            </div>
-
-                            {/* Live calculation breakdown */}
-                            <div className="bg-white/80 rounded-lg p-2.5 border border-amber-200/60 space-y-1 text-[11px] text-slate-700">
-                              <div className="flex justify-between">
-                                <span>Current Available Security Deposit:</span>
-                                <span className="font-mono font-bold text-slate-900">₱{availableDeposit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                              </div>
-                              <div className="flex justify-between text-amber-800">
-                                <span>Deposit Deduction to Apply:</span>
-                                <span className="font-mono font-bold">-₱{depositVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                              </div>
-                              <div className="flex justify-between font-bold text-emerald-800 border-t border-amber-100 pt-1">
-                                <span>Deposit Balance After Deduction:</span>
-                                <span className="font-mono">₱{depositBalanceAfter.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Section 4: Live Calculated Remaining Balance & Final Invoice Status */}
-                    <div className="bg-slate-100 border border-slate-200/90 rounded-xl p-3.5 space-y-1.5">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-bold text-slate-700">Calculated Remaining Invoice Balance:</span>
-                        <span className={`font-mono text-base font-black ${finalInvoiceBalance === 0 ? "text-emerald-700" : "text-[#EF6905]"}`}>
-                          ₱{finalInvoiceBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-bold text-slate-700">Final Invoice Status:</span>
-                        <span className={`px-2.5 py-0.5 rounded font-bold text-xs uppercase ${
-                          finalInvoiceBalance === 0
-                            ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                            : (actualVal > 0 || depositVal > 0 || prevPaid > 0)
-                            ? "bg-amber-100 text-amber-900 border border-amber-300"
-                            : "bg-slate-200 text-slate-800"
-                        }`}>
-                          {calculatedStatus}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Confirmation Summary View */
-                  <div className="space-y-4 text-xs">
-                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-slate-800 space-y-3">
-                      <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                        <span>Confirm Transaction Breakdown</span>
-                      </div>
-                      <p className="text-slate-600 leading-relaxed">
-                        Please review the financial settlement details below before committing this transaction:
-                      </p>
-
-                      <div className="space-y-1.5 bg-white p-3 rounded-lg border border-amber-200/70 text-slate-700">
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Tenant / Invoice:</span>
-                          <strong className="text-slate-900">{bill.tenant_name} ({bill.billing_month})</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Total Invoice Amount:</span>
-                          <span className="font-mono font-bold">₱{billTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between text-emerald-800 font-semibold border-t border-slate-100 pt-1">
-                          <span>Actual Cash/Bank Payment Received:</span>
-                          <span className="font-mono font-bold">₱{actualVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                        {depositVal > 0 && (
-                          <div className="flex justify-between text-amber-800 font-semibold">
-                            <span>Security Deposit Deduction Applied:</span>
-                            <span className="font-mono font-bold">₱{depositVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-1">
-                          <span>Total Amount Settled in this Transaction:</span>
-                          <span className="font-mono text-emerald-700 font-black">₱{(actualVal + depositVal).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between font-bold text-slate-900">
-                          <span>Remaining Invoice Balance:</span>
-                          <span className={`font-mono font-black ${finalInvoiceBalance === 0 ? "text-emerald-700" : "text-[#EF6905]"}`}>
-                            ₱{finalInvoiceBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        {depositVal > 0 && (
-                          <div className="flex justify-between text-slate-600 text-[11px] pt-1 border-t border-slate-100">
-                            <span>Remaining Security Deposit Balance:</span>
-                            <span className="font-mono font-bold text-slate-900">₱{depositBalanceAfter.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between items-center font-bold text-slate-900 pt-1">
-                          <span>Resulting Invoice Status:</span>
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-black uppercase ${
-                            finalInvoiceBalance === 0 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
-                          }`}>
-                            {calculatedStatus}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Modal Footer Actions */}
-                <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-150">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (showPayConfirmationSummary) {
-                        setShowPayConfirmationSummary(false);
-                      } else {
-                        setBillToConfirmPaid(null);
-                      }
-                    }}
-                    disabled={isConfirmingPaid}
-                    className="neu-btn px-4 py-2 text-slate-700 font-bold text-xs rounded-xl transition-all"
-                  >
-                    {showPayConfirmationSummary ? "Back to Edit" : "Cancel"}
-                  </button>
-
-                  {!showPayConfirmationSummary ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Pre-validate before summary
-                        if (payModalStatus !== "unpaid") {
-                          if (actualVal < 0 || isNaN(actualVal)) {
-                            setPayModalError("Amount received must be greater than ₱0.");
-                            return;
-                          }
-                          if (payModalStatus === "partial" && actualVal <= 0 && depositVal <= 0) {
-                            setPayModalError("For Partially Paid invoices, enter an actual amount received greater than ₱0.");
-                            return;
-                          }
-                          if (actualVal > outstandingBefore) {
-                            setPayModalError(`Amount received (₱${actualVal.toLocaleString()}) cannot exceed outstanding balance (₱${outstandingBefore.toLocaleString()}).`);
-                            return;
-                          }
-                          if (payModalDeductDeposit && depositVal > availableDeposit) {
-                            setPayModalError(`Deposit deduction (₱${depositVal.toLocaleString()}) cannot exceed available deposit (₱${availableDeposit.toLocaleString()}).`);
-                            return;
-                          }
-                          if (payModalStatus === "paid" && finalInvoiceBalance > 0) {
-                            setPayModalError(`Cannot mark as Paid while ₱${finalInvoiceBalance.toLocaleString()} remains outstanding. Select Partially Paid or cover with deposit deduction.`);
-                            return;
-                          }
-                        }
-                        setPayModalError(null);
-                        setShowPayConfirmationSummary(true);
-                      }}
-                      className="px-5 py-2 font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl shadow-md transition-all flex items-center gap-1.5"
-                    >
-                      <span>Review Confirmation</span>
-                    </button>
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBillToConfirmPaid(null);
+                    setConfirmPaidBillId(null);
+                  }}
+                  disabled={isConfirmingPaid}
+                  className="neu-btn px-4 py-2 text-slate-700 font-bold text-sm rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConfirmPaid()}
+                  disabled={isConfirmingPaid}
+                  className="px-5 py-2 font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 active:bg-[#EF6905] rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isConfirmingPaid ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <span>Saving...</span>
+                    </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={handleSaveInvoicePayment}
-                      disabled={isConfirmingPaid}
-                      className="px-5 py-2 font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {isConfirmingPaid ? (
-                        <>
-                          <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                          <span>Saving Transaction...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check className="w-4 h-4" />
-                          <span>Confirm & Save Transaction</span>
-                        </>
-                      )}
-                    </button>
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Yes, Confirm & Issue Receipt</span>
+                    </>
                   )}
-                </div>
-              </motion.div>
-            </div>
-          );
-        })()}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
 
         {/* Official Payment Receipt Modal */}
         {receiptModalBill && (

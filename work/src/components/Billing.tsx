@@ -531,6 +531,59 @@ export default function Billing({ db, onRefresh }: BillingProps) {
     }
   };
 
+  const handleRecordInvoicePayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const bill = paymentEntryBill;
+    const received = Number(paymentEntryAmount);
+    if (!bill || !Number.isFinite(received) || received <= 0) {
+      alert("Enter a valid payment amount greater than zero.");
+      return;
+    }
+    const total = Number(bill.total_amount) || 0;
+    const previouslyPaid = Number(bill.paid_amount) || 0;
+    const outstanding = Math.max(0, total - previouslyPaid);
+    if (received > outstanding) {
+      alert(`The payment cannot exceed the outstanding balance of ₱${outstanding.toLocaleString()}.`);
+      return;
+    }
+    const newPaidAmount = previouslyPaid + received;
+    const afterCash = Math.max(0, total - newPaidAmount);
+    const tenant = db.tenants.find(t => t.id === bill.tenant_id);
+    const availableDeposit = Math.max(0, Number(tenant?.deposit_balance ?? tenant?.deposit ?? 0));
+    if (deductRemainderFromDeposit && afterCash > 0 && availableDeposit < afterCash) {
+      alert(`Insufficient available security deposit. Available: ₱${availableDeposit.toLocaleString()}; remaining invoice balance: ₱${afterCash.toLocaleString()}. No changes were saved. Please reduce the deduction or add available deposit funds first.`);
+      return;
+    }
+    setSavingPaymentEntry(true);
+    try {
+      if (deductRemainderFromDeposit && afterCash > 0) {
+        await api.recordTenantLedger(bill.tenant_id, {
+          type: "deposit_deduction",
+          amount: afterCash,
+          description: `Security deposit applied to Invoice #${bill.invoice_number || bill.id} (${bill.billing_month}); actual payment received ₱${received.toLocaleString()}`
+        });
+      }
+      const remainingAfterDeposit = deductRemainderFromDeposit ? 0 : afterCash;
+      await api.updateBilling(bill.id, {
+        paid_amount: newPaidAmount,
+        payment_status: remainingAfterDeposit <= 0 ? "paid" : "partial",
+        last_payment_method: "Admin-recorded payment",
+        last_payment_verified_at: new Date().toISOString(),
+        notes: [bill.notes, `Payment recorded: ₱${received.toLocaleString()} on ${new Date().toLocaleDateString()}${deductRemainderFromDeposit && afterCash > 0 ? `; security deposit deduction: ₱${afterCash.toLocaleString()}` : ""}`].filter(Boolean).join("\n")
+      });
+      setPaymentEntryBill(null);
+      setPaymentEntryAmount("");
+      setDeductRemainderFromDeposit(false);
+      onRefresh();
+      alert(remainingAfterDeposit <= 0 ? "Payment recorded and invoice settled." : `Payment recorded. Remaining balance: ₱${remainingAfterDeposit.toLocaleString()}.`);
+    } catch (err) {
+      console.error("Failed to record invoice payment", err);
+      alert("Unable to record the payment. Please refresh and verify the invoice and ledger before retrying.");
+    } finally {
+      setSavingPaymentEntry(false);
+    }
+  };
+
   // CSV Export
   const handleCSVExport = () => {
     const headers = [
@@ -884,17 +937,31 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                   </button>
                                 </div>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setConfirmPaidBillId(bill.id);
-                                    setBillToConfirmPaid(bill);
-                                  }}
-                                  className="neu-btn px-3 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all hover:text-[#EF6905]"
-                                  title="Mark invoice as Paid"
-                                >
-                                  Mark as Paid
-                                </button>
+                                <div className="flex flex-col gap-1.5 min-w-[118px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPaymentEntryBill(bill);
+                                      setPaymentEntryAmount("");
+                                      setDeductRemainderFromDeposit(false);
+                                    }}
+                                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition-all"
+                                    title="Record a full or partial payment"
+                                  >
+                                    Record Payment
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmPaidBillId(bill.id);
+                                      setBillToConfirmPaid(bill);
+                                    }}
+                                    className="neu-btn px-3 py-1.5 text-xs font-bold rounded-lg shadow-xs transition-all hover:text-[#EF6905]"
+                                    title="Mark invoice as fully paid after confirming"
+                                  >
+                                    Mark as Paid
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -1856,6 +1923,42 @@ export default function Billing({ db, onRefresh }: BillingProps) {
             </motion.div>
           </div>
         )}
+
+        {/* Record full/partial invoice payment and optionally settle the remainder from deposit */}
+        <AnimatePresence>
+          {paymentEntryBill && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !savingPaymentEntry && setPaymentEntryBill(null)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs" />
+              <motion.form onSubmit={handleRecordInvoicePayment} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-5">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">Record Invoice Payment</h3>
+                    <p className="text-xs text-slate-500 mt-1">{paymentEntryBill.tenant_name} · {paymentEntryBill.billing_month}</p>
+                  </div>
+                  <button type="button" disabled={savingPaymentEntry} onClick={() => setPaymentEntryBill(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Invoice total</p><p className="text-lg font-black text-slate-900">₱{Number(paymentEntryBill.total_amount || 0).toLocaleString()}</p></div>
+                  <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Previously paid</p><p className="text-lg font-black text-emerald-700">₱{Number(paymentEntryBill.paid_amount || 0).toLocaleString()}</p></div>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700" htmlFor="invoice-payment-amount">Amount received (₱)</label>
+                  <input id="invoice-payment-amount" type="number" min="0.01" step="0.01" max={Math.max(0, Number(paymentEntryBill.total_amount || 0) - Number(paymentEntryBill.paid_amount || 0))} required value={paymentEntryAmount} onChange={e => setPaymentEntryAmount(e.target.value)} placeholder="Enter actual amount received" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-400" />
+                  <p className="text-xs text-slate-500">Outstanding before this payment: ₱{Math.max(0, Number(paymentEntryBill.total_amount || 0) - Number(paymentEntryBill.paid_amount || 0)).toLocaleString()}</p>
+                </div>
+                <label className="flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50/70 p-3 cursor-pointer">
+                  <input type="checkbox" checked={deductRemainderFromDeposit} onChange={e => setDeductRemainderFromDeposit(e.target.checked)} className="mt-1 accent-orange-600" />
+                  <span><span className="block text-sm font-bold text-slate-900">Deduct remaining balance from security deposit</span><span className="block text-xs text-slate-600 mt-1">Only select this if the tenant has authorized the deduction. The deduction will be recorded in the tenant's deposit ledger and linked to this invoice.</span></span>
+                </label>
+                {deductRemainderFromDeposit && <p className="text-xs text-amber-800 bg-amber-50 rounded-lg p-3">The system checks the tenant's available deposit balance before saving. If it is insufficient, no payment changes will be saved.</p>}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button type="button" disabled={savingPaymentEntry} onClick={() => setPaymentEntryBill(null)} className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100">Cancel</button>
+                  <button type="submit" disabled={savingPaymentEntry || !paymentEntryAmount || Number(paymentEntryAmount) <= 0} className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50">{savingPaymentEntry ? "Saving..." : "Save Payment"}</button>
+                </div>
+              </motion.form>
+            </div>
+          )}
+        </AnimatePresence>
 
         {/* Second Confirmation Modal for Marking Statement as Paid */}
         {billToConfirmPaid && (

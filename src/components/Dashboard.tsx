@@ -125,13 +125,11 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance, pend
   // Billing status data for Bar Chart
   const paidCount = filteredBillingRecords.filter((b) => b.payment_status === "paid").length;
   const unpaidCount = filteredBillingRecords.filter((b) => b.payment_status === "unpaid").length;
-  const partialCount = filteredBillingRecords.filter((b) => b.payment_status === "partial").length;
   const overdueCount = filteredBillingRecords.filter((b) => b.payment_status === "overdue").length;
 
   const billingOverviewData = [
     { name: "Paid", count: paidCount, color: "#EF6905" },
     { name: "Unpaid", count: unpaidCount, color: "#F1E5A1" },
-    { name: "Partial", count: partialCount, color: "#F1E5A1" },
     { name: "Overdue", count: overdueCount, color: "#8B2626" }
   ];
 

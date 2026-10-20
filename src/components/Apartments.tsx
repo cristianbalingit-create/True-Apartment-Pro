@@ -1132,6 +1132,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                         <div className="flex justify-between items-end">
                           <div>
                             <h3 className="font-black text-sm text-white">Room {viewingRoom.room_number}</h3>
+                            <p className="text-[10px] text-slate-300 truncate">{aptObj?.name}</p>
                           </div>
                           <div className="text-right">
                             <span className="text-[9px] text-slate-300 block">Monthly Rate</span>
@@ -1151,8 +1152,8 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                           <span className="font-semibold text-slate-700">Floor {viewingRoom.floor}</span>
                         </div>
                         <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex items-center gap-1.5 truncate">
-                          <Home className="w-3 h-3 text-brand-orange shrink-0" />
-                          <span className="font-semibold text-slate-700 truncate capitalize">{viewingRoom.status || "vacant"}</span>
+                          <MapPin className="w-3 h-3 text-brand-orange shrink-0" />
+                          <span className="font-semibold text-slate-700 truncate">{aptObj?.address || "Building Asset"}</span>
                         </div>
                       </div>
 

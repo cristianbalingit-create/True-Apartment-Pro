@@ -2548,7 +2548,27 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   // Check live Cloud Firestore for tenant linkage (primary production source)
   await dbService.ensureInitialized();
   const liveTenants = await dbService.getLiveTenants();
-  let linkedTenant = liveTenants.find((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+  const senderLinkedTenantMatches = liveTenants.filter((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+  let linkedTenant = senderLinkedTenantMatches.length === 1 ? senderLinkedTenantMatches[0] : undefined;
+  if (senderLinkedTenantMatches.length > 1) {
+    const affectedTenant = senderLinkedTenantMatches[0];
+    const alertId = `security-duplicate-psid-${String(senderPsid).slice(-6)}-${new Date().toISOString().slice(0, 10)}`;
+    await dbService.upsertDoc("notifications", alertId, {
+      id: alertId,
+      tenant_id: affectedTenant?.id || "system",
+      tenant_name: "Messenger account-link conflict",
+      message: `SECURITY ALERT: The same Messenger identity appears linked to multiple tenant records (${senderLinkedTenantMatches.length} records). Access from this Messenger account was blocked. Please investigate and correct the duplicate links. Attempted Messenger identity: ${senderPsid ? `${senderPsid.slice(0, 4)}***${senderPsid.slice(-2)}` : "unknown"}.`,
+      type: "general",
+      status: "pending",
+      channel: "in_app",
+      created_at: new Date().toISOString()
+    });
+    await sendFacebookMessage(senderPsid, {
+      text: "🔒 For your security, access from this Messenger account has been temporarily blocked because we detected an account-linking issue. Please contact the property administrator.",
+      quick_replies: []
+    }, webhookPageId);
+    return;
+  }
   if (linkedTenant) {
     const interactionTime = new Date().toISOString();
     linkedTenant.last_messenger_interaction_at = interactionTime;
@@ -2595,17 +2615,57 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     console.log("===================================");
 
     if (matchedTenant) {
-      // Persist PSID directly to live Cloud Firestore
-      await dbService.updateTenantPsidInFirestore(matchedTenant.id, senderPsid);
+      // Never allow a PSID already associated with a different tenant to claim this record.
+      const senderAlreadyLinkedElsewhere = !!linkedTenant && linkedTenant.id !== matchedTenant.id;
+      const tenantAlreadyLinkedElsewhere = [matchedTenant.facebook_psid, matchedTenant.messenger_psid]
+        .some((value: any) => String(value || "").trim() && String(value || "").trim() !== senderPsid);
+
+      const sendSecurityAlert = async (reason: string) => {
+        const eventId = `security-link-${matchedTenant.id}-${String(senderPsid).slice(-6)}-${new Date().toISOString().slice(0, 10)}`;
+        const maskedAttemptedPsid = senderPsid ? `${senderPsid.slice(0, 4)}***${senderPsid.slice(-2)}` : "unknown";
+        await dbService.upsertDoc("notifications", eventId, {
+          id: eventId,
+          tenant_id: matchedTenant.id,
+          tenant_name: matchedTenant.name || "Tenant account",
+          message: `SECURITY ALERT: A Messenger account attempted to link to a tenant account that is already linked or to reuse a Messenger account linked elsewhere. The request was blocked. Tenant record: ${matchedTenant.id}. Attempted Messenger identity: ${maskedAttemptedPsid}. Reason: ${reason}. Please review the security log.`,
+          type: "general",
+          status: "pending",
+          channel: "in_app",
+          created_at: new Date().toISOString()
+        });
+      };
+
+      if (senderAlreadyLinkedElsewhere || tenantAlreadyLinkedElsewhere) {
+        await sendSecurityAlert(senderAlreadyLinkedElsewhere ? "Messenger account already linked to a different tenant" : "Tenant account already linked to another Messenger account");
+        await sendFacebookMessage(senderPsid, {
+          text: "🔒 This tenant account is already linked to another Messenger account, or this Messenger account is already linked to a different tenant. For your protection, this account cannot be linked again. If you believe this is an error, please contact the property administrator.",
+          quick_replies: []
+        }, webhookPageId);
+        return;
+      }
+
+      // Enforce one tenant per PSID and one PSID per tenant atomically in Firestore.
+      const linkResult = await dbService.linkTenantPsidSecurely(matchedTenant.id, senderPsid);
+      if (!linkResult.success) {
+        if (linkResult.reason === "tenant_already_linked" || linkResult.reason === "psid_already_linked") {
+          await sendSecurityAlert(linkResult.reason === "tenant_already_linked" ? "Tenant account already linked to another Messenger account" : "Messenger account already linked to a different tenant");
+          await sendFacebookMessage(senderPsid, {
+            text: "🔒 This tenant account is already linked to another Messenger account. For your protection, this account cannot be linked again. If you believe this is an error, please contact the property administrator.",
+            quick_replies: []
+          }, webhookPageId);
+        } else {
+          await sendFacebookMessage(senderPsid, {
+            text: "Sorry, we couldn't securely complete the account link right now. Please try again later or contact the property administrator.",
+            quick_replies: []
+          }, webhookPageId);
+        }
+        return;
+      }
+
       matchedTenant.facebook_psid = senderPsid;
       matchedTenant.messenger_psid = senderPsid;
-
-      const db = readDB();
-      const room = (db.rooms || []).find((r: any) => r.id === matchedTenant.room_id);
-      const roomNum = room ? room.room_number : (matchedTenant.room_id ? matchedTenant.room_id.replace(/^room-/, "") : "Unknown");
-
       await sendFacebookMessage(senderPsid, {
-        text: `Hi, welcome, ${matchedTenant.name}!\n\nWhat would you like to do today? I can help you report maintenance, view your transaction history, send a payment, or check your balance.`,
+        text: `Hi, welcome, ${matchedTenant.name}!\n\nYour Messenger account is now linked to your tenant account. What would you like to do today? I can help you report maintenance, view your transaction history, send a payment, or check your balance.`,
         quick_replies: standardQuickReplies
       }, webhookPageId);
     } else {
@@ -2617,21 +2677,14 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     return;
   }
 
-  // 2. Account unlinking workflow: "unlink" or "disconnect"
+  // 2. Account unlinking workflow: linking changes must be approved by an administrator.
   if (textLower === "unlink" || textLower === "disconnect") {
-    if (linkedTenant) {
-      const oldName = linkedTenant.name;
-      await dbService.unlinkTenantPsidInFirestore(linkedTenant.id);
-      delete linkedTenant.facebook_psid;
-      delete linkedTenant.messenger_psid;
-      await sendFacebookMessage(senderPsid, {
-        text: `🚪 You have successfully unlinked your Facebook profile from ${oldName}'s tenant record.`
-      }, webhookPageId);
-    } else {
-      await sendFacebookMessage(senderPsid, {
-        text: "No tenant account is currently linked to this Facebook Profile."
-      }, webhookPageId);
-    }
+    await sendFacebookMessage(senderPsid, {
+      text: linkedTenant
+        ? "🔒 For your account's protection, Messenger links cannot be removed directly through chat. Please contact the property administrator to request identity verification and an authorized unlinking."
+        : "No tenant account is currently linked to this Facebook Profile.",
+      quick_replies: []
+    }, webhookPageId);
     return;
   }
 

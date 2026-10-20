@@ -23,7 +23,6 @@ interface PropertyMapProps {
   zoom?: number;
   interactive?: boolean;
   className?: string;
-  scrollWheelZoom?: boolean;
 }
 
 const DEFAULT_CENTER: [number, number] = [7.8257, 123.4370]; // Pagadian City
@@ -54,7 +53,6 @@ export default function PropertyMap({
   zoom = 14,
   interactive = false,
   className = "",
-  scrollWheelZoom = true,
 }: PropertyMapProps) {
   const mapEl = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -98,7 +96,7 @@ export default function PropertyMap({
 
     const map = L.map(mapEl.current, {
       zoomControl: true,
-      scrollWheelZoom: scrollWheelZoom,
+      scrollWheelZoom: true,
       dragging: true,
     }).setView(initial, zoom);
 
@@ -155,16 +153,6 @@ export default function PropertyMap({
       }
     };
   }, [leafletLoaded, interactive]);
-
-  // Synchronize dynamic scrollWheelZoom setting
-  useEffect(() => {
-    if (!mapRef.current) return;
-    if (scrollWheelZoom) {
-      mapRef.current.scrollWheelZoom?.enable();
-    } else {
-      mapRef.current.scrollWheelZoom?.disable();
-    }
-  }, [scrollWheelZoom]);
 
   // Update Points / Markers
   useEffect(() => {

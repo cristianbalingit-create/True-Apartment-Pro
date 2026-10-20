@@ -1914,7 +1914,21 @@ app.post("/api/chatbot/query", async (req, res) => {
   }
 });
 
-// Maintenance requests endpoints
+// Maintenance requests endpoints. Use the same server-side Firestore connection
+// as Messenger writes so the website does not depend on browser Firestore rules/cache.
+app.get("/api/maintenance", async (_req, res) => {
+  try {
+    const tickets = await dbService.getLiveMaintenanceRequests();
+    tickets.sort((a: any, b: any) => String(b.created_at || b.createdAt || "").localeCompare(String(a.created_at || a.createdAt || "")));
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.json(tickets);
+  } catch (err: any) {
+    console.error("Failed to load live maintenance requests:", err?.message || err);
+    res.status(500).json({ message: "Unable to load maintenance reports" });
+  }
+});
+
 app.post("/api/maintenance", async (req, res) => {
   const db = readDB();
   const ticketId = req.body.id || req.body.ticketId || `maint-${Date.now()}`;
@@ -2192,6 +2206,8 @@ app.get("/api/payments/submissions", async (req, res) => {
   try {
     const submissions = await dbService.getLivePaymentSubmissions();
     submissions.sort((a: any, b: any) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
     res.json(submissions.slice(0, 200));
   } catch (err: any) {
     res.status(500).json({ message: "Unable to load payment submissions" });

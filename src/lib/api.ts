@@ -262,8 +262,9 @@ export const api = {
   async getPaymentSubmissions(token?: string): Promise<any[]> {
     const activeToken = token || localStorage.getItem("apartmentpro_token") || "apt_session_admin_active";
     try {
-      const res = await fetch("/api/payments/submissions", {
-        headers: { Authorization: `Bearer ${activeToken}` }
+      const res = await fetch(`/api/payments/submissions?_=${Date.now()}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${activeToken}`, "Cache-Control": "no-cache" }
       });
       if (res.ok) {
         return await res.json();
@@ -477,6 +478,20 @@ export const api = {
   },
 
   // Maintenance Requests CRUD
+  async getMaintenanceRequests(): Promise<MaintenanceRequest[]> {
+    try {
+      const res = await fetch(`/api/maintenance?_=${Date.now()}`, { cache: "no-store", headers: { "Cache-Control": "no-cache" } });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) return data;
+      }
+    } catch (e) {
+      console.warn("Backend maintenance refresh failed; using Firestore fallback:", e);
+    }
+    const db = await fetchDirectFromFirestore();
+    return db.maintenanceRequests || [];
+  },
+
   async createMaintenanceRequest(data: Partial<MaintenanceRequest>): Promise<MaintenanceRequest> {
     const ticketId = data.id || data.ticketId || `maint-${Date.now()}`;
     const desc = String(data.issue_description || data.description || "").trim();

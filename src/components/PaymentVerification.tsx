@@ -50,7 +50,7 @@ export default function PaymentVerification({ token, onRefresh }: Props) {
 
   useEffect(() => {
     load();
-    const timer = window.setInterval(() => load(), 10000);
+    const timer = window.setInterval(() => load(), 5000);
     return () => window.clearInterval(timer);
   }, [authToken]);
 

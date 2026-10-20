@@ -2542,8 +2542,9 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     console.log(`Unsupported Attachment detected: ${String(unsupportedAttachment?.type || "unknown")}`);
   }
 
-  // Safe Token Identity Diagnostic
-  await runSafeTokenDiagnostic(webhookPageId);
+  // Token diagnostics make several external Graph API calls. Do not block every
+  // incoming Messenger message on those network checks; operational diagnostics
+  // are available separately and the message path should remain responsive.
 
   // Check live Cloud Firestore for tenant linkage (primary production source)
   await dbService.ensureInitialized();
@@ -2579,6 +2580,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     }).catch(() => {});
   }
   const textLower = messageText.toLowerCase().trim();
+  const apartmentFlowWelcome = "Hi! Welcome to Apartment Flow!\n\nApartment Flow helps tenants manage maintenance reports, payments, transaction history, and account balances.\n\nIf you are already an Apartment Flow tenant, please enter your registered mobile number to link your account.";
 
   // 1. Account linking workflow: "link <contact_number>", "verify <contact_number>",
   // or a bare Philippine mobile number entered after the welcome message.
@@ -2594,7 +2596,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
     // Validate Philippine mobile number
     if (!isValidPhilippineMobile(normalizedInput)) {
       await sendFacebookMessage(senderPsid, {
-        text: `Please enter a valid Philippine mobile number.\nExample: 09171234567`,
+        text: apartmentFlowWelcome,
         quick_replies: []
       }, webhookPageId);
       return;
@@ -2638,7 +2640,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       if (senderAlreadyLinkedElsewhere || tenantAlreadyLinkedElsewhere) {
         await sendSecurityAlert(senderAlreadyLinkedElsewhere ? "Messenger account already linked to a different tenant" : "Tenant account already linked to another Messenger account");
         await sendFacebookMessage(senderPsid, {
-          text: "🔒 This tenant account is already linked to another Messenger account, or this Messenger account is already linked to a different tenant. For your protection, this account cannot be linked again. If you believe this is an error, please contact the property administrator.",
+          text: "This tenant account is already linked to another Messenger account. If you believe this is an error, please contact the property administrator.",
           quick_replies: []
         }, webhookPageId);
         return;
@@ -2650,7 +2652,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
         if (linkResult.reason === "tenant_already_linked" || linkResult.reason === "psid_already_linked") {
           await sendSecurityAlert(linkResult.reason === "tenant_already_linked" ? "Tenant account already linked to another Messenger account" : "Messenger account already linked to a different tenant");
           await sendFacebookMessage(senderPsid, {
-            text: "🔒 This tenant account is already linked to another Messenger account. For your protection, this account cannot be linked again. If you believe this is an error, please contact the property administrator.",
+            text: "This tenant account is already linked to another Messenger account. If you believe this is an error, please contact the property administrator.",
             quick_replies: []
           }, webhookPageId);
         } else {
@@ -2670,7 +2672,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
       }, webhookPageId);
     } else {
       await sendFacebookMessage(senderPsid, {
-        text: `Sorry, we couldn't find an RentFlow tenant account for that number.\n\nPlease enter your registered mobile number again.`,
+        text: apartmentFlowWelcome,
         quick_replies: []
       }, webhookPageId);
     }
@@ -2678,7 +2680,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   }
 
   // 2. Account unlinking workflow: linking changes must be approved by an administrator.
-  if (textLower === "unlink" || textLower === "disconnect") {
+  if (linkedTenant && (textLower === "unlink" || textLower === "disconnect")) {
     await sendFacebookMessage(senderPsid, {
       text: linkedTenant
         ? "🔒 For your account's protection, Messenger links cannot be removed directly through chat. Please contact the property administrator to request identity verification and an authorized unlinking."
@@ -2693,7 +2695,7 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   // tenant functions until the Messenger PSID is linked to an active tenant.
   if (!linkedTenant) {
     await sendFacebookMessage(senderPsid, {
-      text: "Hi! Welcome to RentFlow!\n\nRentFlow helps tenants manage their apartment services, including maintenance reports, payments, transaction history, and account balances.\n\nIf you are already an RentFlow tenant, please enter your registered mobile number to link your account.",
+      text: apartmentFlowWelcome,
       quick_replies: []
     }, webhookPageId);
     return;

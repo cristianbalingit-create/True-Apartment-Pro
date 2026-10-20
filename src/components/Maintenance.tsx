@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { DBState, api } from "../lib/api";
-import { fetchDirectFromFirestore } from "../lib/clientFirestore";
 import { MaintenanceRequest } from "../types";
 import { 
   Wrench, Clock, Trash2, BarChart3,
@@ -54,8 +53,8 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
   const refreshLiveMaintenance = useCallback(async () => {
     setLiveMaintenanceLoading(true);
     try {
-      const live = await fetchDirectFromFirestore();
-      setLiveMaintenanceRequests(live.maintenanceRequests || []);
+      const live = await api.getMaintenanceRequests();
+      setLiveMaintenanceRequests(live || []);
     } catch (err) {
       console.warn("Live maintenance refresh failed; retaining current records:", err);
     } finally {
@@ -65,6 +64,9 @@ export default function Maintenance({ db, onRefresh }: MaintenanceProps) {
 
   useEffect(() => {
     refreshLiveMaintenance();
+    // Keep Messenger-submitted tickets visible quickly without requiring a page reload.
+    const timer = window.setInterval(() => { void refreshLiveMaintenance(); }, 5000);
+    return () => window.clearInterval(timer);
   }, [refreshLiveMaintenance]);
 
   // Keep local list aligned after parent refreshes while retaining live Firestore as source of truth.

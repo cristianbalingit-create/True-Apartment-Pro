@@ -1451,7 +1451,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
 
                                 <div className="flex items-center justify-between">
                                   <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                                    <History className="w-4 h-4 text-brand-orange" />
                                     <span>Ledger Transaction History for {tenant.name}</span>
                                   </h4>
 
@@ -1461,7 +1460,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                     No ledger adjustments or manual refunds have been posted yet for {tenant.name}.
                                   </p>
                                 ) : (
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-2">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[280px] overflow-y-auto pr-2">
                                     {ledgerEntries.slice().reverse().map((entry) => {
                                       const isNegative = ["deposit_deduction", "advance_use", "deposit_refund", "advance_refund"].includes(entry.type);
                                       return (
@@ -1475,7 +1474,7 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                             }`}>
                                               {entry.type.replace("_", " ")}
                                             </span>
-                                            <p className="font-semibold text-slate-700 leading-tight mt-1">{entry.description}</p>
+                                            <p className="font-semibold text-slate-700 leading-tight mt-1">{String(entry.description || "").replace(/\bBill\s*#\s*[A-Za-z0-9_-]+/gi, "bill")}</p>
                                             <span className="text-[9px] text-slate-400 block font-medium">
                                               {new Date(entry.created_at).toLocaleString()}
                                             </span>
@@ -1490,7 +1489,6 @@ export default function Billing({ db, onRefresh }: BillingProps) {
                                               className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded-lg flex items-center gap-1 transition-all active:scale-95 border border-blue-200/50 shadow-2xs"
                                               title="Send Transaction Receipt to Tenant's Messenger"
                                             >
-                                              <MessageCircle className="w-3 h-3 fill-blue-600 text-white" />
                                               <span>Messenger</span>
                                             </button>
                                           </div>

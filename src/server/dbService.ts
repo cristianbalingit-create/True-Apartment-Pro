@@ -607,25 +607,28 @@ class DatabaseService {
         snap.forEach(doc => {
           tenants.push({ id: doc.id, ...(doc.data() as any) });
         });
-        if (tenants.length > 0) {
-          const db = this.getDB();
-          db.tenants = tenants;
-          return tenants;
-        }
+        // A successful empty Firestore query is authoritative. Never fall back to
+        // demo/local tenant records in production, because that can leave a deleted
+        // tenant's Messenger identity appearing linked and block a legitimate relink.
+        const db = this.getDB();
+        db.tenants = tenants;
+        return tenants;
       } else if (this.clientFirestore) {
         const snap = await getClientDocs(clientCollection(this.clientFirestore, "tenants"));
         const tenants: Tenant[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-        if (tenants.length > 0) {
-          const db = this.getDB();
-          db.tenants = tenants;
-          return tenants;
-        }
+        const db = this.getDB();
+        db.tenants = tenants;
+        return tenants;
       }
     } catch (err: any) {
       console.warn("Live Firestore getLiveTenants warning:", err?.message || err);
+      // In a configured production Firestore mode, do not authenticate Messenger
+      // identities against stale local/demo data when the live lookup fails.
+      // Fail closed: the webhook will treat the sender as unlinked and show the welcome prompt.
+      if (this.connectionMode !== "local_cache") return [];
     }
 
-    // Fallback to in-memory/cache if live query fails
+    // Local-only development can still use the fallback tenant records.
     const db = this.getDB();
     return db.tenants || [];
   }
@@ -651,8 +654,13 @@ class DatabaseService {
           const existingPsids = [target.facebook_psid, target.messenger_psid].map(value => String(value || "").trim()).filter(Boolean);
           if (existingPsids.some(existing => existing !== cleanPsid)) return { success: false as const, reason: "tenant_already_linked" as const };
           const allTenants = await tx.get(tenants);
-          const duplicate = allTenants.docs.find((doc) => doc.id !== tenantId && [doc.get("facebook_psid"), doc.get("messenger_psid")].some(value => String(value || "").trim() === cleanPsid));
-          if (duplicate) return { success: false as const, reason: "psid_already_linked" as const };
+          const duplicates = allTenants.docs.filter((doc) => doc.id !== tenantId && [doc.get("facebook_psid"), doc.get("messenger_psid")].some(value => String(value || "").trim() === cleanPsid));
+          for (const duplicate of duplicates) {
+            const duplicateStatus = String(duplicate.get("status") || "active").toLowerCase();
+            if (duplicateStatus === "active") return { success: false as const, reason: "psid_already_linked" as const };
+            // A PSID left on an archived/inactive tenant is stale, not a valid link.
+            tx.set(duplicate.ref, { facebook_psid: "", messenger_psid: "" }, { merge: true });
+          }
           tx.set(targetRef, { facebook_psid: cleanPsid, messenger_psid: cleanPsid }, { merge: true });
           return { success: true as const };
         });
@@ -670,8 +678,13 @@ class DatabaseService {
           const existingPsids = [target.facebook_psid, target.messenger_psid].map(value => String(value || "").trim()).filter(Boolean);
           if (existingPsids.some(existing => existing !== cleanPsid)) return { success: false as const, reason: "tenant_already_linked" as const };
           const allTenants = await tx.get(tenants);
-          const duplicate = allTenants.docs.find((doc) => doc.id !== tenantId && [doc.get("facebook_psid"), doc.get("messenger_psid")].some(value => String(value || "").trim() === cleanPsid));
-          if (duplicate) return { success: false as const, reason: "psid_already_linked" as const };
+          const duplicates = allTenants.docs.filter((doc) => doc.id !== tenantId && [doc.get("facebook_psid"), doc.get("messenger_psid")].some(value => String(value || "").trim() === cleanPsid));
+          for (const duplicate of duplicates) {
+            const duplicateStatus = String(duplicate.get("status") || "active").toLowerCase();
+            if (duplicateStatus === "active") return { success: false as const, reason: "psid_already_linked" as const };
+            // A PSID left on an archived/inactive tenant is stale, not a valid link.
+            tx.set(duplicate.ref, { facebook_psid: "", messenger_psid: "" }, { merge: true });
+          }
           tx.set(targetRef, { facebook_psid: cleanPsid, messenger_psid: cleanPsid }, { merge: true });
           return { success: true as const };
         });
@@ -763,8 +776,8 @@ class DatabaseService {
     const db = this.getDB();
     const t = (db.tenants || []).find(item => item.id === tenantId);
     if (t) {
-      delete t.facebook_psid;
-      delete t.messenger_psid;
+      t.facebook_psid = "";
+      t.messenger_psid = "";
       this.saveFallbackFile(db);
     }
 

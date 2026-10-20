@@ -675,7 +675,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                     <div className="border border-slate-100 rounded-xl p-5">
                       <h3 className="font-black text-slate-900 mb-3">Advance & Deposit Transactions</h3>
                       <p className="text-xs text-slate-400 mb-4">Only security-deposit and advance-payment ledger entries are shown here.</p>
-                      {tenantLedger.length === 0 ? <div className="text-sm text-slate-400">No advance or deposit transactions recorded.</div> : <div className="space-y-2">{tenantLedger.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-4 text-sm border-b border-slate-50 pb-2"><div><div className="font-bold text-slate-700">{entry.description}</div><div className="text-xs text-slate-400">{entry.created_at}</div></div><div className="font-black text-slate-800">₱{Number(entry.amount || 0).toLocaleString()}</div></div>)}</div>}
+                      {tenantLedger.length === 0 ? <div className="text-sm text-slate-400">No advance or deposit transactions recorded.</div> : <div className="space-y-4">{tenantLedger.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-4 text-sm border-b border-slate-100 pb-4"><div><div className="font-bold text-slate-700">{String(entry.description || "").replace(/\bBill\s*#\s*[A-Za-z0-9_-]+/gi, "bill")}</div><div className="text-xs text-slate-400 mt-1">{entry.created_at}</div></div><div className="font-black text-slate-800">₱{Number(entry.amount || 0).toLocaleString()}</div></div>)}</div>}
                     </div>
                   )}
                   {historyTab === "maintenance" && (
@@ -1054,10 +1054,9 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                 <div className="md:col-span-3 flex flex-col h-full min-h-[300px]">
                   <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Ledger Transaction History</h4>
                   
-                  <div className="flex-1 overflow-y-auto space-y-3 max-h-[350px] pr-2">
+                  <div className="flex-1 overflow-y-auto space-y-4 max-h-[350px] pr-2">
                     {(!db.depositLedger || db.depositLedger.filter(e => e.tenant_id === ledgerTenant.id).length === 0) ? (
                       <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
-                        <DollarSign className="w-8 h-8 text-slate-300 mb-2" />
                         <p className="text-xs text-slate-400 font-bold">No transactions recorded yet</p>
                         <p className="text-[10px] text-slate-400 mt-1">Deductions and refunds will show up here chronologically.</p>
                       </div>
@@ -1069,14 +1068,14 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                         .map((entry) => {
                           const isNegative = ["deposit_deduction", "advance_use", "deposit_refund", "advance_refund"].includes(entry.type);
                           return (
-                            <div key={entry.id} className="p-3 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-all flex items-start justify-between gap-3">
+                            <div key={entry.id} className="p-4 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-all flex items-start justify-between gap-3">
                               <div className="space-y-1">
                                 <span className={`inline-flex items-center px-2 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider ${
                                   entry.type.startsWith("deposit") ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
                                 }`}>
                                   {entry.type.replace("_", " ")}
                                 </span>
-                                <p className="text-xs text-slate-700 font-bold leading-tight">{entry.description}</p>
+                                <p className="text-xs text-slate-700 font-bold leading-tight">{String(entry.description || "").replace(/\bBill\s*#\s*[A-Za-z0-9_-]+/gi, "bill")}</p>
                                 <span className="text-[10px] text-slate-400 font-semibold block">
                                   {new Date(entry.created_at).toLocaleString()}
                                 </span>
@@ -1091,7 +1090,6 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                                   className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded-lg flex items-center gap-1 transition-all active:scale-95 shadow-2xs border border-blue-200/50"
                                   title="Send Transaction Receipt to Tenant's Messenger"
                                 >
-                                  <MessageCircle className="w-3 h-3 fill-blue-600 text-white" />
                                   <span>Messenger</span>
                                 </button>
                               </div>
@@ -1332,12 +1330,12 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                     <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Deposit & Advance Ledger Transactions</h4>
                     <div className="bg-slate-50/70 rounded-2xl p-4 border border-slate-100 text-xs space-y-3">
                       {/* Existing Transactions */}
-                      <div className="space-y-2">
+                      <div className="space-y-4">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Historical Ledger Log</span>
                         {(!db.depositLedger || db.depositLedger.filter(e => e.tenant_id === tenant.id).length === 0) ? (
                           <div className="text-slate-400 font-medium italic text-[11px] pl-2">No historical ledger adjustments recorded.</div>
                         ) : (
-                          <div className="space-y-2 divide-y divide-slate-100">
+                          <div className="space-y-4 divide-y divide-slate-100">
                             {db.depositLedger
                               .filter(e => e.tenant_id === tenant.id)
                               .map((entry) => {
@@ -1355,7 +1353,7 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                                           {new Date(entry.created_at).toLocaleDateString("en-PH")}
                                         </span>
                                       </div>
-                                      <p className="text-slate-600 font-medium leading-normal">{entry.description}</p>
+                                      <p className="text-slate-600 font-medium leading-normal">{String(entry.description || "").replace(/\bBill\s*#\s*[A-Za-z0-9_-]+/gi, "bill")}</p>
                                     </div>
                                     <span className={`font-mono font-bold ${isNegative ? "text-rose-600" : "text-emerald-600"}`}>
                                       {isNegative ? "-" : "+"} ₱{entry.amount.toLocaleString()}

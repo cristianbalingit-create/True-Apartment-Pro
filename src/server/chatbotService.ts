@@ -2172,46 +2172,48 @@ Tenant Profile:
       const tenantBills = (db.billingRecords || []).filter((b: any) => b.tenant_id === tenantObj.id);
       const tenantLogs = (db.transactionLogs || []).filter((log: any) => log.tenant_id === tenantObj.id);
 
-      let historyText = `📋 *TRANSACTION & LEDGER HISTORY*\n` +
-        `👤 *Tenant:* ${tenantObj.name} (Room ${roomNum})\n` +
-        `🏢 *Building:* ${aptName}\n` +
+      let historyText = `TRANSACTION & LEDGER HISTORY\n` +
+        `Tenant: ${tenantObj.name} (Room ${roomNum})\n` +
+        `Building: ${aptName}\n` +
         `-----------------------------------\n\n`;
 
       if (tenantLedgers.length === 0 && tenantBills.length === 0 && tenantLogs.length === 0) {
         historyText += `No transactions have been recorded yet for your account.`;
       } else {
-        historyText += `🛡️ *DEPOSIT & ADVANCE ESCROW LEDGER:*\n`;
+        historyText += `DEPOSIT & ADVANCE LEDGER\n\n`;
         if (tenantLedgers.length === 0) {
-          historyText += `_No escrow adjustments recorded._\n\n`;
+          historyText += `No ledger adjustments recorded.\n\n`;
         } else {
           const recentLedgers = [...tenantLedgers].reverse().slice(0, 5);
           recentLedgers.forEach((l: any) => {
             const dateStr = new Date(l.created_at || Date.now()).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
             const typeLabel = l.type ? l.type.replace(/_/g, " ").toUpperCase() : "TRANSACTION";
-            historyText += `• *${dateStr}* — ${typeLabel}\n  💵 ₱${Number(l.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}${l.description ? ` (${l.description})` : ""}\n`;
+            const cleanDescription = String(l.description || "")
+              .replace(/\bBill\s*#\s*[A-Za-z0-9_-]+/gi, "bill")
+              .replace(/\s+/g, " ")
+              .trim();
+            historyText += `${dateStr} — ${typeLabel}\nAmount: ₱${Number(l.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}${cleanDescription ? `\n${cleanDescription}` : ""}\n\n`;
           });
-          historyText += `\n`;
         }
 
-        historyText += `📄 *MONTHLY BILLING INVOICES:*\n`;
+        historyText += `MONTHLY BILLING\n\n`;
         if (tenantBills.length === 0) {
-          historyText += `_No billing statements generated yet._\n\n`;
+          historyText += `No billing statements generated yet.\n\n`;
         } else {
           const recentBills = [...tenantBills].reverse().slice(0, 5);
           recentBills.forEach((b: any) => {
-            const statusEmoji = b.payment_status === "paid" ? "✅ PAID" : b.payment_status === "overdue" ? "⚠️ OVERDUE" : "⏳ UNPAID";
-            historyText += `• *${b.billing_month || "Statement"}* [${statusEmoji}]\n  Total: ₱${Number(b.total_amount || 0).toLocaleString("en-US")} (Due: ${b.due_date})\n`;
+            const statusLabel = b.payment_status === "paid" ? "PAID" : b.payment_status === "overdue" ? "OVERDUE" : b.payment_status === "partial" ? "PARTIALLY PAID" : "UNPAID";
+            historyText += `${b.billing_month || "Statement"} — ${statusLabel}\nTotal: ₱${Number(b.total_amount || 0).toLocaleString("en-US")}\nDue: ${b.due_date || "N/A"}\n\n`;
           });
-          historyText += `\n`;
         }
 
         const curDep = tenantObj.deposit_balance !== undefined ? tenantObj.deposit_balance : tenantObj.deposit || 0;
         const curAdv = tenantObj.advance_balance !== undefined ? tenantObj.advance_balance : (tenantObj.advance_payment || tenantObj.rent_amount || 0);
         historyText += `-----------------------------------\n` +
-          `💰 *ACTIVE BALANCES:*\n` +
-          `• Outstanding Dues: ₱${Number(outstandingBalance).toLocaleString("en-US")}\n` +
-          `• Security Deposit Balance: ₱${Number(curDep).toLocaleString("en-US")}\n` +
-          `• Advance Rent Balance: ₱${Number(curAdv).toLocaleString("en-US")}`;
+          `ACTIVE BALANCES\n` +
+          `Outstanding Dues: ₱${Number(outstandingBalance).toLocaleString("en-US")}\n` +
+          `Security Deposit Balance: ₱${Number(curDep).toLocaleString("en-US")}\n` +
+          `Advance Rent Balance: ₱${Number(curAdv).toLocaleString("en-US")}`;
       }
 
       return historyText;
@@ -2549,7 +2551,24 @@ export async function handleMessengerWebhookEvent(webhook_event: any, webhookPag
   // Check live Cloud Firestore for tenant linkage (primary production source)
   await dbService.ensureInitialized();
   const liveTenants = await dbService.getLiveTenants();
-  const senderLinkedTenantMatches = liveTenants.filter((t: any) => t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+
+  // Archived/inactive tenants are not current tenant accounts. Remove their old
+  // Messenger link so it cannot lock out the same person from linking a current record.
+  const staleLinkedTenants = liveTenants.filter((t: any) => {
+    const status = String(t.status || "active").toLowerCase();
+    const psid = String(t.facebook_psid || t.messenger_psid || "").trim();
+    return status !== "active" && Boolean(psid) && (t.facebook_psid === senderPsid || t.messenger_psid === senderPsid);
+  });
+  for (const staleTenant of staleLinkedTenants) {
+    await dbService.unlinkTenantPsidInFirestore(staleTenant.id);
+    staleTenant.facebook_psid = "";
+    staleTenant.messenger_psid = "";
+  }
+
+  const senderLinkedTenantMatches = liveTenants.filter((t: any) =>
+    String(t.status || "active").toLowerCase() === "active" &&
+    (t.facebook_psid === senderPsid || t.messenger_psid === senderPsid)
+  );
   let linkedTenant = senderLinkedTenantMatches.length === 1 ? senderLinkedTenantMatches[0] : undefined;
   if (senderLinkedTenantMatches.length > 1) {
     const affectedTenant = senderLinkedTenantMatches[0];

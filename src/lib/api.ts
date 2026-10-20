@@ -193,55 +193,59 @@ export const api = {
 
   // Tenants CRUD
   async createTenant(data: Partial<Tenant>): Promise<Tenant> {
-    const newTenant: Tenant = {
-      id: `tenant-${Date.now()}`,
-      name: data.name || "Tenant",
-      contact: data.contact || "",
-      email: data.email || "",
-      room_id: data.room_id || "",
-      apartment_id: data.apartment_id || "",
-      rent_amount: Number(data.rent_amount) || 0,
-      deposit: Number(data.deposit) || 0,
-      advance_payment: Number(data.advance_payment) || Number(data.rent_amount) || 0,
-      deposit_balance: Number(data.deposit) || 0,
-      advance_balance: Number(data.advance_payment) || Number(data.rent_amount) || 0,
-      messenger_psid: data.messenger_psid || "",
-      status: "active",
-      move_in_date: data.move_in_date || new Date().toISOString().split("T")[0]!,
-      ...data
-    };
-    try {
-      const res = await fetch("/api/tenants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      // ignore
+    const res = await fetch("/api/tenants", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      return await res.json();
     }
-    await directUpsertDoc("tenants", newTenant.id, newTenant);
-    if (newTenant.room_id) {
-      await directUpsertDoc("rooms", newTenant.room_id, { status: "occupied" });
-    }
-    await directLogTransaction("tenant", "Created Tenant", `Tenant ${newTenant.name} registered`, "create");
-    return newTenant;
+    const errText = await res.text();
+    let errJson: any = null;
+    try { errJson = JSON.parse(errText); } catch {}
+    throw new Error(errJson?.message || errJson?.error || `Failed to create tenant (${res.status})`);
   },
 
   async updateTenant(id: string, data: Partial<Tenant>): Promise<Tenant> {
-    try {
-      const res = await fetch(`/api/tenants/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      // ignore
+    const res = await fetch(`/api/tenants/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      return await res.json();
     }
-    await directUpsertDoc("tenants", id, data);
-    await directLogTransaction("tenant", "Updated Tenant", `Tenant ${id} profile updated`, "update");
-    return { id, ...data } as Tenant;
+    const errText = await res.text();
+    let errJson: any = null;
+    try { errJson = JSON.parse(errText); } catch {}
+    throw new Error(errJson?.message || errJson?.error || `Failed to update tenant (${res.status})`);
+  },
+
+  async unlinkTenantMessenger(id: string): Promise<any> {
+    const res = await fetch(`/api/tenants/${id}/unlink-messenger`, {
+      method: "POST"
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+    const errText = await res.text();
+    let errJson: any = null;
+    try { errJson = JSON.parse(errText); } catch {}
+    throw new Error(errJson?.message || errJson?.error || `Failed to unlink Messenger (${res.status})`);
+  },
+
+  async unlinkAllMessenger(): Promise<any> {
+    const res = await fetch("/api/tenants/unlink-all-messenger", {
+      method: "POST"
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+    const errText = await res.text();
+    let errJson: any = null;
+    try { errJson = JSON.parse(errText); } catch {}
+    throw new Error(errJson?.message || errJson?.error || `Failed to unlink all Messenger accounts (${res.status})`);
   },
 
   async moveOutTenant(id: string): Promise<any> {

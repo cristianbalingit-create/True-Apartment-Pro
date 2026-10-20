@@ -522,7 +522,7 @@ export default function LandingPage() {
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-black/30 group-hover:via-slate-950/70 transition-colors" />
 
-                      {/* Top Row: Vacant badge & Inquiry Counter */}
+                      {/* Top Row: Vacant badge & Floors */}
                       <div className="relative z-10 flex items-center justify-between gap-1.5 flex-wrap">
                         <span className={`px-2.5 py-1 text-[10px] font-bold rounded-lg shadow-xs backdrop-blur-md border ${
                           vacantCount > 0 ? "bg-emerald-500/80 text-white border-emerald-400/40" : "bg-slate-700/80 text-slate-200 border-white/10"
@@ -531,10 +531,6 @@ export default function LandingPage() {
                         </span>
                         
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-amber-200 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-md border border-amber-400/30 flex items-center gap-1 shadow-xs">
-                            <MessageSquare className="w-3 h-3 text-brand-orange" />
-                            {aptInquiriesCount} {aptInquiriesCount === 1 ? "Inquiry" : "Inquiries"}
-                          </span>
                           <span className="text-[10px] font-medium text-white/80 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10">
                             {apt.total_floors} Floors
                           </span>
@@ -547,11 +543,6 @@ export default function LandingPage() {
                           <h3 className="text-base sm:text-lg font-black text-white group-hover:text-brand-orange transition-colors line-clamp-1 drop-shadow-xs">
                             {apt.name}
                           </h3>
-                          
-                          <div className="flex items-center gap-1.5 text-slate-200 text-xs mt-0.5 line-clamp-1">
-                            <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0" />
-                            <span className="truncate">{apt.address}</span>
-                          </div>
                         </div>
 
                         {apt.description && (
@@ -559,11 +550,6 @@ export default function LandingPage() {
                             {apt.description}
                           </p>
                         )}
-
-                        <div className="flex items-center gap-1.5 text-[11px] text-amber-200 font-semibold bg-black/40 backdrop-blur-xs px-2.5 py-0.5 rounded-md border border-white/10 w-fit">
-                          <Users className="w-3 h-3 text-brand-orange shrink-0" />
-                          <span>{aptInquiriesCount} {aptInquiriesCount === 1 ? "person has" : "people have"} inquired</span>
-                        </div>
 
                         <div className="border-t border-white/20 pt-2 flex items-center justify-between text-xs font-bold text-white">
                           <span className="text-[11px] text-slate-300 font-normal">Explore Units</span>

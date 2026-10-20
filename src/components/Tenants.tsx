@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { DBState, api } from "../lib/api";
 import { Tenant, Room, Apartment } from "../types";
-import { Archive, Users, Search, Plus, Edit2, LogOut, Mail, Phone, Calendar, DollarSign, X, Check, Eye, Receipt, Printer, FileText, MessageCircle, CheckCircle2, Copy, ExternalLink, Send, Building } from "lucide-react";
+import { Archive, Users, Search, Plus, Edit2, LogOut, Mail, Phone, Calendar, DollarSign, X, Check, Eye, Receipt, Printer, FileText, MessageCircle, CheckCircle2, Copy, ExternalLink, Send, Building, Unlink } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface TenantsProps {
@@ -95,12 +95,43 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
     setFormRoomId(roomId);
     const room = db.rooms.find((r) => r.id === roomId);
     if (room) {
-      setFormRentAmount(room.rent_amount);
-      setFormDeposit(room.rent_amount);
-      setFormAdvancePayment(room.rent_amount);
+      const rAmount = Number(room.rent_amount) || 0;
+      setFormRentAmount(rAmount);
+      setFormDeposit(rAmount);
+      setFormAdvancePayment(rAmount);
       if (room.apartment_id && !formApartmentId) {
         setFormApartmentId(room.apartment_id);
       }
+    }
+  };
+
+  const handleUnlinkMessenger = async (tenant: Tenant) => {
+    if (!confirm(`Are you sure you want to unlink Facebook Messenger from ${tenant.name}? This will remove the linked Messenger account and allow relinking with verification.`)) return;
+    try {
+      setLoading(true);
+      await api.unlinkTenantMessenger(tenant.id);
+      onRefresh();
+      alert(`Messenger account unlinked from ${tenant.name}.`);
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || "Failed to unlink Messenger account.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnlinkAllMessenger = async () => {
+    if (!confirm("Are you sure you want to disconnect/remove all linked Messenger accounts from all current tenants?")) return;
+    try {
+      setLoading(true);
+      const res = await api.unlinkAllMessenger();
+      onRefresh();
+      alert(res?.message || "All connected Messenger accounts have been removed.");
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || "Failed to unlink all Messenger accounts.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -114,25 +145,35 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
       alert("Please select a room in the chosen apartment.");
       return;
     }
+    if (!formName.trim()) {
+      alert("Please enter the tenant full legal name.");
+      return;
+    }
+    if (!formContact.trim()) {
+      alert("Please enter the tenant contact phone number.");
+      return;
+    }
     setLoading(true);
 
     const selectedRoom = db.rooms.find((r) => r.id === formRoomId);
     const apartmentId = formApartmentId || (selectedRoom ? selectedRoom.apartment_id : "");
     const cleanFb = formMessengerPsid.trim().replace(/^@+/, "");
 
-    // For a new tenant, room pricing is authoritative; do not trust editable form values.
-    const roomRent = Number(selectedRoom?.rent_amount ?? formRentAmount ?? 0);
+    const rentVal = Number(formRentAmount) > 0 ? Number(formRentAmount) : Number(selectedRoom?.rent_amount || 0);
+    const depVal = Number(formDeposit) >= 0 ? Number(formDeposit) : rentVal;
+    const advVal = Number(formAdvancePayment) >= 0 ? Number(formAdvancePayment) : rentVal;
+
     const payload = {
-      name: formName,
-      contact: formContact,
-      email: formEmail,
+      name: formName.trim(),
+      contact: formContact.trim(),
+      email: formEmail.trim(),
       room_id: formRoomId,
       apartment_id: apartmentId,
-      rent_amount: selectedTenant ? Number(formRentAmount) : roomRent,
-      deposit: selectedTenant ? Number(formDeposit) : roomRent,
-      advance_payment: selectedTenant ? Number(formAdvancePayment) : roomRent,
-      messenger_psid: cleanFb || `${formName.toLowerCase().replace(/\s+/g, ".")}.fb`,
-      move_in_date: formMoveInDate,
+      rent_amount: rentVal,
+      deposit: depVal,
+      advance_payment: advVal,
+      messenger_psid: cleanFb, // Only if explicitly entered by admin, never auto-generated!
+      move_in_date: formMoveInDate || new Date().toISOString().split("T")[0],
     };
 
     try {
@@ -145,9 +186,9 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
       }
       setShowAddEditDialog(false);
       onRefresh();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("An error occurred while saving tenant information.");
+      alert(err?.message || "An error occurred while saving tenant information.");
     } finally {
       setLoading(false);
     }
@@ -390,14 +431,10 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
   // Active apartments only (suspended buildings are not available for new lease assignments)
   const activeApartments = db.apartments.filter((a) => a.status === "active");
 
-  // Filter rooms belonging to the selected apartment that are vacant,
-  // or the currently assigned room if editing this tenant.
+  // Filter rooms belonging to the selected apartment
   const availableRoomsForForm = db.rooms.filter((r) => {
     if (!formApartmentId) return false;
-    if (r.apartment_id !== formApartmentId) return false;
-    if (r.status === "vacant") return true;
-    if (selectedTenant && r.id === selectedTenant.room_id) return true;
-    return false;
+    return r.apartment_id === formApartmentId;
   });
 
   const getApartmentName = (id: string) => {
@@ -442,6 +479,16 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
           <p className="text-slate-500 mt-0.5 text-sm">Review rental accounts, configure lease properties, and record checkouts.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {db.tenants.some((t) => t.messenger_psid || (t as any).facebook_psid) && (
+            <button
+              onClick={handleUnlinkAllMessenger}
+              className="flex items-center gap-2 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-sm rounded-xl transition-all shadow-xs"
+              title="Remove connected Messenger accounts from all tenants"
+            >
+              <Unlink className="w-4.5 h-4.5 text-rose-600" />
+              <span>Unlink All Messenger</span>
+            </button>
+          )}
           <button
             onClick={() => setStatusFilter(statusFilter === "moved_out" ? "active" : "moved_out")}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl transition-all"
@@ -528,12 +575,27 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
                         <Phone className="w-3.5 h-3.5 text-slate-400" /> {tenant.contact}
                       </div>
-                      {tenant.messenger_psid && (
+                      {tenant.messenger_psid ? (
                         <div className="text-xs text-blue-600 font-medium flex items-center gap-1.5 mt-0.5" title={`Facebook: ${tenant.messenger_psid}`}>
                           <span className="font-bold text-[9px] bg-blue-50 text-blue-600 px-1 py-0.5 rounded border border-blue-200">FB</span>
-                          <span className="truncate max-w-[160px]">
+                          <span className="truncate max-w-[120px]">
                             {tenant.messenger_psid.replace(/^https?:\/\/(www\.)?(messenger|facebook)\.com\/(t\/)?/, "").replace(/^@/, "")}
                           </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUnlinkMessenger(tenant);
+                            }}
+                            className="text-[10px] text-red-600 hover:text-red-700 hover:underline font-bold ml-0.5 cursor-pointer"
+                            title="Unlink this Messenger account"
+                          >
+                            Unlink
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-400 font-normal flex items-center gap-1 mt-0.5">
+                          <span>Not linked to Messenger</span>
                         </div>
                       )}
                     </td>
@@ -655,7 +717,31 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                         <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="text-xs font-bold uppercase text-slate-400">Advance Balance</div><div className="mt-1 text-lg font-black text-slate-900">₱{Number(tenant.advance_balance ?? tenant.advance_payment ?? 0).toLocaleString()}</div></div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <div className="border border-slate-100 rounded-xl p-5 space-y-3"><h3 className="font-black text-slate-900">Tenant Information</h3><div className="text-sm"><span className="text-slate-400">Email:</span> <span className="font-semibold text-slate-700">{tenant.email || "N/A"}</span></div><div className="text-sm"><span className="text-slate-400">Phone:</span> <span className="font-semibold text-slate-700">{tenant.contact || "N/A"}</span></div><div className="text-sm"><span className="text-slate-400">Facebook name / Messenger:</span> <span className="font-semibold text-slate-700 break-all">{tenant.messenger_psid ? tenant.messenger_psid.replace(/^https?:\/\/(www\.)?(messenger|facebook)\.com\/(t\/)?/, "").replace(/^@/, "") : "Not linked"}</span></div></div>
+                        <div className="border border-slate-100 rounded-xl p-5 space-y-3">
+                          <h3 className="font-black text-slate-900">Tenant Information</h3>
+                          <div className="text-sm"><span className="text-slate-400">Email:</span> <span className="font-semibold text-slate-700">{tenant.email || "N/A"}</span></div>
+                          <div className="text-sm"><span className="text-slate-400">Phone:</span> <span className="font-semibold text-slate-700">{tenant.contact || "N/A"}</span></div>
+                          <div className="text-sm flex items-center justify-between gap-2">
+                            <div>
+                              <span className="text-slate-400">Facebook / Messenger:</span>{" "}
+                              <span className="font-semibold text-slate-700 break-all">
+                                {tenant.messenger_psid ? tenant.messenger_psid.replace(/^https?:\/\/(www\.)?(messenger|facebook)\.com\/(t\/)?/, "").replace(/^@/, "") : "Not linked"}
+                              </span>
+                            </div>
+                            {tenant.messenger_psid && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleUnlinkMessenger(tenant);
+                                  setViewTenant({ ...tenant, messenger_psid: "", facebook_psid: "" });
+                                }}
+                                className="px-2.5 py-1 text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-lg border border-red-200 transition-colors shrink-0"
+                              >
+                                Unlink
+                              </button>
+                            )}
+                          </div>
+                        </div>
                         <div className="border border-slate-100 rounded-xl p-5 space-y-3"><h3 className="font-black text-slate-900">Lease Information</h3><div className="text-sm"><span className="text-slate-400">Apartment:</span> <span className="font-semibold text-slate-700">{apartmentName}</span></div><div className="text-sm"><span className="text-slate-400">Room:</span> <span className="font-semibold text-slate-700">Room {roomNumber}</span></div><div className="text-sm"><span className="text-slate-400">Move-in:</span> <span className="font-semibold text-slate-700">{tenant.move_in_date || "N/A"}</span></div>{tenant.move_out_date && <div className="text-sm"><span className="text-slate-400">Move-out:</span> <span className="font-semibold text-slate-700">{tenant.move_out_date}</span></div>}</div>
                       </div>
                     </>
@@ -769,15 +855,20 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                         {!formApartmentId ? (
                           <option value="">← Select an apartment first</option>
                         ) : availableRoomsForForm.length === 0 ? (
-                          <option value="">No Available Rooms in this Building</option>
+                          <option value="">No Rooms in this Building</option>
                         ) : (
                           <>
                             <option value="">Select Room</option>
-                            {availableRoomsForForm.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                Rm {r.room_number} (Floor {r.floor} • ₱{(Number(r.rent_amount) || 0).toLocaleString()}/mo)
-                              </option>
-                            ))}
+                            {availableRoomsForForm.map((r) => {
+                              const isVacant = r.status === "vacant";
+                              const occupant = db.tenants.find((t) => t.room_id === r.id && t.status === "active");
+                              const isCurrentTenantRoom = selectedTenant && r.id === selectedTenant.room_id;
+                              return (
+                                <option key={r.id} value={r.id}>
+                                  Rm {r.room_number} (Floor {r.floor} • ₱{(Number(r.rent_amount) || 0).toLocaleString()}/mo - {isCurrentTenantRoom ? "Current Room" : isVacant ? "Vacant" : `Occupied${occupant ? ` by ${occupant.name}` : ""}`})
+                                </option>
+                              );
+                            })}
                           </>
                         )}
                       </select>
@@ -856,10 +947,10 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       <input
                         type="number"
                         required
+                        min="0"
                         value={formRentAmount || ""}
-                        disabled={!selectedTenant}
                         onChange={(e) => setFormRentAmount(Number(e.target.value))}
-                        className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 text-sm"
                       />
                     </div>
                   </div>
@@ -870,10 +961,10 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       <input
                         type="number"
                         required
+                        min="0"
                         value={formDeposit || ""}
-                        disabled={!selectedTenant}
                         onChange={(e) => setFormDeposit(Number(e.target.value))}
-                        className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 text-sm"
                       />
                     </div>
                   </div>
@@ -884,16 +975,18 @@ export default function Tenants({ db, onRefresh }: TenantsProps) {
                       <input
                         type="number"
                         required
+                        min="0"
                         value={formAdvancePayment || ""}
-                        disabled={!selectedTenant}
                         onChange={(e) => setFormAdvancePayment(Number(e.target.value))}
-                        className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-orange font-medium text-slate-800 text-sm"
                       />
                     </div>
                   </div>
                 </div>
 
-                {!selectedTenant && <p className="text-xs text-slate-500 -mt-2">Rent, one-month security deposit, and one-month advance payment are set automatically from the selected room and cannot be edited when adding a tenant.</p>}
+                <p className="text-xs text-slate-500 -mt-2">
+                  Pre-filled with room defaults (1 month rent, 1 month deposit, 1 month advance). You can customize any amount if needed.
+                </p>
 
                 <div className="flex gap-3 pt-4 border-t border-slate-100">
                   <button

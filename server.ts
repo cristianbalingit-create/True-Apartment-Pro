@@ -410,7 +410,7 @@ const initialData = {
       apartment_id: "apt-1",
       rent_amount: 12000,
       deposit: 24000,
-      messenger_psid: "john.doe.messenger",
+      messenger_psid: "",
       status: "active",
       move_in_date: "2026-01-15"
     },
@@ -423,7 +423,7 @@ const initialData = {
       apartment_id: "apt-1",
       rent_amount: 25000,
       deposit: 50000,
-      messenger_psid: "maria.santos.fb",
+      messenger_psid: "",
       status: "active",
       move_in_date: "2025-11-01"
     },
@@ -436,7 +436,7 @@ const initialData = {
       apartment_id: "apt-2",
       rent_amount: 19000,
       deposit: 38000,
-      messenger_psid: "juan.dc.pro",
+      messenger_psid: "",
       status: "active",
       move_in_date: "2026-03-01"
     }
@@ -1094,45 +1094,142 @@ app.put("/api/rooms/:id", (req, res) => {
 });
 
 // 5. TENANTS CRUD & Room Assignment Logic
-app.post("/api/tenants", (req, res) => {
-  const db = readDB();
-  const dep = Number(req.body.deposit || 0);
-  const adv = Number(req.body.advance_payment || 0);
+app.post("/api/tenants", async (req, res) => {
+  try {
+    const db = readDB();
+    const dep = Number(req.body.deposit ?? req.body.rent_amount ?? 0);
+    const adv = Number(req.body.advance_payment ?? req.body.rent_amount ?? 0);
+    const rent = Number(req.body.rent_amount || 0);
+    const cleanPsid = String(req.body.messenger_psid || "").trim().replace(/^@+/, "");
 
-  const newTenant = {
-    id: `tenant-${Date.now()}`,
-    ...req.body,
-    deposit: dep,
-    advance_payment: adv,
-    deposit_balance: dep,
-    advance_balance: adv,
-    status: "active"
-  };
-  db.tenants = db.tenants || [];
-  db.tenants.unshift(newTenant);
+    const newTenant = {
+      id: `tenant-${Date.now()}`,
+      name: String(req.body.name || "Tenant").trim(),
+      contact: String(req.body.contact || "").trim(),
+      email: String(req.body.email || "").trim(),
+      room_id: String(req.body.room_id || "").trim(),
+      apartment_id: String(req.body.apartment_id || "").trim(),
+      rent_amount: rent,
+      deposit: dep,
+      advance_payment: adv,
+      deposit_balance: dep,
+      advance_balance: adv,
+      messenger_psid: cleanPsid,
+      facebook_psid: cleanPsid,
+      move_in_date: req.body.move_in_date || new Date().toISOString().split("T")[0],
+      status: "active"
+    };
 
-  // Auto assign room: Set room to occupied and assign tenant_id
-  let roomNum = "N/A";
-  const roomIdx = db.rooms.findIndex((r: any) => r.id === newTenant.room_id);
-  if (roomIdx !== -1) {
-    db.rooms[roomIdx].status = "occupied";
-    db.rooms[roomIdx].tenant_id = newTenant.id;
-    roomNum = db.rooms[roomIdx].room_number;
+    db.tenants = db.tenants || [];
+    db.tenants.unshift(newTenant);
+
+    // Auto assign room: Set room to occupied and assign tenant_id
+    let roomNum = "N/A";
+    const roomIdx = db.rooms.findIndex((r: any) => r.id === newTenant.room_id);
+    if (roomIdx !== -1) {
+      db.rooms[roomIdx].status = "occupied";
+      db.rooms[roomIdx].tenant_id = newTenant.id;
+      roomNum = db.rooms[roomIdx].room_number;
+      if (!newTenant.apartment_id && db.rooms[roomIdx].apartment_id) {
+        newTenant.apartment_id = db.rooms[roomIdx].apartment_id;
+      }
+    }
+
+    logTransaction(db, {
+      category: "tenant",
+      action: "move_in",
+      title: "New Tenant Registered",
+      details: `Onboarded ${newTenant.name} into Room ${roomNum}. Security Deposit: ₱${dep.toLocaleString()}, Advance Rent: ₱${adv.toLocaleString()}.`,
+      amount: dep + adv,
+      tenant_id: newTenant.id,
+      tenant_name: newTenant.name,
+      room_number: roomNum
+    });
+
+    writeDB(db);
+
+    // Upsert to Firestore directly so live state is immediately synced
+    try {
+      await dbService.upsertDoc("tenants", newTenant.id, newTenant);
+      if (roomIdx !== -1) {
+        await dbService.upsertDoc("rooms", newTenant.room_id, db.rooms[roomIdx]);
+      }
+    } catch (fsErr) {
+      console.warn("Notice: Live Firestore sync for new tenant:", fsErr);
+    }
+
+    res.json(newTenant);
+  } catch (err: any) {
+    console.error("Error creating tenant:", err);
+    res.status(500).json({ error: err?.message || "Failed to create tenant" });
   }
+});
 
-  logTransaction(db, {
-    category: "tenant",
-    action: "move_in",
-    title: "New Tenant Registered",
-    details: `Onboarded ${newTenant.name} into Room ${roomNum}. Security Deposit: ₱${dep.toLocaleString()}, Advance Rent: ₱${adv.toLocaleString()}.`,
-    amount: dep + adv,
-    tenant_id: newTenant.id,
-    tenant_name: newTenant.name,
-    room_number: roomNum
-  });
+// Unlink Messenger PSID from a single tenant
+app.post("/api/tenants/:id/unlink-messenger", async (req, res) => {
+  try {
+    const db = readDB();
+    const { id } = req.params;
+    const tenant = (db.tenants || []).find((t: any) => t.id === id);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
 
-  writeDB(db);
-  res.json(newTenant);
+    tenant.messenger_psid = "";
+    tenant.facebook_psid = "";
+    delete tenant.messenger_linked;
+    delete tenant.messenger_linked_at;
+    delete tenant.messenger_user_id;
+
+    logTransaction(db, {
+      category: "tenant",
+      action: "status_change",
+      title: "Messenger Account Unlinked",
+      details: `Admin unlinked Messenger account from tenant ${tenant.name} (${id}).`,
+      tenant_id: tenant.id,
+      tenant_name: tenant.name
+    });
+
+    writeDB(db);
+    await dbService.unlinkTenantPsidInFirestore(id);
+    res.json({ success: true, message: `Unlinked Messenger account from ${tenant.name}` });
+  } catch (err: any) {
+    console.error("Error unlinking tenant Messenger:", err);
+    res.status(500).json({ error: err?.message || "Failed to unlink Messenger" });
+  }
+});
+
+// Bulk unlink all connected Messenger accounts across all tenants
+app.post("/api/tenants/unlink-all-messenger", async (req, res) => {
+  try {
+    const db = readDB();
+    let count = 0;
+    for (const tenant of (db.tenants || [])) {
+      if (tenant.messenger_psid || tenant.facebook_psid) {
+        tenant.messenger_psid = "";
+        tenant.facebook_psid = "";
+        delete tenant.messenger_linked;
+        delete tenant.messenger_linked_at;
+        delete tenant.messenger_user_id;
+        await dbService.unlinkTenantPsidInFirestore(tenant.id);
+        count++;
+      }
+    }
+
+    logTransaction(db, {
+      category: "tenant",
+      action: "status_change",
+      title: "All Messenger Accounts Unlinked",
+      details: `Admin cleared connected Messenger accounts from ${count} tenants.`,
+      performed_by: "Admin"
+    });
+
+    writeDB(db);
+    res.json({ success: true, count, message: `Unlinked ${count} Messenger accounts.` });
+  } catch (err: any) {
+    console.error("Error bulk unlinking Messenger accounts:", err);
+    res.status(500).json({ error: err?.message || "Failed to unlink all Messenger accounts" });
+  }
 });
 
 app.put("/api/tenants/:id", async (req, res) => {

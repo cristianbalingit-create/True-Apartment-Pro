@@ -679,6 +679,23 @@ const writeDB = (data: any) => {
   dbService.saveDB(data);
 };
 
+// Send a courteous Messenger thank-you when a tenant is archived/moved out.
+// Messaging failure must never block the archive or room-release operation.
+const sendTenantArchiveThankYou = async (tenant: any, apartmentName?: string) => {
+  const psid = String(tenant?.messenger_psid || tenant?.facebook_psid || "").trim();
+  if (!psid) return { sent: false, reason: "messenger_not_linked" };
+  const property = apartmentName ? ` at ${apartmentName}` : "";
+  const message = `Hi ${String(tenant?.name || "there").trim()}, thank you for staying with us${property}. We truly appreciate your trust and the opportunity to serve you. We wish you all the best, and you are always welcome to contact us again in the future.\n\nThank you!`;
+  try {
+    const result = await sendFacebookMessage(psid, { text: message });
+    if (!result.success) console.warn("Tenant archive thank-you Messenger message was not sent:", result.error || "Unknown Messenger error");
+    return { sent: !!result.success, reason: result.success ? undefined : result.error };
+  } catch (err: any) {
+    console.warn("Tenant archive thank-you Messenger send failed:", err?.message || err);
+    return { sent: false, reason: "messenger_send_failed" };
+  }
+};
+
 // Initialize DB state
 readDB();
 
@@ -1065,13 +1082,14 @@ app.post("/api/tenants", (req, res) => {
   res.json(newTenant);
 });
 
-app.put("/api/tenants/:id", (req, res) => {
+app.put("/api/tenants/:id", async (req, res) => {
   const db = readDB();
   const { id } = req.params;
   const index = db.tenants.findIndex((t: any) => t.id === id);
   if (index !== -1) {
     const oldTenant = db.tenants[index];
     const updatedTenant = { ...oldTenant, ...req.body };
+    const newlyArchived = oldTenant.status !== "moved_out" && updatedTenant.status === "moved_out";
     db.tenants[index] = updatedTenant;
 
     // Handle room reassignment if room_id changed
@@ -1118,6 +1136,10 @@ app.put("/api/tenants/:id", (req, res) => {
     });
 
     writeDB(db);
+    if (newlyArchived) {
+      const apt = (db.apartments || []).find((a: any) => a.id === updatedTenant.apartment_id);
+      await sendTenantArchiveThankYou(updatedTenant, apt?.name);
+    }
     res.json(updatedTenant);
   } else {
     res.status(404).json({ message: "Tenant not found" });
@@ -1125,11 +1147,12 @@ app.put("/api/tenants/:id", (req, res) => {
 });
 
 // Move Out Endpoint
-app.post("/api/tenants/:id/move-out", (req, res) => {
+app.post("/api/tenants/:id/move-out", async (req, res) => {
   const db = readDB();
   const { id } = req.params;
   const tenantIdx = db.tenants.findIndex((t: any) => t.id === id);
   if (tenantIdx !== -1) {
+    const wasAlreadyArchived = db.tenants[tenantIdx].status === "moved_out";
     db.tenants[tenantIdx].status = "moved_out";
     db.tenants[tenantIdx].move_out_date = new Date().toISOString().split("T")[0];
     
@@ -1154,6 +1177,11 @@ app.post("/api/tenants/:id/move-out", (req, res) => {
     });
 
     writeDB(db);
+    if (!wasAlreadyArchived) {
+      const archivedTenant = db.tenants[tenantIdx];
+      const apt = (db.apartments || []).find((a: any) => a.id === archivedTenant.apartment_id);
+      await sendTenantArchiveThankYou(archivedTenant, apt?.name);
+    }
     res.json(db.tenants[tenantIdx]);
   } else {
     res.status(404).json({ message: "Tenant not found" });

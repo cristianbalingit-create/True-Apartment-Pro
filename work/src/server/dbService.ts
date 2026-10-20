@@ -120,15 +120,15 @@ class DatabaseService {
     const envProjectId = (process.env.FIREBASE_PROJECT_ID || "").trim();
     const configProjectId = (localConfig.projectId || "").trim();
 
-    const realProjectId = isValidGcpProjectId(configProjectId)
-      ? configProjectId
-      : (isValidGcpProjectId(envProjectId) ? envProjectId : "gen-lang-client-0439520113");
+    const realProjectId = isValidGcpProjectId(envProjectId)
+      ? envProjectId
+      : (isValidGcpProjectId(configProjectId) ? configProjectId : "gen-lang-client-0439520113");
 
     const envDbId = (process.env.FIREBASE_DATABASE_ID || "").trim();
     const configDbId = (localConfig.firestoreDatabaseId || "").trim();
-    const realDatabaseId = (configDbId && configDbId !== "(default)")
-      ? configDbId
-      : (envDbId || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55");
+    const realDatabaseId = (envDbId && envDbId !== "(default)")
+      ? envDbId
+      : ((configDbId && configDbId !== "(default)") ? configDbId : "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55");
 
     this.config = {
       apiKey: process.env.FIREBASE_API_KEY || localConfig.apiKey || "AIzaSyB-xnApP91609agpMBhPPtHPaC5MB4Sh08",
@@ -195,7 +195,9 @@ class DatabaseService {
           sa.private_key = sa.private_key.replace(/\\n/g, "\n");
         }
         credentialInstance = cert(sa);
-        if (sa.project_id) this.config.projectId = sa.project_id;
+        if (sa.project_id && sa.project_id !== this.config.projectId) {
+          console.warn("Firebase service-account project differs from the configured Firestore target. Ensure this service account has access to the configured target project.");
+        }
         hasAdminCredential = true;
       } catch (saErr: any) {
         console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:", saErr?.message || saErr);

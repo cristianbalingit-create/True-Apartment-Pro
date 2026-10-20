@@ -23,21 +23,23 @@ import type {
 } from "../types";
 import type { DBState } from "./api";
 
+const clientEnv = (import.meta as any).env || {};
 const firebaseConfig = {
-  apiKey: "AIzaSyB-xnApP91609agpMBhPPtHPaC5MB4Sh08",
-  authDomain: "gen-lang-client-0439520113.firebaseapp.com",
-  projectId: "gen-lang-client-0439520113",
-  storageBucket: "gen-lang-client-0439520113.firebasestorage.app",
-  messagingSenderId: "444816417263",
-  appId: "1:444816417263:web:ece8278909a1cfce47161a"
+  apiKey: clientEnv.VITE_FIREBASE_API_KEY || "AIzaSyB-xnApP91609agpMBhPPtHPaC5MB4Sh08",
+  authDomain: clientEnv.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0439520113.firebaseapp.com",
+  projectId: clientEnv.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0439520113",
+  storageBucket: clientEnv.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0439520113.firebasestorage.app",
+  messagingSenderId: clientEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "444816417263",
+  appId: clientEnv.VITE_FIREBASE_APP_ID || "1:444816417263:web:ece8278909a1cfce47161a"
 };
 
-const DATABASE_ID = "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55";
+const DATABASE_ID = clientEnv.VITE_FIREBASE_DATABASE_ID || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55";
+const CLIENT_APP_NAME = "apartmentflow-client";
 
 function getClientFirebaseApp(): FirebaseApp {
-  const apps = getApps();
-  if (apps.length > 0) return apps[0]!;
-  return initializeApp(firebaseConfig);
+  const existingApp = getApps().find((app) => app.name === CLIENT_APP_NAME);
+  if (existingApp) return existingApp;
+  return initializeApp(firebaseConfig, CLIENT_APP_NAME);
 }
 
 export function getClientDb(): Firestore {

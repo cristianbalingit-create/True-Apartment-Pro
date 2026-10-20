@@ -125,15 +125,19 @@ class DatabaseService {
     const envProjectId = (process.env.FIREBASE_PROJECT_ID || "").trim();
     const configProjectId = (localConfig.projectId || "").trim();
 
-    const realProjectId = isValidGcpProjectId(configProjectId)
-      ? configProjectId
-      : (isValidGcpProjectId(envProjectId) ? envProjectId : "gen-lang-client-0439520113");
+    // Production environment values must win over bundled AI Studio defaults so
+    // Vercel can explicitly target the same Firestore project/database as AI Studio.
+    const realProjectId = isValidGcpProjectId(envProjectId)
+      ? envProjectId
+      : (isValidGcpProjectId(configProjectId) ? configProjectId : "gen-lang-client-0439520113");
 
     const envDbId = (process.env.FIREBASE_DATABASE_ID || "").trim();
     const configDbId = (localConfig.firestoreDatabaseId || "").trim();
-    const realDatabaseId = (configDbId && configDbId !== "(default)")
-      ? configDbId
-      : (envDbId || "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55");
+    const realDatabaseId = (envDbId && envDbId !== "(default)")
+      ? envDbId
+      : ((configDbId && configDbId !== "(default)")
+          ? configDbId
+          : "ai-studio-apartmentpro-4ddedeef-b64f-41bb-85a6-1593d7fc4f55");
 
     this.config = {
       apiKey: process.env.FIREBASE_API_KEY || localConfig.apiKey || "AIzaSyB-xnApP91609agpMBhPPtHPaC5MB4Sh08",
@@ -200,7 +204,12 @@ class DatabaseService {
           sa.private_key = sa.private_key.replace(/\\n/g, "\n");
         }
         credentialInstance = cert(sa);
-        if (sa.project_id) this.config.projectId = sa.project_id;
+        // Keep the target database project controlled by FIREBASE_PROJECT_ID / app config.
+        // A service-account key may originate from another IAM project; silently replacing
+        // the target project here can make the backend read a different database than the UI.
+        if (sa.project_id && sa.project_id !== this.config.projectId) {
+          console.warn("Firebase service-account project differs from the configured Firestore target. Ensure this service account has access to the configured target project.");
+        }
         hasAdminCredential = true;
       } catch (saErr: any) {
         console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:", saErr?.message || saErr);
@@ -426,7 +435,7 @@ class DatabaseService {
     return state;
   }
 
-  // Synchronize state from Firestore into memory, or auto-migrate if empty
+  // Synchronize authoritative state from Firestore into memory. Never auto-import local demo data.
   public async syncFromFirestore(): Promise<DBState> {
     if (!this.isConnectedToFirestore) {
       return this.getDB();
@@ -446,16 +455,14 @@ class DatabaseService {
             });
             return { colName, items };
           } catch (err: any) {
-            console.warn(`Admin sync warning for ${colName}:`, err?.message || err);
-            return { colName, items: [] };
+            console.error(`Admin Firestore read failed for ${colName}:`, err?.message || err);
+            throw new Error(`Firestore read failed for collection ${colName}: ${err?.message || err}`);
           }
         });
-        const results = await Promise.allSettled(fetchPromises);
-        for (const res of results) {
-          if (res.status === "fulfilled") {
-            (newState as any)[res.value.colName] = res.value.items;
-            totalFetched += res.value.items.length;
-          }
+        const results = await Promise.all(fetchPromises);
+        for (const result of results) {
+          (newState as any)[result.colName] = result.items;
+          totalFetched += result.items.length;
         }
       } else if (this.clientFirestore) {
         const fetchPromises = DB_COLLECTIONS.map(async (colName) => {
@@ -467,23 +474,22 @@ class DatabaseService {
             });
             return { colName, items };
           } catch (err: any) {
-            console.warn(`Client sync warning for ${colName}:`, err?.message || err);
-            return { colName, items: [] };
+            console.error(`Client Firestore read failed for ${colName}:`, err?.message || err);
+            throw new Error(`Firestore read failed for collection ${colName}: ${err?.message || err}`);
           }
         });
-        const results = await Promise.allSettled(fetchPromises);
-        for (const res of results) {
-          if (res.status === "fulfilled") {
-            (newState as any)[res.value.colName] = res.value.items;
-            totalFetched += res.value.items.length;
-          }
+        const results = await Promise.all(fetchPromises);
+        for (const result of results) {
+          (newState as any)[result.colName] = result.items;
+          totalFetched += result.items.length;
         }
       }
 
+      // An actually empty Firestore database is a valid state. Do not copy
+      // bundled demo/local data into production automatically; that can mix
+      // unrelated records into the live database.
       if (totalFetched === 0) {
-        console.log("Firestore collections are empty. Auto-migrating data.json into Firestore...");
-        await this.migrateDataJsonToFirestore();
-        return this.syncFromFirestore();
+        console.warn("Firestore returned zero documents across configured collections; preserving an empty live state without importing data.json.");
       }
 
       const rawRooms = Array.isArray((newState as any).rooms)
@@ -529,12 +535,17 @@ class DatabaseService {
 
       return this.inMemoryCache;
     } catch (err: any) {
-      console.error("Error reading collections from Firestore:", err.message);
-      return this.getDB();
+      // Never disguise a Firestore read failure as valid local/demo data.
+      // Mark the connection unhealthy so the API blocks mutations until a fresh
+      // runtime can initialize and read the full authoritative dataset.
+      this.isConnectedToFirestore = false;
+      this.connectionError = err?.message || String(err);
+      console.error("Error reading collections from Firestore:", this.connectionError);
+      throw err;
     }
   }
 
-  // Migrate records from data.json into Firestore
+  // Explicit legacy migration helper. Do not call automatically on startup.
   public async migrateDataJsonToFirestore(): Promise<{ success: boolean; migrated: Record<string, number> }> {
     const localData = this.loadFallbackData();
     const migratedCounts: Record<string, number> = {};

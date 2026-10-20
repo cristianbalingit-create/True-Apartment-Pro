@@ -238,6 +238,32 @@ dbService.initialize().catch((err: any) => {
   console.warn("DB Service initialization async notice:", err?.message || err);
 });
 
+// Keep production API requests on one authoritative database. Wait for Firebase
+// initialization and fail closed instead of serving/writing local demo state.
+app.use("/api", async (req, res, next) => {
+  const originalPath = String(req.originalUrl || req.url || "").split("?")[0];
+  if (originalPath === "/api/health" || originalPath === "/api/db/health" || originalPath.startsWith("/api/webhook/") || originalPath === "/api/webhook/facebook") {
+    return next();
+  }
+  try {
+    await dbService.ensureInitialized();
+    const health = await dbService.getHealth();
+    if (!health.firestoreConnected) {
+      return res.status(503).json({
+        error: "FIRESTORE_UNAVAILABLE",
+        message: "The live Firestore database is unavailable. Apartment Flow blocked this request instead of using local/demo data.",
+        projectId: health.projectId,
+        databaseId: health.databaseId,
+        connectionError: health.connectionError || null
+      });
+    }
+    return next();
+  } catch (err: any) {
+    console.error("Database readiness check failed:", err?.message || err);
+    return res.status(503).json({ error: "FIRESTORE_UNAVAILABLE", message: "The live database is not ready. Please retry shortly." });
+  }
+});
+
 // File Database path resolution with Vercel serverless /tmp fallback
 const getDbPath = () => {
   if (process.env.VERCEL) {
@@ -936,9 +962,36 @@ app.post("/api/auth/login", (req, res) => {
   });
 });
 
-// 2. Fetch full DB state
-app.get("/api/db", (req, res) => {
-  res.json(readDB());
+// 2. Fetch full DB state from the authoritative live Firestore database.
+// Wait for initialization/synchronization before returning anything, and never
+// silently serve local demo data as if it were production data.
+app.get("/api/db", async (req, res) => {
+  try {
+    await dbService.ensureInitialized();
+    const health = await dbService.getHealth();
+    if (!health.firestoreConnected) {
+      return res.status(503).json({
+        error: "FIRESTORE_UNAVAILABLE",
+        message: "Live Firestore is not connected. Local/demo data was not served. Check Vercel Firebase environment variables and service-account permissions.",
+        database: health.database,
+        projectId: health.projectId,
+        databaseId: health.databaseId,
+        connectionError: health.connectionError || null
+      });
+    }
+    const liveState = await dbService.syncFromFirestore();
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    return res.json(liveState);
+  } catch (err: any) {
+    console.error("Failed to return authoritative Firestore state:", err?.message || err);
+    return res.status(503).json({
+      error: "FIRESTORE_READ_FAILED",
+      message: "Could not read the live Firestore data completely. No fallback dataset was returned.",
+      detail: process.env.NODE_ENV === "production" ? undefined : (err?.message || String(err))
+    });
+  }
 });
 
 // 3. APARTMENTS CRUD

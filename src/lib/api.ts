@@ -36,18 +36,19 @@ export interface DBState {
 }
 
 export const api = {
-  // Fetch full state - checks /api/db first; on 404/failure, reads directly from Firestore
+  // The server API is the single source of truth. Never silently switch to a
+  // browser-side Firestore connection, which could point at a different dataset.
   async getDB(): Promise<DBState> {
-    try {
-      const res = await fetch("/api/db");
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (e) {
-      console.warn("Backend /api/db unavailable, falling back to direct Firestore:", e);
+    const res = await fetch("/api/db", { cache: "no-store", headers: { "Cache-Control": "no-cache" } });
+    if (!res.ok) {
+      let detail = "The live database could not be loaded.";
+      try {
+        const body = await res.json();
+        if (body?.message) detail = body.message;
+      } catch { /* keep safe default */ }
+      throw new Error(detail);
     }
-    // Direct Cloud Firestore fallback
-    return await fetchDirectFromFirestore();
+    return await res.json();
   },
 
   // Auth login - checks /api/auth/login first; on 404, performs client credential validation

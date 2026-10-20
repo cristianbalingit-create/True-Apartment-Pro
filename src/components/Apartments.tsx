@@ -66,6 +66,7 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
   const [roomDescription, setRoomDescription] = useState("");
   const [roomAmenities, setRoomAmenities] = useState("Aircon, Wifi");
   const [roomImages, setRoomImages] = useState<string[]>([]);
+  const [roomUrlInput, setRoomUrlInput] = useState("");
   const [uploadingImages, setUploadingImages] = useState(false);
   const [roomIsNew, setRoomIsNew] = useState(true);
 
@@ -272,9 +273,26 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
   };
 
   // Suspended/inactive buildings are intentionally hidden from the Buildings & Rooms page.
-  const activeApartments = db.apartments.filter((apt) => apt.status === "active");
+  // Newest registered apartments appear first
+  const activeApartments = [...db.apartments]
+    .filter((apt) => apt.status === "active")
+    .sort((a, b) => {
+      const timeA = (a.id && a.id.startsWith("apt-") && Number(a.id.replace("apt-", ""))) || 0;
+      const timeB = (b.id && b.id.startsWith("apt-") && Number(b.id.replace("apt-", ""))) || 0;
+      if (timeA && timeB) return timeB - timeA;
+      return 0;
+    });
   const currentApt = activeApartments.find((a) => a.id === selectedAptId) || activeApartments[0];
-  const roomsInCurrentApt = currentApt ? db.rooms.filter((r) => r.apartment_id === currentApt.id) : [];
+  const roomsInCurrentApt = currentApt
+    ? [...db.rooms]
+        .filter((r) => r.apartment_id === currentApt.id)
+        .sort((a, b) => {
+          const timeA = (a.id && a.id.startsWith("room-") && Number(a.id.replace("room-", ""))) || 0;
+          const timeB = (b.id && b.id.startsWith("room-") && Number(b.id.replace("room-", ""))) || 0;
+          if (timeA && timeB) return timeB - timeA;
+          return (Number(a.room_number) || 0) - (Number(b.room_number) || 0);
+        })
+    : [];
 
   return (
     <div className="space-y-4">
@@ -321,6 +339,9 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                 <img
                   src={bgImage}
                   alt={apt.name}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = APARTMENT_FALLBACK_IMAGES[idx % APARTMENT_FALLBACK_IMAGES.length];
+                  }}
                   className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-black/35 group-hover:via-slate-950/70 transition-colors" />
@@ -443,6 +464,9 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                         <img
                           src={roomImg}
                           alt={`Room ${room.room_number || "Unit"}`}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = ROOM_FALLBACK_IMAGES[roomType] || ROOM_FALLBACK_IMAGES.studio;
+                          }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         />
                         <div className="absolute top-2 left-2 flex gap-1">
@@ -934,6 +958,29 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                       className="hidden"
                     />
                   </label>
+
+                  {/* Manual URL entry for room image */}
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      placeholder="Or paste room image URL..."
+                      value={roomUrlInput}
+                      onChange={(e) => setRoomUrlInput(e.target.value)}
+                      className="w-full px-2 py-1 border border-slate-200 rounded-md text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (roomUrlInput.trim()) {
+                          setRoomImages((prev) => [...prev, roomUrlInput.trim()]);
+                          setRoomUrlInput("");
+                        }
+                      }}
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-[#EF6905] text-white rounded text-[11px] font-bold shrink-0 transition-colors"
+                    >
+                      Add Photo
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -1085,7 +1132,6 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                         <div className="flex justify-between items-end">
                           <div>
                             <h3 className="font-black text-sm text-white">Room {viewingRoom.room_number}</h3>
-                            <p className="text-[10px] text-slate-300 truncate">{aptObj?.name}</p>
                           </div>
                           <div className="text-right">
                             <span className="text-[9px] text-slate-300 block">Monthly Rate</span>
@@ -1105,8 +1151,8 @@ export default function Apartments({ db, onRefresh }: ApartmentsProps) {
                           <span className="font-semibold text-slate-700">Floor {viewingRoom.floor}</span>
                         </div>
                         <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex items-center gap-1.5 truncate">
-                          <MapPin className="w-3 h-3 text-brand-orange shrink-0" />
-                          <span className="font-semibold text-slate-700 truncate">{aptObj?.address || "Building Asset"}</span>
+                          <Home className="w-3 h-3 text-brand-orange shrink-0" />
+                          <span className="font-semibold text-slate-700 truncate capitalize">{viewingRoom.status || "vacant"}</span>
                         </div>
                       </div>
 

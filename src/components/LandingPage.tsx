@@ -28,13 +28,13 @@ const APARTMENT_FALLBACK_IMAGES = [
 
 interface RoomCardProps {
   room: Room;
-  apt: Apartment | null | undefined;
-  inquiryCount?: number;
+  isOccupied: boolean;
+  apt?: Apartment | null;
   onSelect: (room: Room) => void;
   key?: string | number;
 }
 
-function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
+function RoomCard({ room, isOccupied, onSelect }: RoomCardProps) {
   const roomImgs = room.image_url ? room.image_url.split(",").map(s => s.trim()).filter(Boolean) : [];
   const displayImages = roomImgs.length > 0 ? roomImgs : [ROOM_FALLBACK_IMAGES[room.room_type] || ROOM_FALLBACK_IMAGES.studio];
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -96,6 +96,9 @@ function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
               key={currentIndex}
               src={displayImages[currentIndex]}
               alt={`Room ${room.room_number}`}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = ROOM_FALLBACK_IMAGES[room.room_type] || ROOM_FALLBACK_IMAGES.studio;
+              }}
               initial={{ opacity: 0, scale: 1.02 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
@@ -145,18 +148,19 @@ function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
           )}
 
           {/* Status/New Badges */}
-          <div className="absolute top-1.5 left-1.5 flex flex-wrap gap-0.5 pointer-events-none">
-            <span className="px-1.5 py-0.2 bg-emerald-500 text-white text-[8px] font-bold rounded shadow-xs">
-              Available
-            </span>
-            {room.is_newly_available && (
-              <span className="flex items-center gap-0.5 px-1 py-0.2 bg-amber-500 text-white text-[8px] font-bold rounded shadow-xs">
-                <Star className="w-2 h-2 fill-current" /> New
+          <div className="absolute top-1.5 left-1.5 flex flex-wrap gap-1 pointer-events-none">
+            {isOccupied ? (
+              <span className="px-2 py-0.5 bg-slate-900/90 text-amber-300 text-[9px] font-extrabold rounded-md shadow-xs backdrop-blur-md uppercase tracking-wider border border-amber-400/40">
+                🔒 Occupied
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-extrabold rounded-md shadow-xs backdrop-blur-md uppercase tracking-wider">
+                ✓ Available
               </span>
             )}
-            {inquiryCount > 0 && (
-              <span className="flex items-center gap-0.5 px-1.5 py-0.2 bg-amber-600/90 text-white text-[8px] font-bold rounded shadow-xs backdrop-blur-xs">
-                <Users className="w-2 h-2" /> {inquiryCount} {inquiryCount === 1 ? "inquiry" : "inquiries"}
+            {!isOccupied && room.is_newly_available && (
+              <span className="flex items-center gap-0.5 px-1 py-0.2 bg-amber-500 text-white text-[8px] font-bold rounded shadow-xs">
+                <Star className="w-2 h-2 fill-current" /> New
               </span>
             )}
           </div>
@@ -167,7 +171,7 @@ function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
           </span>
         </div>
 
-        {/* Card Content - Slightly bigger & comfortable */}
+        {/* Card Content - Clean layout without building name or address */}
         <div className="p-3 text-xs space-y-1.5">
           {/* Price & Title Section */}
           <div className="flex justify-between items-baseline gap-1.5">
@@ -177,29 +181,13 @@ function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
             </div>
           </div>
 
-          {/* Inquiry Number Counter for Room */}
-          <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/70">
-            <Users className="w-3 h-3 text-brand-orange shrink-0" />
-            <span>
-              <strong>{inquiryCount}</strong> {inquiryCount === 1 ? "person inquired" : "people inquired"}
-            </span>
-          </div>
-
-          {/* Building Name and Floor */}
-          <div className="flex items-center gap-1.5 text-slate-500 text-xs font-medium truncate">
+          {/* Floor & Type */}
+          <div className="flex items-center gap-1.5 text-slate-500 text-xs font-medium">
             <Building className="w-3 h-3 text-slate-400 shrink-0" />
-            <span className="truncate">{apt?.name || "RentFlow"}</span>
+            <span>Floor {room.floor}</span>
             <span className="text-slate-300">•</span>
-            <span>Flr {room.floor}</span>
+            <span>{ROOM_TYPE_LABELS[room.room_type] || room.room_type}</span>
           </div>
-
-          {/* Address */}
-          {apt?.address && (
-            <div className="flex items-center gap-1 text-slate-400 text-[11px] truncate">
-              <MapPin className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-              <span className="truncate">{apt.address}</span>
-            </div>
-          )}
 
           {/* Description */}
           {room.description && (
@@ -226,10 +214,14 @@ function RoomCard({ room, apt, inquiryCount = 0, onSelect }: RoomCardProps) {
       <div className="p-3 pt-0">
         <button
           onClick={() => onSelect(room)}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-slate-900 hover:bg-brand-orange text-white font-bold text-xs rounded-lg shadow-xs transition-colors active:scale-95"
+          className={`w-full flex items-center justify-center gap-1.5 py-1.5 px-3 font-bold text-xs rounded-lg shadow-xs transition-colors active:scale-95 ${
+            isOccupied
+              ? "bg-slate-700 hover:bg-slate-800 text-amber-200"
+              : "bg-slate-900 hover:bg-brand-orange text-white"
+          }`}
         >
           <Eye className="w-3.5 h-3.5" />
-          <span>View Room & Inquire</span>
+          <span>{isOccupied ? "View Details (Occupied)" : "View Room & Inquire"}</span>
         </button>
       </div>
     </motion.div>
@@ -242,6 +234,7 @@ export default function LandingPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState<string>("all");
   const [selectedBuilding, setSelectedBuilding] = useState<string>("all");
+  const [roomAvailabilityFilter, setRoomAvailabilityFilter] = useState<"all" | "available" | "occupied">("all");
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const swipeStartX = useRef<number | null>(null);
@@ -249,6 +242,10 @@ export default function LandingPage() {
   useEffect(() => {
     setActiveImageIndex(0);
   }, [selectedRoom]);
+
+  useEffect(() => {
+    setRoomAvailabilityFilter("all");
+  }, [selectedBuilding]);
   
   // Inquiry form states
   const [inqName, setInqName] = useState("");
@@ -281,10 +278,28 @@ export default function LandingPage() {
     return db?.apartments.find((a) => a.id === room.apartment_id) || null;
   };
 
-  // Only display vacant rooms in the public listings
-  const vacantRooms = db?.rooms.filter((room) => room.status === "vacant") || [];
+  // Authoritative check: A room is occupied if status is 'occupied', 'maintenance', or an active tenant is assigned
+  const isRoomOccupied = (room: Room) => {
+    if (room.status === "occupied" || room.status === "maintenance") return true;
+    const hasActiveTenant = (db?.tenants || []).some(
+      (t) => (t.room_id === room.id || t.id === room.tenant_id) && t.status === "active"
+    );
+    return hasActiveTenant;
+  };
 
-  const filteredRooms = vacantRooms.filter((room) => {
+  const isRoomAvailable = (room: Room) => {
+    return !isRoomOccupied(room) && room.status === "vacant";
+  };
+
+  const allRooms = db?.rooms || [];
+  const vacantRooms = allRooms.filter((room) => isRoomAvailable(room));
+  const displayRooms = allRooms.filter((room) => {
+    if (roomAvailabilityFilter === "available") return isRoomAvailable(room);
+    if (roomAvailabilityFilter === "occupied") return isRoomOccupied(room);
+    return true;
+  });
+
+  const filteredRooms = displayRooms.filter((room) => {
     const apt = getApartmentForRoom(room.id);
     const aptName = apt?.name || "";
     const aptAddress = apt?.address || "";
@@ -304,12 +319,16 @@ export default function LandingPage() {
   });
 
   const getVacantRoomCount = (aptId: string) => {
-    return vacantRooms.filter((r) => r.apartment_id === aptId).length;
+    return (db?.rooms || []).filter((r) => r.apartment_id === aptId && isRoomAvailable(r)).length;
   };
 
-  // Only display active apartments that currently have at least one vacant room available (hide occupied apartments)
+  const getTotalRoomCount = (aptId: string) => {
+    return (db?.rooms || []).filter((r) => r.apartment_id === aptId).length;
+  };
+
+  // Display all active apartment complexes
   const activeApartments = (db?.apartments || []).filter(
-    (apt) => apt.status === "active" && getVacantRoomCount(apt.id) > 0
+    (apt) => apt.status === "active"
   );
 
   const filteredApartments = activeApartments.filter((apt) => {
@@ -359,11 +378,12 @@ export default function LandingPage() {
         room_id: selectedRoom.id,
         room_number: selectedRoom.room_number,
         apartment_name: apt?.name || "RentFlow Complex",
-        message: inqMessage || `Inquiry about Room ${selectedRoom.room_number}.`,
+        message: inqMessage || (selectedRoom.status === "occupied" ? `Waitlist inquiry for Room ${selectedRoom.room_number}.` : `Inquiry about Room ${selectedRoom.room_number}.`),
         preferred_visit_date: inqDate,
         status: "new",
       });
       setInquirySuccess(true);
+      await fetchData();
       setTimeout(() => {
         setInquirySuccess(false);
         // Clear fields
@@ -483,11 +503,6 @@ export default function LandingPage() {
                 {filteredApartments.map((apt, idx) => {
                   const vacantCount = getVacantRoomCount(apt.id);
                   const displayImage = (apt as any).image_url || APARTMENT_FALLBACK_IMAGES[idx % APARTMENT_FALLBACK_IMAGES.length];
-                  const aptRooms = (db?.rooms || []).filter((r) => r.apartment_id === apt.id);
-                  const aptRoomIdSet = new Set(aptRooms.map((r) => r.id));
-                  const aptInquiriesCount = (db?.inquiries || []).filter(
-                    (inq) => inq.apartment_name === apt.name || aptRoomIdSet.has(inq.room_id)
-                  ).length;
                   return (
                     <motion.div
                       key={apt.id}
@@ -505,11 +520,14 @@ export default function LandingPage() {
                       <img
                         src={displayImage}
                         alt={apt.name}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = APARTMENT_FALLBACK_IMAGES[idx % APARTMENT_FALLBACK_IMAGES.length];
+                        }}
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-black/30 group-hover:via-slate-950/70 transition-colors" />
 
-                      {/* Top Row: Vacant badge & Inquiry Counter */}
+                      {/* Top Row: Vacant badge & Floor count */}
                       <div className="relative z-10 flex items-center justify-between gap-1.5 flex-wrap">
                         <span className={`px-2.5 py-1 text-[10px] font-bold rounded-lg shadow-xs backdrop-blur-md border ${
                           vacantCount > 0 ? "bg-emerald-500/80 text-white border-emerald-400/40" : "bg-slate-700/80 text-slate-200 border-white/10"
@@ -518,11 +536,7 @@ export default function LandingPage() {
                         </span>
                         
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-amber-200 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-md border border-amber-400/30 flex items-center gap-1 shadow-xs">
-                            <MessageSquare className="w-3 h-3 text-brand-orange" />
-                            {aptInquiriesCount} {aptInquiriesCount === 1 ? "Inquiry" : "Inquiries"}
-                          </span>
-                          <span className="text-[10px] font-medium text-white/80 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10">
+                          <span className="text-[10px] font-medium text-white/90 bg-black/50 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10">
                             {apt.total_floors} Floors
                           </span>
                         </div>
@@ -539,17 +553,6 @@ export default function LandingPage() {
                             <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0" />
                             <span className="truncate">{apt.address}</span>
                           </div>
-                        </div>
-
-                        {apt.description && (
-                          <p className="text-slate-300 text-xs font-light line-clamp-2 leading-snug">
-                            {apt.description}
-                          </p>
-                        )}
-
-                        <div className="flex items-center gap-1.5 text-[11px] text-amber-200 font-semibold bg-black/40 backdrop-blur-xs px-2.5 py-0.5 rounded-md border border-white/10 w-fit">
-                          <Users className="w-3 h-3 text-brand-orange shrink-0" />
-                          <span>{aptInquiriesCount} {aptInquiriesCount === 1 ? "person has" : "people have"} inquired</span>
                         </div>
 
                         <div className="border-t border-white/20 pt-2 flex items-center justify-between text-xs font-bold text-white">
@@ -571,17 +574,43 @@ export default function LandingPage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-2 mb-6">
               <div>
                 <span className="text-[10px] font-extrabold text-brand-orange uppercase tracking-widest">Step 2: Choose Your Room</span>
-                <h3 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-0.5">Available Rooms in Building</h3>
-                <p className="text-slate-500 text-xs mt-0.5">Select a room to view details and submit an inquiry.</p>
+                <h3 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-0.5">
+                  {(() => {
+                    const avail = (db?.rooms || []).filter((r) => r.apartment_id === selectedBuilding && isRoomAvailable(r)).length;
+                    return avail > 0 ? "Available Rooms in Building" : "Building Units";
+                  })()}
+                </h3>
+                <p className="text-slate-500 text-xs mt-0.5">
+                  {(() => {
+                    const avail = (db?.rooms || []).filter((r) => r.apartment_id === selectedBuilding && isRoomAvailable(r)).length;
+                    return avail > 0 
+                      ? "Select a room to view details and submit an inquiry." 
+                      : "All rooms in this building are currently occupied.";
+                  })()}
+                </p>
               </div>
-              <div className="px-3 py-1 bg-slate-100 rounded-lg text-slate-700 font-semibold text-xs">
-                {filteredRooms.length} {filteredRooms.length === 1 ? "room available" : "rooms available"}
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const avail = (db?.rooms || []).filter((r) => r.apartment_id === selectedBuilding && isRoomAvailable(r)).length;
+                  return (
+                    <div className={`px-3 py-1 rounded-lg font-bold text-xs ${
+                      avail > 0 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200"
+                    }`}>
+                      {avail > 0 
+                        ? `${avail} ${avail === 1 ? "unit available" : "units available"}` 
+                        : "0 units available (Fully Occupied)"}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
             {/* Building Info Hero Card and Rooms Grid */}
             {(() => {
               const selectedApt = db?.apartments.find((a) => a.id === selectedBuilding);
+              const totalInBuilding = (db?.rooms || []).filter((r) => r.apartment_id === selectedBuilding).length;
+              const availableInBuilding = (db?.rooms || []).filter((r) => r.apartment_id === selectedBuilding && isRoomAvailable(r)).length;
+              const occupiedInBuilding = totalInBuilding - availableInBuilding;
 
               return (
                 <div className="space-y-5">
@@ -604,24 +633,29 @@ export default function LandingPage() {
                           <ChevronLeft className="w-3.5 h-3.5" /> Back to Buildings
                         </button>
                         <div className="flex items-center gap-2">
-                          {selectedApt && (
-                            <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold rounded uppercase tracking-wider flex items-center gap-1">
-                              <MessageSquare className="w-3 h-3 text-brand-orange" />
-                              {(db?.inquiries || []).filter(inq => inq.apartment_name === selectedApt.name || (filteredRooms || []).some(r => r.id === inq.room_id)).length} Inquiries
-                            </span>
-                          )}
-                          <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded uppercase tracking-wider">
-                            {filteredRooms.length} Vacant Units
+                          <span className={`px-2.5 py-0.5 border text-[10px] font-bold rounded uppercase tracking-wider ${
+                            availableInBuilding > 0
+                              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/20"
+                              : "bg-slate-700/60 text-slate-300 border-white/10"
+                          }`}>
+                            {availableInBuilding > 0
+                              ? `${availableInBuilding} Unit${availableInBuilding > 1 ? "s" : ""} Available`
+                              : "Fully Occupied"}
                           </span>
                         </div>
                       </div>
 
                       <div>
-                        <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">{selectedApt?.name}</h2>
+                        <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">{selectedApt?.name}</h2>
                         {selectedApt?.description && (
-                          <p className="text-slate-300 font-light text-xs mt-1 leading-snug line-clamp-2 max-w-2xl">
-                            {selectedApt.description}
-                          </p>
+                          <div className="mt-2.5 p-3.5 bg-white/10 rounded-xl border border-white/15 backdrop-blur-xs">
+                            <span className="text-[10px] uppercase font-extrabold text-brand-orange tracking-wider block mb-1">
+                              Building Overview
+                            </span>
+                            <p className="text-slate-200 font-normal text-xs sm:text-sm leading-relaxed">
+                              {selectedApt.description}
+                            </p>
+                          </div>
                         )}
                       </div>
 
@@ -636,18 +670,75 @@ export default function LandingPage() {
                     </div>
                   </div>
 
-                  {/* Rooms + Exact Location Map */}
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
-                    {/* Rooms Grid — intentionally 2 columns for a 2 × 2 layout */}
-                    <div>
+                  {/* Rooms + Bigger Map: Map does not scroll with wheel, only rooms column scrolls */}
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_520px] xl:grid-cols-[1fr_580px] gap-6 items-start">
+                    {/* Rooms Column — scrollable units container */}
+                    <div className="min-w-0 flex flex-col">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 shrink-0">
+                        <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                          <Building className="w-3.5 h-3.5 text-brand-orange" />
+                          <span>Building Units ({filteredRooms.length})</span>
+                        </h3>
+                        {/* Availability Filter Buttons */}
+                        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setRoomAvailabilityFilter("all")}
+                            className={`px-2 py-0.5 rounded-md transition-all ${
+                              roomAvailabilityFilter === "all"
+                                ? "bg-white text-slate-900 shadow-2xs"
+                                : "text-slate-500 hover:text-slate-900"
+                            }`}
+                          >
+                            All ({totalInBuilding})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRoomAvailabilityFilter("available")}
+                            className={`px-2 py-0.5 rounded-md transition-all ${
+                              roomAvailabilityFilter === "available"
+                                ? "bg-emerald-600 text-white shadow-2xs"
+                                : "text-slate-500 hover:text-slate-900"
+                            }`}
+                          >
+                            Available ({availableInBuilding})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRoomAvailabilityFilter("occupied")}
+                            className={`px-2 py-0.5 rounded-md transition-all ${
+                              roomAvailabilityFilter === "occupied"
+                                ? "bg-slate-800 text-amber-300 shadow-2xs"
+                                : "text-slate-500 hover:text-slate-900"
+                            }`}
+                          >
+                            Occupied ({occupiedInBuilding})
+                          </button>
+                        </div>
+                      </div>
+
                       {filteredRooms.length === 0 ? (
                         <div className="text-center py-16 bg-white border border-slate-100 rounded-xl shadow-xs">
                           <Building className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                          <h3 className="text-sm font-bold text-slate-700">No Rooms Available</h3>
+                          <h3 className="text-sm font-bold text-slate-700">
+                            {roomAvailabilityFilter === "available"
+                              ? "No Vacant Units Available"
+                              : "No Rooms Available"}
+                          </h3>
                           <p className="text-slate-400 mt-0.5 max-w-sm mx-auto text-xs font-light">
-                            No vacant rooms are currently available in this building.
+                            {roomAvailabilityFilter === "available"
+                              ? `All ${totalInBuilding} units in this building are currently occupied.`
+                              : "No rooms are currently matching your selection."}
                           </p>
                           <div className="flex justify-center gap-2 mt-3">
+                            {roomAvailabilityFilter !== "all" && (
+                              <button
+                                onClick={() => setRoomAvailabilityFilter("all")}
+                                className="px-3 py-1.5 bg-slate-900 text-white font-bold text-xs rounded-lg hover:bg-slate-800 transition-colors"
+                              >
+                                View All Units
+                              </button>
+                            )}
                             <button
                               onClick={() => setSelectedBuilding("all")}
                               className="px-3 py-1.5 bg-brand-orange text-white font-bold text-xs rounded-lg hover:bg-orange-600 transition-colors"
@@ -657,63 +748,71 @@ export default function LandingPage() {
                           </div>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          {filteredRooms.map((room) => {
-                            const roomInqCount = (db?.inquiries || []).filter((inq) => inq.room_id === room.id).length;
-                            return (
-                              <RoomCard
-                                key={room.id}
-                                room={room}
-                                apt={getApartmentForRoom(room.id)}
-                                inquiryCount={roomInqCount}
-                                onSelect={setSelectedRoom}
-                              />
-                            );
-                          })}
+                        <div className="max-h-[620px] overflow-y-auto pr-2 space-y-4 rounded-xl">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {filteredRooms.map((room) => {
+                              return (
+                                <RoomCard
+                                  key={room.id}
+                                  room={room}
+                                  isOccupied={isRoomOccupied(room)}
+                                  onSelect={setSelectedRoom}
+                                />
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </div>
 
-                    {/* Exact Apartment Location — beside the room cards */}
-                    <div className="lg:sticky lg:top-24 bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-                      <div className="px-4 py-3 border-b border-slate-100">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 rounded-lg bg-orange-50 text-brand-orange">
-                            <MapPin className="w-4 h-4" />
+                    {/* Exact Apartment Location — Bigger & Scrollable Map */}
+                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-md overflow-hidden flex flex-col h-[660px]">
+                      <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/70 shrink-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded-lg bg-orange-100 text-brand-orange">
+                              <MapPin className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-black text-slate-900">Apartment Location</h3>
+                              <p className="text-[11px] text-slate-500">
+                                Exact location of {selectedApt?.name || "this apartment"}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="text-sm font-bold text-slate-900">Apartment Location</h3>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              Exact location of {selectedApt?.name || "this apartment"}
-                            </p>
-                          </div>
+                          <span className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-bold text-slate-600 uppercase tracking-wide flex items-center gap-1">
+                            Interactive & Scrollable
+                          </span>
                         </div>
                       </div>
                       {selectedApt && Number.isFinite(Number(selectedApt.latitude)) && Number.isFinite(Number(selectedApt.longitude)) ? (
                         <>
-                          <PropertyMap
-                            points={[{
-                              id: selectedApt.id,
-                              name: selectedApt.name,
-                              lat: Number(selectedApt.latitude),
-                              lng: Number(selectedApt.longitude),
-                              address: selectedApt.location_address || selectedApt.address,
-                            }]}
-                            height={360}
-                            zoom={16}
-                          />
-                          <div className="px-4 py-3 border-t border-slate-100">
-                            <p className="text-[11px] text-slate-600 flex items-start gap-1.5">
+                          <div className="flex-1 min-h-0 relative">
+                            <PropertyMap
+                              points={[{
+                                id: selectedApt.id,
+                                name: selectedApt.name,
+                                lat: Number(selectedApt.latitude),
+                                lng: Number(selectedApt.longitude),
+                                address: selectedApt.location_address || selectedApt.address,
+                              }]}
+                              height="100%"
+                              zoom={16}
+                              scrollWheelZoom={true}
+                            />
+                          </div>
+                          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 shrink-0">
+                            <p className="text-xs text-slate-700 flex items-start gap-1.5 font-medium">
                               <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0 mt-0.5" />
                               <span>{selectedApt.location_address || selectedApt.address}</span>
                             </p>
                           </div>
                         </>
                       ) : (
-                        <div className="h-[360px] flex flex-col items-center justify-center text-center px-6 bg-slate-50">
-                          <MapPin className="w-9 h-9 text-slate-300 mb-2" />
+                        <div className="flex-1 flex flex-col items-center justify-center text-center px-6 bg-slate-50">
+                          <MapPin className="w-10 h-10 text-slate-300 mb-2" />
                           <h4 className="text-sm font-bold text-slate-600">Location Not Available</h4>
-                          <p className="text-[11px] text-slate-400 mt-1">
+                          <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
                             The property manager has not pinned this apartment on the map yet.
                           </p>
                         </div>
@@ -748,10 +847,10 @@ export default function LandingPage() {
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-brand-orange">Seamless Living</span>
               <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mt-2 mb-6">
-                Why Lease with RentFlow?
+                Why Lease with ApartmentPro?
               </h2>
               <p className="text-slate-600 mb-6 leading-relaxed font-light">
-                We believe in simplifying the landlord-tenant connection. RentFlow features fully digitized rental payments, prompt repair notifications, direct developer messaging, and pristine buildings.
+                We believe in simplifying the landlord-tenant connection. ApartmentPro features fully digitized rental payments, prompt repair notifications, direct developer messaging, and pristine buildings.
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-8">
@@ -931,6 +1030,9 @@ export default function LandingPage() {
                           key={activeImageIndex}
                           src={displayImages[activeImageIndex]}
                           alt={`Room ${selectedRoom.room_number}`}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = ROOM_FALLBACK_IMAGES[selectedRoom.room_type] || ROOM_FALLBACK_IMAGES.studio;
+                          }}
                           initial={{ opacity: 0, scale: 1.02 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.98 }}
@@ -977,17 +1079,20 @@ export default function LandingPage() {
                       <div className="absolute bottom-2.5 left-3 right-3 z-10 text-white flex justify-between items-end">
                         <div>
                           <div className="flex gap-1 mb-1">
-                            <span className="px-1.5 py-0.2 bg-emerald-500 text-white text-[8px] font-bold rounded uppercase tracking-wide">
-                              Available
-                            </span>
+                            {isRoomOccupied(selectedRoom) ? (
+                              <span className="px-2 py-0.5 bg-slate-900/90 text-amber-300 text-[9px] font-extrabold rounded uppercase tracking-wider border border-amber-400/40">
+                                🔒 Occupied
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.2 bg-emerald-500 text-white text-[8px] font-bold rounded uppercase tracking-wide">
+                                Available
+                              </span>
+                            )}
                             <span className="px-1.5 py-0.2 bg-black/70 text-white text-[8px] font-mono rounded font-bold uppercase">
                               {ROOM_TYPE_LABELS[selectedRoom.room_type]}
                             </span>
                           </div>
                           <h2 className="text-base sm:text-lg font-black text-white leading-tight">Room {selectedRoom.room_number}</h2>
-                          <p className="text-[10px] text-slate-300 font-medium truncate max-w-[200px]">
-                            {getApartmentForRoom(selectedRoom.id)?.name}
-                          </p>
                         </div>
 
                         <div className="text-right">
@@ -1014,11 +1119,11 @@ export default function LandingPage() {
                     </div>
                   </div>
                   <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-brand-orange shrink-0" />
+                    <Shield className="w-3.5 h-3.5 text-brand-orange shrink-0" />
                     <div className="truncate">
-                      <span className="block text-slate-400 text-[9px] uppercase font-bold">Location</span>
-                      <span className="font-bold text-slate-700 text-[11px] truncate block max-w-[140px]">
-                        {getApartmentForRoom(selectedRoom.id)?.address}
+                      <span className="block text-slate-400 text-[9px] uppercase font-bold">Unit Status</span>
+                      <span className={`font-bold text-[11px] truncate block ${isRoomOccupied(selectedRoom) ? "text-amber-700" : "text-emerald-700"}`}>
+                        {isRoomOccupied(selectedRoom) ? "Currently Occupied" : "Available for Lease"}
                       </span>
                     </div>
                   </div>
@@ -1050,34 +1155,52 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* Inquiry Counter Tracker Banner */}
-                {(() => {
-                  const roomInqCount = (db?.inquiries || []).filter((inq) => inq.room_id === selectedRoom.id).length;
-                  return (
-                    <div className="p-2.5 bg-amber-50/90 border border-amber-200/80 rounded-xl flex items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 bg-amber-100 rounded-lg flex items-center justify-center text-brand-orange shrink-0">
-                          <Users className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="font-extrabold text-amber-950 block text-[11px]">
-                            {roomInqCount} {roomInqCount === 1 ? "person has" : "people have"} inquired
-                          </span>
-                          <span className="text-[10px] text-amber-700">
-                            High interest in Room {selectedRoom.room_number}. Inquire now below!
-                          </span>
-                        </div>
+                {/* Inquiry Counter Tracker Banner / Occupied Status Banner */}
+                {selectedRoom.status === "occupied" ? (
+                  <div className="p-3 bg-slate-900 text-white rounded-xl flex items-center justify-between gap-3 text-xs border border-slate-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-amber-400/20 text-amber-300 flex items-center justify-center shrink-0 font-bold text-sm">
+                        🔒
                       </div>
-                      <span className="px-2 py-0.5 bg-amber-500 text-white font-black text-[10px] rounded-md shrink-0 shadow-xs">
-                        Hot Unit
-                      </span>
+                      <div>
+                        <span className="font-extrabold text-amber-300 block text-xs">
+                          Unit is Currently Occupied
+                        </span>
+                        <span className="text-[11px] text-slate-300">
+                          Active lease in place. You can view all room specs and photos above.
+                        </span>
+                      </div>
                     </div>
-                  );
-                })()}
+                    <span className="px-2.5 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/30 font-black text-[10px] rounded-md uppercase tracking-wider shrink-0">
+                      Occupied
+                    </span>
+                  </div>
+                ) : null}
 
-                {/* Inquiry Form & CTA */}
+                {/* Inquiry Form & CTA - Disabled when unit is Occupied */}
                 <div className="border-t border-slate-100 pt-3">
-                  {inquirySuccess ? (
+                  {isRoomOccupied(selectedRoom) ? (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-200">
+                        <span>🔒 Inquiries Not Available</span>
+                      </div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                        Inquiries Closed for This Occupied Unit
+                      </h4>
+                      <p className="text-[11px] text-slate-500 max-w-sm mx-auto leading-relaxed">
+                        This unit is occupied by an active resident, so inquiries and visit scheduling are disabled. Please explore our other available units!
+                      </p>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRoom(null)}
+                          className="px-4 py-2 bg-slate-900 hover:bg-brand-orange text-white font-bold text-xs rounded-lg transition-colors shadow-xs"
+                        >
+                          Browse Other Available Rooms
+                        </button>
+                      </div>
+                    </div>
+                  ) : inquirySuccess ? (
                     <motion.div
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -1091,7 +1214,11 @@ export default function LandingPage() {
                     </motion.div>
                   ) : (
                     <form onSubmit={handleInquirySubmit} className="space-y-2">
-                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wide">Schedule a Viewing / Inquire</h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wide">
+                          Schedule a Viewing / Inquire
+                        </h4>
+                      </div>
                       
                       <div className="grid grid-cols-2 gap-2">
                         <input
@@ -1104,8 +1231,7 @@ export default function LandingPage() {
                         />
                         <input
                           type="email"
-                          required
-                          placeholder="Email Address"
+                          placeholder="Email Address (Optional)"
                           value={inqEmail}
                           onChange={(e) => setInqEmail(e.target.value)}
                           className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"
@@ -1132,7 +1258,7 @@ export default function LandingPage() {
 
                       <textarea
                         rows={1}
-                        placeholder="Additional notes... (optional)"
+                        placeholder="Additional notes or questions... (optional)"
                         value={inqMessage}
                         onChange={(e) => setInqMessage(e.target.value)}
                         className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange text-slate-800 font-medium"

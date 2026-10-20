@@ -268,10 +268,10 @@ export default function Chatbot() {
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64 = reader.result as string;
-      const strippedBase64 = base64.split(",")[1];
       setMaintenanceWizard((prev) => ({
         ...prev,
-        photoBase64: strippedBase64,
+        step: prev.step === "idle" ? "awaiting_photo" : prev.step,
+        photoBase64: base64,
         photoName: file.name
       }));
 

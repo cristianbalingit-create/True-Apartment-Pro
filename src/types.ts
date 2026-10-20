@@ -32,7 +32,9 @@ export interface Tenant {
   contact: string;
   email: string;
   room_id: string;
+  previous_room_id?: string;
   apartment_id: string;
+  previous_apartment_id?: string;
   rent_amount: number;
   deposit: number;
   advance_payment?: number;
@@ -44,6 +46,7 @@ export interface Tenant {
   last_interaction_at?: string;
   status: 'active' | 'inactive' | 'moved_out';
   move_in_date: string;
+  move_out_date?: string;
 }
 
 export interface BillingRecord {
@@ -65,20 +68,25 @@ export interface BillingRecord {
   due_date: string;
   payment_status: 'unpaid' | 'paid' | 'overdue' | 'partial';
   paid_amount?: number;
+  deposit_applied?: number;
+  remaining_balance?: number;
   last_payment_method?: string;
   last_payment_reference?: string;
   last_payment_verified_at?: string;
+  paid_at?: string;
   bill_image_url?: string;
   invoice_number?: string;
   notification_sent?: boolean;
   notification_sent_at?: string;
   notification_channel?: string;
+  reminder_3_day_sent_for?: string;
+  reminder_3_day_sent_at?: string;
   notes: string;
 }
 
 export interface Notification {
   id: string;
-  tenant_id: string;
+  tenant_id?: string;
   tenant_name: string;
   billing_id?: string;
   message: string;
@@ -91,7 +99,7 @@ export interface Notification {
 export interface Inquiry {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   phone: string;
   room_id: string;
   room_number: string;
@@ -153,6 +161,8 @@ export interface DepositLedgerEntry {
   id: string;
   tenant_id: string;
   tenant_name: string;
+  billing_id?: string;
+  invoice_number?: string;
   type: 'deposit_payment' | 'deposit_refund' | 'deposit_deduction' | 'advance_payment' | 'advance_use' | 'advance_refund';
   amount: number;
   description: string;

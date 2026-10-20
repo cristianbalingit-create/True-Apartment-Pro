@@ -38,9 +38,20 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance, pend
         const tenant = ticket.tenant_id ? db.tenants.find((t) => t.id === ticket.tenant_id) : null;
         return !!tenant && (tenant.apartment_id === selectedApartmentId || apartmentRoomIds.has(tenant.room_id));
       });
-  const filteredInquiries = selectedApartmentId === "all"
+  const filteredInquiries = (selectedApartmentId === "all"
     ? (db.inquiries || [])
-    : (db.inquiries || []).filter((inq) => apartmentRoomIds.has(inq.room_id));
+    : (db.inquiries || []).filter((inq) => {
+        if (inq.room_id && apartmentRoomIds.has(inq.room_id)) return true;
+        const apt = db.apartments.find((a) => a.id === selectedApartmentId);
+        return apt && inq.apartment_name && inq.apartment_name.toLowerCase() === apt.name.toLowerCase();
+      })
+  )
+    .slice()
+    .sort((a, b) => {
+      const timeA = (a.id && a.id.startsWith("inq-") && Number(a.id.replace("inq-", ""))) || new Date(a.created_at || 0).getTime() || 0;
+      const timeB = (b.id && b.id.startsWith("inq-") && Number(b.id.replace("inq-", ""))) || new Date(b.created_at || 0).getTime() || 0;
+      return timeB - timeA;
+    });
   const filteredTransactionLogs = selectedApartmentId === "all"
     ? (db.transactionLogs || [])
     : (db.transactionLogs || []).filter((log) =>
@@ -314,9 +325,16 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance, pend
                 <p className="text-[11px] text-slate-500">Inbound inquiries from visitors and public portal.</p>
               </div>
             </div>
-            <span className="neu-pressed px-2 py-0.5 text-slate-700 text-[11px] font-bold rounded-md font-mono">
-              {filteredInquiries.length} Total
-            </span>
+            <div className="flex items-center gap-1.5">
+              {filteredInquiries.some((i) => i.status === "new") && (
+                <span className="px-1.5 py-0.5 bg-blue-500 text-white text-[10px] font-bold rounded">
+                  {filteredInquiries.filter((i) => i.status === "new").length} New
+                </span>
+              )}
+              <span className="neu-pressed px-2 py-0.5 text-slate-700 text-[11px] font-bold rounded-md font-mono">
+                {filteredInquiries.length} Total
+              </span>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
@@ -326,7 +344,7 @@ export default function Dashboard({ db, onRefresh, onNavigateToMaintenance, pend
                 No inquiries submitted yet.
               </div>
             ) : (
-              filteredInquiries.slice(0, 5).map((inq) => (
+              filteredInquiries.map((inq) => (
                 <div key={inq.id} className="p-2.5 neu-pressed rounded-lg space-y-1.5 text-xs">
                   <div className="flex justify-between items-start">
                     <div>

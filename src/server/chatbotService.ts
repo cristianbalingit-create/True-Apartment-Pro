@@ -49,7 +49,7 @@ export function getAIClient(): GoogleGenAI | null {
         }
       });
     } catch (err) {
-      console.error("Failed to initialize Gemini AI client:", err);
+      console.warn("Gemini AI client optional initialization notice:", (err as any)?.message || err);
       aiClient = null;
     }
   }
@@ -2421,7 +2421,7 @@ CRITICAL DIRECTIVES:
 
     return parsedRes.reply || (await generateLocalResponse(messageText));
   } catch (error) {
-    console.error("Gemini AI error or timeout, seamlessly using local rules engine:", error);
+    // Seamless fallback to local rules engine without throwing error logs
     return await generateLocalResponse(messageText);
   }
 }

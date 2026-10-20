@@ -9,7 +9,8 @@ import {
   Announcement,
   Rule,
   DepositLedgerEntry,
-  TransactionLog
+  TransactionLog,
+  PaymentSubmission
 } from "../types";
 export type { MaintenanceRequest };
 import {
@@ -31,6 +32,7 @@ export interface DBState {
   rules: Rule[];
   depositLedger: DepositLedgerEntry[];
   transactionLogs: TransactionLog[];
+  paymentSubmissions?: PaymentSubmission[];
 }
 
 export const api = {
@@ -250,10 +252,20 @@ export const api = {
     } catch (e) {
       // ignore
     }
-    const update = { status: "moved_out" as const };
+    const update = { status: "moved_out" as const, move_out_date: new Date().toISOString().split("T")[0] };
     await directUpsertDoc("tenants", id, update);
     await directLogTransaction("tenant", "Moved Out Tenant", `Tenant ${id} marked as moved out`, "move_out");
     return { id, ...update };
+  },
+
+  async triggerThreeDayReminders(): Promise<any> {
+    try {
+      const res = await fetch("/api/billing/trigger-3day-reminders", { method: "POST" });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      // ignore
+    }
+    return { success: false };
   },
 
   // Messenger payment verification (admin-only server endpoints)
@@ -367,18 +379,43 @@ export const api = {
     return { id, ...data } as BillingRecord;
   },
 
-  async payBilling(id: string): Promise<any> {
+  async payBilling(
+    id: string,
+    options?: {
+      actual_payment?: number;
+      payment_amount?: number;
+      deposit_deduction?: number;
+      status?: "unpaid" | "partial" | "paid";
+      payment_method?: string;
+      payment_reference?: string;
+    }
+  ): Promise<any> {
     try {
       const res = await fetch(`/api/billing/${id}/pay`, {
-        method: "POST"
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: options ? JSON.stringify(options) : undefined
       });
       if (res.ok) return await res.json();
-    } catch (e) {
-      // ignore
+      const errJson = await res.json().catch(() => ({}));
+      if (errJson?.message) {
+        throw new Error(errJson.message);
+      }
+    } catch (e: any) {
+      if (e?.message && !e.message.includes("fetch")) {
+        throw e;
+      }
+      // fallback if backend is unreachable
     }
-    const update = { payment_status: "paid" as const };
+
+    const isPartial = options?.status === "partial" || (options?.actual_payment !== undefined && options.actual_payment > 0 && !options.deposit_deduction);
+    const update = {
+      payment_status: (isPartial ? "partial" : "paid") as any,
+      paid_amount: options?.actual_payment,
+      deposit_applied: options?.deposit_deduction
+    };
     await directUpsertDoc("billingRecords", id, update);
-    await directLogTransaction("payment", "Paid Bill", `Billing record ${id} marked as paid`, "payment");
+    await directLogTransaction("payment", "Settled Bill", `Billing record ${id} updated with payment/deduction`, "payment");
     return { id, ...update };
   },
 
